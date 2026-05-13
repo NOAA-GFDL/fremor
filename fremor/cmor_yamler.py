@@ -60,7 +60,7 @@ def _load_yaml_dict(yaml_path: Path) -> dict:
     with open(yaml_path, encoding='utf-8') as handle:
         # SECURITY: using ``yaml.load`` with a ``yaml.SafeLoader`` subclass is the
         # standard PyYAML pattern for adding safe custom constructors like ``!join``.
-        loaded = yaml.load(handle, Loader=_FremorYamlLoader)
+        loaded = yaml.load(handle, Loader=_FremorYamlLoader)  # nosec B506
     if loaded is None:
         return {}
     if not isinstance(loaded, dict):
@@ -128,7 +128,7 @@ def consolidate_yamls(yamlfile, experiment, platform, target, use, output=None):
 
     # SECURITY: same safe-loader pattern as ``_load_yaml_dict``; this load parses the
     # temporary combined YAML text that includes the runtime anchor header.
-    combined_yaml = yaml.load(combined_yaml_text, Loader=_FremorYamlLoader)
+    combined_yaml = yaml.load(combined_yaml_text, Loader=_FremorYamlLoader)  # nosec B506
     if combined_yaml is None:
         combined_yaml = {}
 
