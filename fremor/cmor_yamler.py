@@ -376,18 +376,24 @@ def cmor_yaml_subtool( yamlfile: str = None,
                                           f'    calendar_type = {calendar_type}'
                                            ')\n' )
                 continue
-            cmor_run_subtool( #uncovered
-                indir = indir ,
-                json_var_list = json_var_list ,
-                json_table_config = json_mip_table_config ,
-                json_exp_config = json_exp_config ,
-                outdir = cmor_run_call_outdir ,
-                run_one_mode = run_one_mode ,
-                opt_var_name = opt_var_name ,
-                grid = grid_desc ,
-                grid_label = grid_label ,
-                nom_res = nom_res ,
-                start = start ,
-                stop = stop ,
-                calendar_type = calendar_type
-            )
+            try: #uncovered
+                cmor_run_subtool(
+                    indir = indir ,
+                    json_var_list = json_var_list ,
+                    json_table_config = json_mip_table_config ,
+                    json_exp_config = json_exp_config ,
+                    outdir = cmor_run_call_outdir ,
+                    run_one_mode = run_one_mode ,
+                    opt_var_name = opt_var_name ,
+                    grid = grid_desc ,
+                    grid_label = grid_label ,
+                    nom_res = nom_res ,
+                    start = start ,
+                    stop = stop ,
+                    calendar_type = calendar_type
+                )
+            except Exception as exc: #uncovered
+                fre_logger.warning(
+                    'cmor_run_subtool failed for (%s, %s), skipping: %s',
+                    table_name, component, exc
+                )
