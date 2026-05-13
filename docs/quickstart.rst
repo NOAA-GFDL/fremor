@@ -125,7 +125,7 @@ This is most useful inside a full FRE workflow.
 .. code-block:: bash
 
    fremor -v yaml --run_one --dry_run --output combined.yaml \
-       --yamlfile /path/to/cmor.yaml \
+       --yamlfile /path/to/model.yaml \
        --experiment c96L65_am5f7b12r1_amip \
        --platform ncrc5.intel \
        --target prod-openmp

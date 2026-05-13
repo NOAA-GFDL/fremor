@@ -15,7 +15,7 @@ from unittest.mock import patch
 import pytest
 
 import fremor
-from fremor.cmor_yamler import cmor_yaml_subtool
+from fremor.cmor_yamler import cmor_yaml_subtool, consolidate_yamls
 
 
 # ---- paths to the existing repo test fixtures ----
@@ -656,3 +656,138 @@ def test_modelyaml_dne_raise_filenotfound():
                            platform = 'BAR',
                            target = 'BAZ',
                            dry_run_mode = True )
+
+
+def test_consolidate_yamls_loads_cmor_yaml_from_model_yaml(tmp_path):
+    """
+    consolidate_yamls should use the model yaml only to find the cmor and
+    grids yaml files needed to resolve the final ``cmor`` configuration.
+    """
+    model_yaml = tmp_path / 'model.yaml'
+    grid_yaml = tmp_path / 'grids.yaml'
+    cmor_yaml = tmp_path / 'cmor.yaml'
+
+    model_yaml.write_text(
+        '\n'.join([
+            'fre_properties:',
+            '  - &CMOR_START "1991"',
+            '  - &CMOR_STOP "1993"',
+            '  - &PP_CMIP_CHUNK "P5Y"',
+            'experiments:',
+            '  - name: "demo_exp"',
+            '    cmor:',
+            '      - "cmor.yaml"',
+            '    grid_yaml:',
+            '      - "grids.yaml"',
+            '',
+        ]),
+        encoding='utf-8',
+    )
+    grid_yaml.write_text(
+        '\n'.join([
+            'grids:',
+            '  - gn: &gn',
+            '      grid_label: "gn"',
+            '      grid_desc: "native grid"',
+            '      nom_res: "100 km"',
+            '',
+        ]),
+        encoding='utf-8',
+    )
+    cmor_yaml.write_text(
+        '\n'.join([
+            'cmor:',
+            '  start:',
+            '    *CMOR_START',
+            '  stop:',
+            '    *CMOR_STOP',
+            '  mip_era:',
+            '    "CMIP6"',
+            '  exp_json:',
+            '    "exp.json"',
+            '  directories:',
+            '    pp_dir: !join ["", *name, "/", *platform, "-", *target]',
+            '    table_dir:',
+            '      "/tmp/tables"',
+            '    outdir:',
+            '      "/tmp/out"',
+            '  table_targets:',
+            '    - table_name: "Omon"',
+            '      freq: "monthly"',
+            '      gridding:',
+            '        <<: *gn',
+            '      target_components:',
+            '        - component_name: "ocean_monthly_1x1deg"',
+            '          variable_list: "varlist.json"',
+            '          data_series_type: "ts"',
+            '          chunk: *PP_CMIP_CHUNK',
+            '',
+        ]),
+        encoding='utf-8',
+    )
+
+    combined = consolidate_yamls(
+        yamlfile=str(model_yaml),
+        experiment='demo_exp',
+        platform='ncrc5.intel',
+        target='prod-openmp',
+        use='cmor',
+        output=None,
+    )
+
+    cmor = combined['cmor']
+    assert cmor['start'] == '1991'
+    assert cmor['stop'] == '1993'
+    assert cmor['directories']['pp_dir'] == 'demo_exp/ncrc5.intel-prod-openmp'
+    assert cmor['table_targets'][0]['gridding']['grid_label'] == 'gn'
+    assert cmor['table_targets'][0]['target_components'][0]['chunk'] == 'P5Y'
+
+
+def test_consolidate_yamls_writes_combined_output(tmp_path):
+    """consolidate_yamls should still honour the optional output path."""
+    model_yaml = tmp_path / 'model.yaml'
+    cmor_yaml = tmp_path / 'cmor.yaml'
+    output_yaml = tmp_path / 'combined.yaml'
+
+    model_yaml.write_text(
+        '\n'.join([
+            'experiments:',
+            '  - name: "demo_exp"',
+            '    cmor:',
+            '      - "cmor.yaml"',
+            '',
+        ]),
+        encoding='utf-8',
+    )
+    cmor_yaml.write_text(
+        '\n'.join([
+            'cmor:',
+            '  mip_era:',
+            '    "CMIP6"',
+            '  exp_json:',
+            '    "exp.json"',
+            '  directories:',
+            '    pp_dir:',
+            '      "/tmp/pp"',
+            '    table_dir:',
+            '      "/tmp/tables"',
+            '    outdir:',
+            '      "/tmp/out"',
+            '  table_targets: []',
+            '',
+        ]),
+        encoding='utf-8',
+    )
+
+    combined = consolidate_yamls(
+        yamlfile=str(model_yaml),
+        experiment='demo_exp',
+        platform='ignored',
+        target='ignored',
+        use='cmor',
+        output=str(output_yaml),
+    )
+
+    assert combined['cmor']['mip_era'] == 'CMIP6'
+    assert output_yaml.exists()
+    assert 'cmor:' in output_yaml.read_text(encoding='utf-8')

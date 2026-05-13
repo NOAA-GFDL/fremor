@@ -265,9 +265,9 @@ Common Issues and Solutions
 
 .. note::
 
-   The ``fremor yaml`` subcommand optionally relies on ``fre-cli``\'s ``yamltools`` module for
-   YAML consolidation. If ``fre-cli`` is not installed, you can use
-   ``fremor``\'s native YAML loader with a single pre-consolidated YAML file.
+   ``fremor yaml`` now uses ``fremor``\'s own lightweight YAML loader. It reads the
+   model yaml, finds the referenced CMOR yaml and optional grids yaml, and resolves
+   only the YAML needed for CMORization.
 
 To debug this issue:
 

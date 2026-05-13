@@ -60,6 +60,7 @@ workflows are supported. Available subcommands:
 
 * Processes YAML configuration to CMORize multiple directories/tables
 * Requires FRE-flavored YAML files with experiment configuration
+* The ``yamlfile`` argument should point at the model yaml; ``fremor yaml`` looks up the referenced CMOR yaml and optional grids yaml from there
 * Minimal Syntax: ``fremor yaml -y [yamlfile] -e [experiment] -p [platform] -t [target] [options]``
 * Required Options:
    - ``-y, --yamlfile TEXT`` — YAML file to parse
