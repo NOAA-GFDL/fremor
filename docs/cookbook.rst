@@ -265,7 +265,7 @@ Common Issues and Solutions
 
 .. note::
 
-   ``fremor yaml`` now uses ``fremor``\'s own lightweight YAML loader. It reads the
+   ``fremor yaml`` now uses ``fremor``'s own lightweight YAML loader. It reads the
    model yaml, finds the referenced CMOR yaml and optional grids yaml, and resolves
    only the YAML needed for CMORization.
 

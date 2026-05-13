@@ -31,7 +31,7 @@ fre_logger = logging.getLogger(__name__)
 
 
 class _FremorYamlLoader(yaml.SafeLoader):
-    """YAML loader for the small subset of FRE-flavoured YAML that fremor needs."""
+    """YAML loader for the small subset of FRE-flavored YAML that fremor needs."""
 
 
 def _yaml_join(loader, node):
@@ -94,7 +94,8 @@ def consolidate_yamls(yamlfile, experiment, platform, target, use, output=None):
         raise ValueError(f'no cmor yaml configured for experiment {experiment!r} in {model_yaml_path}')
     if len(cmor_yaml_refs) != 1:
         raise ValueError(
-            f'experiment {experiment!r} in {model_yaml_path} must reference exactly one cmor yaml file'
+            f'experiment {experiment!r} in {model_yaml_path} must reference exactly one cmor yaml file, '
+            f'found {len(cmor_yaml_refs)}'
         )
 
     grid_yaml_refs = experiment_cfg.get('grid_yaml', [])
