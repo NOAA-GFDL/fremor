@@ -125,7 +125,7 @@ class TestLoadTripolarGrid:
         _make_mock_data_nc(data_nc)
 
         # prevent the gold-statics lookup from touching /net2
-        monkeypatch.setattr('fremor.cmor_helpers.find_gold_ocean_statics_file', lambda **kw: None)
+        monkeypatch.setattr('fremor.cmor_tripolar.find_gold_ocean_statics_file', lambda **kw: None)
 
         ds = netCDF4.Dataset(str(data_nc), 'r+')
         result = load_tripolar_grid(ds=ds, netcdf_file=str(data_nc), prev_path=str(data_nc))
@@ -144,7 +144,7 @@ class TestLoadTripolarGrid:
         _make_mock_data_nc(data_nc, yh_size=YH_SIZE, xh_size=XH_SIZE)
 
         # prevent the gold-statics lookup from touching /net2
-        monkeypatch.setattr('fremor.cmor_helpers.find_gold_ocean_statics_file', lambda **kw: None)
+        monkeypatch.setattr('fremor.cmor_tripolar.find_gold_ocean_statics_file', lambda **kw: None)
 
         ds = netCDF4.Dataset(str(data_nc), 'r+')
         load_tripolar_grid(ds=ds, netcdf_file=str(data_nc), prev_path=str(data_nc))
@@ -169,7 +169,7 @@ class TestLoadTripolarGrid:
         # statics_nc is intentionally NOT created
 
         # prevent the gold-statics lookup from touching /net2
-        monkeypatch.setattr('fremor.cmor_helpers.find_gold_ocean_statics_file', lambda **kw: None)
+        monkeypatch.setattr('fremor.cmor_tripolar.find_gold_ocean_statics_file', lambda **kw: None)
 
         ds = netCDF4.Dataset(str(data_nc), 'r+')
         with pytest.raises(FileNotFoundError, match='statics file not found'):
@@ -204,7 +204,7 @@ class TestLoadTripolarGrid:
         ds_statics.close()
 
         # prevent the gold-statics lookup from touching /net2
-        monkeypatch.setattr('fremor.cmor_helpers.find_gold_ocean_statics_file', lambda **kw: None)
+        monkeypatch.setattr('fremor.cmor_tripolar.find_gold_ocean_statics_file', lambda **kw: None)
 
         ds = netCDF4.Dataset(str(data_nc), 'r+')
         with pytest.raises(ValueError, match='hpoint_dim != qpoint_dim-1'):
