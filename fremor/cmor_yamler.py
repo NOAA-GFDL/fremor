@@ -34,9 +34,6 @@ class _FremorYamlLoader(yaml.SafeLoader):
     """YAML loader for the small subset of FRE-flavored YAML that fremor needs."""
 
 
-assert issubclass(_FremorYamlLoader, yaml.SafeLoader)
-
-
 def _yaml_join(loader, node):
     """Support FRE's ``!join`` tag when resolving model/cmor YAML references."""
     return ''.join(
@@ -59,8 +56,9 @@ def _resolve_yaml_reference(base_yaml: Path, reference: str) -> Path:
 def _load_yaml_dict(yaml_path: Path) -> dict:
     """Load a single YAML file with fremor's minimal FRE-aware YAML loader."""
     with open(yaml_path, encoding='utf-8') as handle:
-        # ``yaml.safe_load`` cannot accept a custom loader class, so use ``yaml.load``
-        # with our ``yaml.SafeLoader`` subclass that only adds the FRE ``!join`` tag.
+        # SECURITY: ``yaml.safe_load`` cannot accept a custom loader class, so this
+        # intentionally uses ``yaml.load`` with ``_FremorYamlLoader``, which is a
+        # ``yaml.SafeLoader`` subclass that only adds the FRE ``!join`` constructor.
         loaded = yaml.load(handle, Loader=_FremorYamlLoader)
     if loaded is None:
         return {}
@@ -127,7 +125,8 @@ def consolidate_yamls(yamlfile, experiment, platform, target, use, output=None):
         combined_yaml_text += yaml_path.read_text(encoding='utf-8')
         combined_yaml_text += '\n'
 
-    # See note in ``_load_yaml_dict``: this still uses a ``yaml.SafeLoader`` subclass.
+    # SECURITY: see ``_load_yaml_dict``; this intentionally uses ``yaml.load`` with
+    # ``_FremorYamlLoader``, which remains a ``yaml.SafeLoader`` subclass.
     combined_yaml = yaml.load(combined_yaml_text, Loader=_FremorYamlLoader)
     if combined_yaml is None:
         combined_yaml = {}
