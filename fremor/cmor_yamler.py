@@ -34,6 +34,9 @@ class _FremorYamlLoader(yaml.SafeLoader):
     """YAML loader for the small subset of FRE-flavored YAML that fremor needs."""
 
 
+assert issubclass(_FremorYamlLoader, yaml.SafeLoader)
+
+
 def _yaml_join(loader, node):
     """Support FRE's ``!join`` tag when resolving model/cmor YAML references."""
     return ''.join(
