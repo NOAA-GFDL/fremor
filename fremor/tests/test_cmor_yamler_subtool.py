@@ -744,7 +744,7 @@ def test_consolidate_yamls_loads_cmor_yaml_from_model_yaml(tmp_path):
 
 
 def test_consolidate_yamls_writes_combined_output(tmp_path):
-    """consolidate_yamls should still honour the optional output path."""
+    """consolidate_yamls should still honor the optional output path."""
     model_yaml = tmp_path / 'model.yaml'
     cmor_yaml = tmp_path / 'cmor.yaml'
     output_yaml = tmp_path / 'combined.yaml'
