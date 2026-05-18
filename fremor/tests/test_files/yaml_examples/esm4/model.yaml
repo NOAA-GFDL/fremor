@@ -1,0 +1,12 @@
+fre_properties:
+  - &FRE_STEM        "ESM4"
+  - &PP_CHUNK_A      "P5Y"
+  - &CMOR_START
+  - &CMOR_STOP
+
+experiments:
+  - name: "ESM4_historical_D1"
+    grid_yaml:
+      - "grids.yaml"
+    cmor:
+      - "cmor.yaml"

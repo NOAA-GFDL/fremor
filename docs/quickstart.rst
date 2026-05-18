@@ -119,16 +119,30 @@ configuration.
 ``yaml``
 ~~~~~~~~
 
-Process multiple directories/tables using FRE-flavored YAML configuration.
-This is most useful inside a full FRE workflow.
+Process multiple directories/tables using a self-contained CMOR YAML file.
 
 .. code-block:: bash
 
-   fremor -v yaml --run_one --dry_run --output combined.yaml \
+   fremor -v yaml --run_one --dry_run \
+       --yamlfile /path/to/cmor.yaml \
+       --experiment ignored \
+       --platform ignored \
+       --target ignored
+
+``resolve``
+~~~~~~~~~~~
+
+Resolve a FRE model YAML into the combined YAML document used by the legacy
+FRE-style workflow.
+
+.. code-block:: bash
+
+   fremor resolve \
        --yamlfile /path/to/model.yaml \
        --experiment c96L65_am5f7b12r1_amip \
        --platform ncrc5.intel \
-       --target prod-openmp
+       --target prod-openmp \
+       --output resolved.yaml
 
 ``find``
 ~~~~~~~~

@@ -2,10 +2,9 @@
 ``fremor yaml``: YAML-Driven CMORization Workhorse
 ==================================================
 
-This module powers the ``fremor yaml`` command, steering the CMORization workflow by parsing model-YAML
-files that describe target experiments and their configurations. It combines model-level and experiment-level
-configuration, parses required metadata and paths, and orchestrates calls to ``cmor_run_subtool`` for each
-target variable/component.
+This module powers the ``fremor yaml`` command, steering the CMORization workflow by parsing a
+self-contained CMOR YAML file, resolving required metadata and paths, and orchestrating calls to
+``cmor_run_subtool`` for each target variable/component.
 
 Functions
 ---------
@@ -15,7 +14,6 @@ Functions
 """
 
 from pathlib import Path
-import json
 import pprint
 import logging
 import os
@@ -28,115 +26,6 @@ from .cmor_helpers import ( check_path_existence, iso_to_bronx_chunk,
                             get_bronx_freq_from_mip_table )
 
 fre_logger = logging.getLogger(__name__)
-
-
-class _FremorYamlLoader(yaml.SafeLoader):
-    """YAML loader for the small subset of FRE-flavored YAML that fremor needs."""
-
-
-def _yaml_join(loader, node):
-    """Support FRE's ``!join`` tag when resolving model/cmor YAML references."""
-    return ''.join(
-        # Runtime placeholders such as platform/target may legitimately be absent
-        # for some call sites, so ``None`` is treated the same as an empty string.
-        '' if item is None else str(item)
-        for item in loader.construct_sequence(node)
-    )
-
-
-_FremorYamlLoader.add_constructor('!join', _yaml_join)
-
-
-def _resolve_yaml_reference(base_yaml: Path, reference: str) -> Path:
-    """Resolve a YAML reference relative to the file that declared it."""
-    resolved = Path(os.path.expandvars(reference))
-    if resolved.is_absolute():
-        return resolved
-    return (base_yaml.parent / resolved).resolve()
-
-
-def _load_yaml_dict(yaml_path: Path) -> dict:
-    """Load a single YAML file with fremor's minimal FRE-aware YAML loader."""
-    with open(yaml_path, encoding='utf-8') as handle:
-        # SECURITY: using ``yaml.load`` with a ``yaml.SafeLoader`` subclass is the
-        # standard PyYAML pattern for adding safe custom constructors like ``!join``.
-        loaded = yaml.load(handle, Loader=_FremorYamlLoader)  # nosec B506
-    if loaded is None:
-        return {}
-    if not isinstance(loaded, dict):
-        raise ValueError(f'expected YAML mapping in {yaml_path}, got {type(loaded).__name__}')
-    return loaded
-
-
-def consolidate_yamls(yamlfile, experiment, platform, target, use, output=None):
-    """
-    Minimal in-repo YAML consolidator used by ``fremor yaml``.
-
-    Only the ``use='cmor'`` workflow is supported here. The model yaml is used to
-    locate the referenced CMOR yaml and optional grids yaml so the resulting data
-    structure contains the resolved ``cmor`` section that ``fremor yaml`` needs.
-    """
-    if use != 'cmor':
-        raise ValueError(f'fremor only supports consolidate_yamls(..., use="cmor"), got {use!r}')
-
-    model_yaml_path = Path(yamlfile).resolve()
-    model_yaml = _load_yaml_dict(model_yaml_path)
-
-    experiment_cfg = next(
-        (entry for entry in model_yaml.get('experiments', []) if entry.get('name') == experiment),
-        None,
-    )
-    if experiment_cfg is None:
-        raise ValueError(f'experiment {experiment!r} not found in model yaml {model_yaml_path}')
-
-    cmor_yaml_refs = experiment_cfg.get('cmor')
-    if isinstance(cmor_yaml_refs, str):
-        cmor_yaml_refs = [cmor_yaml_refs]
-    if not cmor_yaml_refs:
-        raise ValueError(f'no cmor yaml configured for experiment {experiment!r} in {model_yaml_path}')
-    if len(cmor_yaml_refs) != 1:
-        raise ValueError(
-            f'experiment {experiment!r} in {model_yaml_path} must reference exactly one cmor yaml file, '
-            f'found {len(cmor_yaml_refs)}'
-        )
-
-    grid_yaml_refs = experiment_cfg.get('grid_yaml', [])
-    if isinstance(grid_yaml_refs, str):
-        grid_yaml_refs = [grid_yaml_refs]
-
-    cmor_yaml_path = _resolve_yaml_reference(model_yaml_path, cmor_yaml_refs[0])
-    grid_yaml_paths = [
-        _resolve_yaml_reference(model_yaml_path, grid_yaml_ref)
-        for grid_yaml_ref in grid_yaml_refs
-    ]
-
-    check_path_existence(str(cmor_yaml_path))
-    for grid_yaml_path in grid_yaml_paths:
-        check_path_existence(str(grid_yaml_path))
-
-    runtime_header = (
-        'fremor_runtime:\n'
-        f'  name: &name {json.dumps(experiment)}\n'
-        f'  platform: &platform {json.dumps(platform)}\n'
-        f'  target: &target {json.dumps(target)}\n'
-    )
-
-    combined_yaml_text = runtime_header
-    for yaml_path in [model_yaml_path, *grid_yaml_paths, cmor_yaml_path]:
-        combined_yaml_text += yaml_path.read_text(encoding='utf-8')
-        combined_yaml_text += '\n'
-
-    # SECURITY: same safe-loader pattern as ``_load_yaml_dict``; this load parses the
-    # temporary combined YAML text that includes the runtime anchor header.
-    combined_yaml = yaml.load(combined_yaml_text, Loader=_FremorYamlLoader)  # nosec B506
-    if combined_yaml is None:
-        combined_yaml = {}
-
-    if output is not None:
-        with open(output, 'w', encoding='utf-8') as handle:
-            yaml.safe_dump(combined_yaml, handle, sort_keys=False)
-
-    return combined_yaml
 
 def cmor_yaml_subtool( yamlfile: str = None,
                        exp_name: str = None,
@@ -151,20 +40,20 @@ def cmor_yaml_subtool( yamlfile: str = None,
                        calendar_type: Optional[str] = None,
                        print_cli_call: bool = True):
     """
-    Main driver for CMORization using model YAML configuration files.
-    This routine parses the model YAML, combines configuration, resolves and checks all required
+    Main driver for CMORization using self-contained CMOR YAML configuration files.
+    This routine parses the CMOR YAML, resolves and checks all required
     paths and metadata, and orchestrates calls to cmor_run_subtool for each table/component/variable
     defined in the configuration.
 
-    :param yamlfile: Path to a model-yaml file holding experiment and workflow configuration.
+    :param yamlfile: Path to a self-contained CMOR YAML file.
     :type yamlfile: str
-    :param exp_name: Experiment name (must be present in the YAML file).
+    :param exp_name: Legacy experiment name argument retained for CLI compatibility.
     :type exp_name: str
-    :param platform: Platform target (e.g., 'ncrc4.intel').
+    :param platform: Legacy platform argument retained for CLI compatibility.
     :type platform: str
-    :param target: Compilation target (e.g., 'prod-openmp').
+    :param target: Legacy target argument retained for CLI compatibility.
     :type target: str
-    :param output: filename for YAML output.
+    :param output: Legacy output argument retained for CLI compatibility.
     :type output: str, optional
     :param opt_var_name: If specified, process only files matching this variable name.
     :type opt_var_name: str, optional
@@ -188,7 +77,7 @@ def cmor_yaml_subtool( yamlfile: str = None,
     :return: None
     :rtype: None
 
-    .. note:: Reads and combines YAML and JSON configuration.
+    .. note:: Reads CMOR YAML and JSON configuration.
     .. note:: Performs path, frequency, and gridding checks.
     .. note:: Delegates actual CMORization to cmor_run_subtool, except in dry-run mode.
     .. note:: All actions and key decisions are logged.
@@ -196,13 +85,15 @@ def cmor_yaml_subtool( yamlfile: str = None,
     check_path_existence(yamlfile)
 
     # ---------------------------------------------------
-    # parsing the target model yaml ---------------------
+    # parsing the target cmor yaml ----------------------
     # ---------------------------------------------------
-    fre_logger.info('loading model, grids, and cmor yaml data for experiment %s', exp_name)
-    cmor_yaml_dict = consolidate_yamls(yamlfile=yamlfile,
-                                       experiment=exp_name, platform=platform, target=target,
-                                       use='cmor', output=output)['cmor']
-    fre_logger.debug('yaml loading produced the following dictionary of cmor-settings from yamls: \n%s',
+    if output is not None:
+        fre_logger.info('output=%s is ignored by `fremor yaml`; use `fremor resolve` to write resolved YAML', output)
+    fre_logger.debug('legacy yaml arguments: experiment=%s platform=%s target=%s',
+                     exp_name, platform, target)
+    with open(yamlfile, 'r', encoding='utf-8') as handle:
+        cmor_yaml_dict = yaml.safe_load(handle)['cmor']
+    fre_logger.debug('yaml loading produced the following dictionary of cmor-settings from yaml: \n%s',
                      pprint.pformat(cmor_yaml_dict) )
 
     mip_era = cmor_yaml_dict['mip_era'].upper()

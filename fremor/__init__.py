@@ -29,5 +29,6 @@ logging.basicConfig( level = logging.WARNING,
 from .cmor_mixer import cmor_run_subtool # pylint: disable=wrong-import-position
 from .cmor_finder import cmor_find_subtool, make_simple_varlist # pylint: disable=wrong-import-position
 from .cmor_yamler import cmor_yaml_subtool # pylint: disable=wrong-import-position
+from .cmor_resolver import resolve_fremor_yaml # pylint: disable=wrong-import-position
 from .cmor_config import cmor_config_subtool # pylint: disable=wrong-import-position
 from .cmor_init import cmor_init_subtool # pylint: disable=wrong-import-position

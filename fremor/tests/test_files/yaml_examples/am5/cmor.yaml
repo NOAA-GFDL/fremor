@@ -1,0 +1,29 @@
+cmor:
+  start:
+    *CMOR_START
+  stop:
+    *CMOR_STOP
+  mip_era:
+    'CMIP6'
+  exp_json:
+    'fremor/tests/test_files/CMOR_input_example.json'
+  directories:
+    pp_dir: !join [fremor/tests/test_files/ascii_files/mock_archive/$USER/, *FRE_STEM, /, *name, /, *platform, -, *target, /, pp]
+    table_dir: &table_dir
+      'fremor/tests/test_files/cmip6-cmor-tables/Tables'
+    outdir:
+      'fremor/tests/test_files/iamnotreallyused/outdir/'
+  table_targets:
+    - table_name: 'Amon'
+      freq:
+      gridding:
+        <<: *gn
+      target_components:
+        - component_name: 'atmos_cmip'
+          variable_list: 'fremor/tests/test_files/varlist'
+          data_series_type: 'ts'
+          chunk: *PP_CPLD_CHUNK_A
+        - component_name: 'atmos_level_cmip'
+          variable_list: 'fremor/tests/test_files/varlist'
+          data_series_type: 'ts'
+          chunk: *PP_CPLD_CHUNK_A

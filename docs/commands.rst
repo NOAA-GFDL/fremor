@@ -59,8 +59,8 @@ workflows are supported. Available subcommands:
 --------
 
 * Processes YAML configuration to CMORize multiple directories/tables
-* Requires FRE-flavored YAML files with experiment configuration
-* The ``yamlfile`` argument should point at the model yaml; ``fremor yaml`` looks up the referenced CMOR yaml and optional grids yaml from there
+* Expects a self-contained CMOR YAML file
+* ``--experiment``, ``--platform``, and ``--target`` are retained for backward-compatible CLI shape but are not used when loading the YAML
 * Minimal Syntax: ``fremor yaml -y [yamlfile] -e [experiment] -p [platform] -t [target] [options]``
 * Required Options:
    - ``-y, --yamlfile TEXT`` — YAML file to parse
@@ -74,7 +74,22 @@ workflows are supported. Available subcommands:
    - ``--print_cli_call/--no-print_cli_call`` — In dry-run mode, print the equivalent CLI invocation (default) or the Python ``cmor_run_subtool()`` call
    - ``--start TEXT`` — Minimum year (YYYY)
    - ``--stop TEXT`` — Maximum year (YYYY)
-* Example: ``fremor yaml -y am5.yaml -e c96L65_am5f7b12r1_amip -p ncrc5.intel -t prod-openmp --dry_run``
+* Example: ``fremor yaml -y cmor.yaml -e ignored -p ignored -t ignored --dry_run``
+
+``resolve``
+-----------
+
+* Resolves a FRE model YAML plus referenced CMOR/grids YAML files into one combined YAML document
+* Useful for debugging anchors, ``!join`` expressions, and legacy FRE-style model YAML setups
+* Minimal Syntax: ``fremor resolve -y [model_yaml] -e [experiment] -p [platform] -t [target] [options]``
+* Required Options:
+   - ``-y, --yamlfile TEXT`` — Model YAML file to resolve
+   - ``-e, --experiment TEXT`` — Experiment name
+   - ``-p, --platform TEXT`` — Platform name
+   - ``-t, --target TEXT`` — Target name
+* Optional:
+   - ``-o, --output TEXT`` — Write the resolved YAML to a file instead of stdout
+* Example: ``fremor resolve -y am5.yaml -e c96L65_am5f7b12r1_amip -p ncrc5.intel -t prod-openmp --output resolved.yaml``
 
 ``find``
 --------

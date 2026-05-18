@@ -10,11 +10,13 @@ each ``fremor <command>`` has it's own, similarly named python function.
 import logging
 
 import click
+import yaml as pyyaml
 
 from . import __version__ as version, FORMAT
 from .cmor_finder import cmor_find_subtool, make_simple_varlist
 from .cmor_mixer import cmor_run_subtool
 from .cmor_yamler import cmor_yaml_subtool
+from .cmor_resolver import resolve_fremor_yaml
 from .cmor_config import cmor_config_subtool
 from .cmor_init import cmor_init_subtool
 
@@ -140,6 +142,35 @@ def yaml(yamlfile, experiment, target, platform, output, run_one, dry_run, start
         stop = stop,
         print_cli_call = print_cli_call
     )
+
+
+@fremor.command()
+@click.option('-y', '--yamlfile', type=str,
+              help='Model YAML file to resolve',
+              required=True)
+@click.option('-e', '--experiment', type=str,
+              help='Experiment name to resolve',
+              required=True)
+@click.option('-p', '--platform', type=str,
+              help='Platform name',
+              required=True)
+@click.option('-t', '--target', type=str,
+              help='Target name',
+              required=True)
+@click.option('-o', '--output', type=str, default=None,
+              help='Optional output file for the resolved YAML',
+              required=False)
+def resolve(yamlfile, experiment, platform, target, output):
+    """Resolve a FRE model YAML into a combined YAML document for debugging."""
+    resolved_yaml = resolve_fremor_yaml(
+        yamlfile=yamlfile,
+        experiment=experiment,
+        platform=platform,
+        target=target,
+        output=output,
+    )
+    if output is None:
+        click.echo(pyyaml.safe_dump(resolved_yaml, sort_keys=False))
 
 
 @fremor.command()
