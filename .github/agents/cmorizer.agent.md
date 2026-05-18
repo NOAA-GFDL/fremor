@@ -2,7 +2,7 @@
 name: "CMIP7 CMORizer"
 tools: [read, edit, search, execute, todo]
 description: "Specialist for testing, debugging, and running the full fremor CMIP7 CMORization pipeline."
-capabilities: "session setup, diagnosing fremor failures, running test (table, component) pairs, analyzing CMOR logs, building CSV success matrices, investigating CMIP7 brand disambiguation, CMOR library errors, identifying documentation with incorrect/outdated info, and following the full fremor workflow (init → varlist → config → yaml → run)."
+capabilities: "session setup, diagnosing fremor failures, running test (table, component) pairs, analyzing CMOR logs, building CSV success matrices, investigating CMIP7 brand disambiguation, CMOR library errors, identifying documentation with incorrect/outdated info, and following the full fremor workflow (init → varlist → config → resolve → yaml → run)."
 limitations: "general Python coding, unrelated fremor subtools outside CMORization context, git/PR work."
 note: "developed initially with/for VScode copilot in agent mode"
 ---
@@ -71,24 +71,22 @@ fremor config ...
 ```
 
 Review the output CMOR YAML for completeness. Note any QoL friction (confusing keys, opaque structure, unclear required edits).
-The generated file will contain YAML anchors — it **cannot** be passed directly to `fremor yaml`.
+**Important:** The generated CMOR YAML is now self-contained. It emits literal/null values instead of unresolved aliases and can be passed directly to `fremor yaml`.
 
-`fremor yaml` requires a **model YAML wrapper** that references the CMOR YAML:
+### Phase 4 — Resolve YAMLs (`fremor resolve`)
 
-```yaml
-# minimal model YAML wrapper
-experiments:
-  - name: {experiment_name}
-    cmor: ./{cmor_yaml_filename}
-```
-
-The CMOR YAML must be self-contained (all anchors resolved) when used standalone; the model wrapper handles anchor context when they
-exist.
-
-### Phase 4 — Batch CMORization (`fremor yaml`)
+If the user is working with complex, multi-file configurations (e.g., using a model YAML that points to separate CMOR and grids YAMLs), use `fremor resolve`:
 
 ```bash
-fremor -vv yaml -y {model_yaml} -e {experiment} -p {platform} -t {target} --start {start} --stop {stop}
+fremor resolve -y {model_yaml}
+```
+
+This reads the model YAML, finds the named experiment, extracts the CMOR/grids paths, and concatenates them so anchors resolve properly into a single combined dictionary. This replaces the legacy `fre yamltools combine` functionality.
+
+### Phase 5 — Batch CMORization (`fremor yaml`)
+
+```bash
+fremor -vv yaml -y {cmor_yaml} --start {start} --stop {stop}
 ```
 
 Use a **divide-and-conquer** strategy: test one (table, component) pair at a time by commenting out others in `table_targets`.
@@ -97,10 +95,10 @@ This minimizes archive I/O and isolates failures quickly.
 Always tee output to a log:
 
 ```bash
-fremor -vv yaml -y {model_yaml} ... 2>&1 | tee {run_label}.log
+fremor -vv yaml -y {cmor_yaml} ... 2>&1 | tee {run_label}.log
 ```
 
-### Phase 5 — Isolate Cases (`fremor run`)
+### Phase 6 — Isolate Cases (`fremor run`)
 
 When `fremor yaml` fails on a specific variable, extract and run it directly for close inspection:
 
@@ -207,6 +205,3 @@ After completing a run, produce:
 - CMOR docs: https://pcmdi.github.io/cmor3_documentation/
 - CMIP7 tables: https://github.com/WCRP-CMIP/cmip7-cmor-tables
 - CMIP7 CVs: https://github.com/WCRP-CMIP/cmip7-cvs
-
-
-
