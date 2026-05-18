@@ -132,7 +132,7 @@ def yamler_env(tmp_path):
     }
 
 
-@pytest.mark.parametrize('missing_path', ['DOES_NOT_EXIST.yaml', 'MODEL YAML DOESN\'T EXIST'])
+@pytest.mark.parametrize('missing_path', ['DOES_NOT_EXIST.yaml', 'DOES_NOT_EXIST_2.yaml'])
 def test_yamlfile_does_not_exist(missing_path):
     """FileNotFoundError when yamlfile path does not exist."""
     with pytest.raises(FileNotFoundError):

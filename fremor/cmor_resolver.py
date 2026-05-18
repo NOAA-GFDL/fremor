@@ -19,7 +19,7 @@ from .cmor_helpers import check_path_existence
 
 
 class FremorYamlLoader(yaml.SafeLoader):
-    """Safe YAML loader extended only with fremor's ``!join`` constructor."""
+    """Safe loader for FRE-flavored YAML, extended only with the ``!join`` string constructor."""
 
 
 def _yaml_join(loader, node):

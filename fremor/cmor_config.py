@@ -27,7 +27,11 @@ fre_logger = logging.getLogger(__name__)
 
 
 def _bronx_to_iso_chunk(chunk: str) -> str:
-    """Convert FRE-bronx chunk syntax like ``5yr`` to CMOR YAML syntax like ``P5Y``."""
+    """Convert FRE-bronx chunk syntax like ``5yr`` to CMOR YAML syntax like ``P5Y``.
+
+    This helper intentionally only handles year-based chunks because that is the
+    only chunk shape currently emitted by ``fremor config``.
+    """
     if chunk.startswith('P') and chunk.endswith('Y'):
         return chunk
     match = re.fullmatch(r'(\d+)yr', str(chunk))

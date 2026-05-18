@@ -1,8 +1,8 @@
 fre_properties:
   - &FRE_STEM        "ESM4"
   - &PP_CHUNK_A      "P5Y"
-  - &CMOR_START
-  - &CMOR_STOP
+  - &CMOR_START        null
+  - &CMOR_STOP         null
 
 experiments:
   - name: "ESM4_historical_D1"
