@@ -44,7 +44,7 @@ def _resolve_yaml_reference(base_yaml: Path, reference: str) -> Path:
 def _load_yaml_dict(yaml_path: Path) -> dict:
     """Load one YAML file with fremor's safe loader."""
     with open(yaml_path, encoding='utf-8') as handle:
-        loaded = yaml.load(handle, Loader=FremorYamlLoader)  # nosec B506: SafeLoader subclass with !join only
+        loaded = yaml.load(handle, Loader=FremorYamlLoader)
     if loaded is None:
         return {}
     if not isinstance(loaded, dict):
@@ -114,7 +114,7 @@ def resolve_fremor_yaml(yamlfile: str,
         combined_yaml_text += yaml_path.read_text(encoding='utf-8')
         combined_yaml_text += '\n'
 
-    combined_yaml = yaml.load(combined_yaml_text, Loader=FremorYamlLoader)  # nosec B506: SafeLoader subclass with !join only
+    combined_yaml = yaml.load(combined_yaml_text, Loader=FremorYamlLoader)
     if combined_yaml is None:
         combined_yaml = {}
     resolved_yaml = {
