@@ -10,6 +10,7 @@ workflows are supported. Available subcommands:
 * ``fremor init`` — Initialize CMOR resources: generate config templates and fetch MIP tables
 * ``fremor run`` — Rewrite individual directories of netCDF files
 * ``fremor yaml`` — Process multiple directories/tables using YAML configuration
+* ``fremor resolve`` — Combine model + grids + cmor YAMLs into one resolved document for inspection
 * ``fremor find`` — Search MIP tables for variable definitions
 * ``fremor varlist`` — Generate variable lists from netCDF files
 * ``fremor config`` — Generate a CMOR YAML configuration from a post-processing directory tree
