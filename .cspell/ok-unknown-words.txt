@@ -10,7 +10,8 @@ Clim
 Docstrings
 Dorkey
 Emon
-GDFL's
+GFDL
+GFDL's
 Geophys
 INDIR
 INPUTFILE
