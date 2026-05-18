@@ -57,12 +57,12 @@
 # ─────────────────────────────────────────────────────────────────────────────
 # yaml — bulk CMORization from a self-contained CMOR YAML config
 # ─────────────────────────────────────────────────────────────────────────────
-fremor -v -v yaml \
-    --yamlfile /path/to/cmor_config.yaml
-#    --run_one
-#    --dry_run
-#    --start 0001
-#    --stop 0005
+#fremor -v -v yaml \
+#    --yamlfile /path/to/cmor_config.yaml
+##    --run_one
+##    --dry_run
+##    --start 0001
+##    --stop 0005
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -95,6 +95,6 @@ fremor -v -v yaml \
 #    --outdir outdir \
 #    --calendar julian \
 #    --grid_label gr \
-#    --grid_desc "foo bar placehold" \
+#    --grid_desc "foo bar placeholder" \
 #    --nom_res "10000 km"
 ##   --opt_var_name sos
