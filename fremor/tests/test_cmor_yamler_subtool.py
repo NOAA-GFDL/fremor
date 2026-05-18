@@ -137,9 +137,6 @@ def test_yamlfile_does_not_exist():
     with pytest.raises(FileNotFoundError):
         cmor_yaml_subtool(
             yamlfile='DOES_NOT_EXIST.yaml',
-            exp_name='x',
-            platform='x',
-            target='x',
             dry_run_mode=True,
         )
 
@@ -148,9 +145,6 @@ def test_cmor_yaml_subtool_dry_run_false(yamler_env):  # pylint: disable=redefin
     """Full end-to-end run should produce at least one CMORized file."""
     cmor_yaml_subtool(
         yamlfile=yamler_env['yamlfile'],
-        exp_name='ignored',
-        platform='ignored',
-        target='ignored',
         dry_run_mode=False,
         run_one_mode=True,
     )
@@ -178,7 +172,7 @@ def test_pp_dir_does_not_exist(tmp_path):
     )
 
     with pytest.raises(FileNotFoundError, match='does not exist'):
-        cmor_yaml_subtool(yamlfile=yamlfile, exp_name='x', platform='x', target='x', dry_run_mode=True)
+        cmor_yaml_subtool(yamlfile=yamlfile, dry_run_mode=True)
 
 
 def test_table_dir_does_not_exist(tmp_path):
@@ -201,7 +195,7 @@ def test_table_dir_does_not_exist(tmp_path):
     )
 
     with pytest.raises(FileNotFoundError, match='does not exist'):
-        cmor_yaml_subtool(yamlfile=yamlfile, exp_name='x', platform='x', target='x', dry_run_mode=True)
+        cmor_yaml_subtool(yamlfile=yamlfile, dry_run_mode=True)
 
 
 def test_exp_json_does_not_exist(tmp_path):
@@ -223,7 +217,7 @@ def test_exp_json_does_not_exist(tmp_path):
     )
 
     with pytest.raises(FileNotFoundError, match='does not exist'):
-        cmor_yaml_subtool(yamlfile=yamlfile, exp_name='x', platform='x', target='x', dry_run_mode=True)
+        cmor_yaml_subtool(yamlfile=yamlfile, dry_run_mode=True)
 
 
 def test_mip_table_file_does_not_exist(tmp_path):
@@ -247,7 +241,7 @@ def test_mip_table_file_does_not_exist(tmp_path):
     )
 
     with pytest.raises(FileNotFoundError, match='does not exist'):
-        cmor_yaml_subtool(yamlfile=yamlfile, exp_name='x', platform='x', target='x', dry_run_mode=True)
+        cmor_yaml_subtool(yamlfile=yamlfile, dry_run_mode=True)
 
 
 def test_cmip7_freq_none_raises(tmp_path):
@@ -274,7 +268,7 @@ def test_cmip7_freq_none_raises(tmp_path):
     )
 
     with pytest.raises(ValueError, match='freq is required for CMIP7'):
-        cmor_yaml_subtool(yamlfile=yamlfile, exp_name='x', platform='x', target='x', dry_run_mode=True)
+        cmor_yaml_subtool(yamlfile=yamlfile, dry_run_mode=True)
 
 
 def test_cmip6_freq_none_no_derivation_raises(tmp_path):
@@ -307,7 +301,7 @@ def test_cmip6_freq_none_no_derivation_raises(tmp_path):
     )
 
     with pytest.raises(ValueError, match='not enough frequency information'):
-        cmor_yaml_subtool(yamlfile=yamlfile, exp_name='x', platform='x', target='x', dry_run_mode=True)
+        cmor_yaml_subtool(yamlfile=yamlfile, dry_run_mode=True)
 
 
 def test_cmip6_freq_none_derivation_exception_caught(tmp_path):
@@ -338,7 +332,7 @@ def test_cmip6_freq_none_derivation_exception_caught(tmp_path):
     )
 
     with pytest.raises(ValueError, match='not enough frequency information'):
-        cmor_yaml_subtool(yamlfile=yamlfile, exp_name='x', platform='x', target='x', dry_run_mode=True)
+        cmor_yaml_subtool(yamlfile=yamlfile, dry_run_mode=True)
 
 
 def test_gridding_dict_has_none_value_raises(tmp_path):
@@ -367,7 +361,7 @@ def test_gridding_dict_has_none_value_raises(tmp_path):
     )
 
     with pytest.raises(ValueError, match='must have all three fields'):
-        cmor_yaml_subtool(yamlfile=yamlfile, exp_name='x', platform='x', target='x', dry_run_mode=True)
+        cmor_yaml_subtool(yamlfile=yamlfile, dry_run_mode=True)
 
 
 def test_outdir_creation_when_missing(tmp_path):
@@ -389,7 +383,7 @@ def test_outdir_creation_when_missing(tmp_path):
         ),
     )
 
-    cmor_yaml_subtool(yamlfile=yamlfile, exp_name='x', platform='x', target='x', dry_run_mode=True)
+    cmor_yaml_subtool(yamlfile=yamlfile, dry_run_mode=True)
     assert outdir.is_dir()
 
 
@@ -414,7 +408,7 @@ def test_outdir_creation_failure_raises_oserror(tmp_path):
 
     with patch.object(Path, 'mkdir', side_effect=PermissionError('no permission')):
         with pytest.raises(OSError, match='could not create cmorized_outdir'):
-            cmor_yaml_subtool(yamlfile=yamlfile, exp_name='x', platform='x', target='x', dry_run_mode=True)
+            cmor_yaml_subtool(yamlfile=yamlfile, dry_run_mode=True)
 
 
 def test_start_stop_calendar_missing_from_yaml(tmp_path):
@@ -440,9 +434,6 @@ def test_start_stop_calendar_missing_from_yaml(tmp_path):
 
     cmor_yaml_subtool(
         yamlfile=yamlfile,
-        exp_name='x',
-        platform='x',
-        target='x',
         dry_run_mode=True,
         start=None,
         stop=None,
@@ -473,7 +464,7 @@ def test_cmip6_freq_none_derivation_succeeds(tmp_path):
         ),
     )
 
-    cmor_yaml_subtool(yamlfile=yamlfile, exp_name='x', platform='x', target='x', dry_run_mode=True)
+    cmor_yaml_subtool(yamlfile=yamlfile, dry_run_mode=True)
 
 
 def test_dry_run_prints_cli_call(tmp_path):
@@ -498,9 +489,6 @@ def test_dry_run_prints_cli_call(tmp_path):
 
     cmor_yaml_subtool(
         yamlfile=yamlfile,
-        exp_name='x',
-        platform='x',
-        target='x',
         dry_run_mode=True,
         print_cli_call=True,
     )
@@ -530,9 +518,6 @@ def test_dry_run_prints_python_call(tmp_path):
 
     cmor_yaml_subtool(
         yamlfile=yamlfile,
-        exp_name='x',
-        platform='x',
-        target='x',
         dry_run_mode=True,
         print_cli_call=False,
     )

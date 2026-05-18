@@ -28,10 +28,6 @@ from .cmor_helpers import ( check_path_existence, iso_to_bronx_chunk,
 fre_logger = logging.getLogger(__name__)
 
 def cmor_yaml_subtool( yamlfile: str = None,
-                       exp_name: str = None,
-                       platform: str = None,
-                       target: str = None,
-                       output: Optional[str] = None,
                        opt_var_name: Optional[str] = None,
                        run_one_mode: bool = False,
                        dry_run_mode: bool = False,
@@ -47,14 +43,6 @@ def cmor_yaml_subtool( yamlfile: str = None,
 
     :param yamlfile: Path to a self-contained CMOR YAML file.
     :type yamlfile: str
-    :param exp_name: Legacy experiment name argument retained for CLI compatibility.
-    :type exp_name: str
-    :param platform: Legacy platform argument retained for CLI compatibility.
-    :type platform: str
-    :param target: Legacy target argument retained for CLI compatibility.
-    :type target: str
-    :param output: Legacy output argument retained for CLI compatibility.
-    :type output: str, optional
     :param opt_var_name: If specified, process only files matching this variable name.
     :type opt_var_name: str, optional
     :param run_one_mode: If True, process only one file and exit.
@@ -87,10 +75,6 @@ def cmor_yaml_subtool( yamlfile: str = None,
     # ---------------------------------------------------
     # parsing the target cmor yaml ----------------------
     # ---------------------------------------------------
-    if output is not None:
-        fre_logger.info('output=%s is ignored by `fremor yaml`; use `fremor resolve` to write resolved YAML', output)
-    fre_logger.debug('legacy yaml arguments: experiment=%s platform=%s target=%s',
-                     exp_name, platform, target)
     with open(yamlfile, 'r', encoding='utf-8') as handle:
         cmor_yaml_dict = yaml.safe_load(handle)['cmor']
     fre_logger.debug('yaml loading produced the following dictionary of cmor-settings from yaml: \n%s',

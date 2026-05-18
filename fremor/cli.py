@@ -97,17 +97,6 @@ def fremor(verbose = 0, quiet = False, log_file = None):
 @click.option('-y', '--yamlfile', type = str,
               help = 'YAML file to be used for parsing',
               required = True )
-@click.option('-e', '--experiment', type = str,
-              help = 'Experiment name',
-              required = True )
-@click.option('-p', '--platform', type = str,
-              help = 'Platform name',
-              required = True )
-@click.option('-t', '--target', type = str,
-              help = 'Target name',
-              required = True )
-@click.option('-o', '--output', type = str, default = None,
-              help = 'Output file if desired', required = False)
 @click.option('--run_one', is_flag = True, default = False,
               help=RUN_ONE_HELP,
               required = False)
@@ -124,18 +113,10 @@ def fremor(verbose = 0, quiet = False, log_file = None):
               help = 'In dry-run mode, print the equivalent CLI invocation (default) '
                      'or the Python cmor_run_subtool() call.',
               required = False)
-def yaml(yamlfile, experiment, target, platform, output, run_one, dry_run, start, stop, print_cli_call):
-    """
-    Processes a CMOR (Climate Model Output Rewriter) YAML configuration file. This function takes a YAML file
-    and various parameters related to a climate model experiment, and processes the YAML file using the CMOR
-    YAML subtool.
-    """
+def yaml(yamlfile, run_one, dry_run, start, stop, print_cli_call):
+    """Process a self-contained CMOR YAML file and run the requested CMORization steps."""
     cmor_yaml_subtool(
         yamlfile = yamlfile,
-        exp_name = experiment,
-        target = target,
-        platform = platform,
-        output = output,
         run_one_mode = run_one,
         dry_run_mode = dry_run,
         start = start,
@@ -151,22 +132,14 @@ def yaml(yamlfile, experiment, target, platform, output, run_one, dry_run, start
 @click.option('-e', '--experiment', type=str,
               help='Experiment name to resolve',
               required=True)
-@click.option('-p', '--platform', type=str,
-              help='Platform name',
-              required=True)
-@click.option('-t', '--target', type=str,
-              help='Target name',
-              required=True)
 @click.option('-o', '--output', type=str, default=None,
               help='Optional output file for the resolved YAML',
               required=False)
-def resolve(yamlfile, experiment, platform, target, output):
-    """Resolve a FRE model YAML into a combined YAML document for debugging."""
+def resolve(yamlfile, experiment, output):
+    """Resolve one model-YAML experiment into a combined YAML document for inspection."""
     resolved_yaml = resolve_fremor_yaml(
         yamlfile=yamlfile,
         experiment=experiment,
-        platform=platform,
-        target=target,
         output=output,
     )
     if output is None:

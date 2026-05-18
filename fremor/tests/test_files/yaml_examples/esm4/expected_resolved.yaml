@@ -1,9 +1,8 @@
 fre_properties:
-- am5f7b12r1
-- am5/am5f7b12r1
+- ESM4
 - P5Y
 - null
-- '2000'
+- null
 grids:
 - gm:
     grid_label: gm
@@ -31,26 +30,25 @@ grids:
     nom_res: 250 km
 cmor:
   start: null
-  stop: '2000'
+  stop: null
   mip_era: CMIP6
   exp_json: fremor/tests/test_files/CMOR_input_example.json
   directories:
-    pp_dir: fremor/tests/test_files/ascii_files/mock_archive/am5/am5f7b12r1/c96L65_am5f7b12r1_amip/pp
+    pp_dir: fremor/tests/test_files/ascii_files/mock_archive/cm6/ESM4/DECK/ESM4_historical_D1/pp
     table_dir: fremor/tests/test_files/cmip6-cmor-tables/Tables
     outdir: fremor/tests/test_files/iamnotreallyused/outdir/
   table_targets:
   - table_name: Amon
+    variable_list: fremor/tests/test_files/cmip6-cmor-tables/Tables/GFDL-ESM4_amip_CMOR-Amon.lst
     freq: null
     gridding:
-      grid_label: gn
-      grid_desc: reported data on native grid
-      nom_res: 1 km
+      grid_label: gr1
+      grid_desc: reported data regridded to non-preferred target grid different from gr
+      nom_res: 25 km
     target_components:
     - component_name: atmos_cmip
-      variable_list: fremor/tests/test_files/varlist
       data_series_type: ts
       chunk: P5Y
     - component_name: atmos_level_cmip
-      variable_list: fremor/tests/test_files/varlist
       data_series_type: ts
       chunk: P5Y

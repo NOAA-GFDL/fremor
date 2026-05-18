@@ -8,7 +8,7 @@ cmor:
   exp_json:
     'fremor/tests/test_files/CMOR_input_example.json'
   directories:
-    pp_dir: !join [fremor/tests/test_files/ascii_files/mock_archive/$USER/, *FRE_STEM, /, *name, /, *platform, -, *target, /, pp]
+    pp_dir: 'fremor/tests/test_files/ascii_files/mock_archive/am5/am5f7b12r1/c96L65_am5f7b12r1_amip/pp'
     table_dir: &table_dir
       'fremor/tests/test_files/cmip6-cmor-tables/Tables'
     outdir:

@@ -1,6 +1,6 @@
 fre_properties:
   - &AM5_VERSION        "am5f7b12r1"
-  - &FRE_STEM           !join [am5/, *AM5_VERSION]
+  - &FRE_STEM           "am5/am5f7b12r1"
   - &PP_CPLD_CHUNK_A    "P5Y"
   - &CMOR_START         null
   - &CMOR_STOP          "2000"

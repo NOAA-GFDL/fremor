@@ -139,28 +139,18 @@ def test_cli_fremor_yaml_opt_dne():
 
 @patch('fremor.cli.cmor_yaml_subtool')
 def test_cli_fremor_yaml_case1(mock_subtool, tmp_path):
-    """ fremor yaml --dry_run -y YAMLFILE ... --output FOO_cmor.yaml """
-    # use a temporary yaml placeholder file as the model yaml input
-    dummy_yaml = tmp_path / 'model.yaml'
+    """ fremor yaml --dry_run -y YAMLFILE """
+    dummy_yaml = tmp_path / 'cmor.yaml'
     dummy_yaml.write_text('placeholder', encoding='utf-8')
-    output_yaml = tmp_path / 'FOO_cmor.yaml'
 
     mock_subtool.return_value = None
 
     result = runner.invoke(fremor, args=['-v', '-v', 'yaml', '--dry_run',
-                                         '-y', str(dummy_yaml),
-                                         '-e', 'test_experiment',
-                                         '-p', 'test_platform',
-                                         '-t', 'test_target',
-                                         '--output', str(output_yaml) ])
+                                         '-y', str(dummy_yaml)])
 
     assert result.exit_code == 0
     mock_subtool.assert_called_once_with(
         yamlfile=str(dummy_yaml),
-        exp_name='test_experiment',
-        target='test_target',
-        platform='test_platform',
-        output=str(output_yaml),
         run_one_mode=False,
         dry_run_mode=True,
         start=None,
@@ -198,8 +188,6 @@ def test_cli_fremor_resolve_case1(tmp_path):
         'resolve',
         '-y', str(AM5_YAML_EX_DIR / 'model.yaml'),
         '-e', 'c96L65_am5f7b12r1_amip',
-        '-p', 'ncrc5.intel',
-        '-t', 'prod-openmp',
         '--output', str(output_yaml),
     ])
 
@@ -217,14 +205,12 @@ def test_cli_fremor_resolve_case2_stdout():
         'resolve',
         '-y', str(AM5_YAML_EX_DIR / 'model.yaml'),
         '-e', 'c96L65_am5f7b12r1_amip',
-        '-p', 'ncrc5.intel',
-        '-t', 'prod-openmp',
     ])
 
     assert result.exit_code == 0, result.output
     resolved = yaml.safe_load(result.output)
     assert resolved['cmor']['directories']['pp_dir'].endswith(
-        'c96L65_am5f7b12r1_amip/ncrc5.intel-prod-openmp/pp'
+        'c96L65_am5f7b12r1_amip/pp'
     )
 
 

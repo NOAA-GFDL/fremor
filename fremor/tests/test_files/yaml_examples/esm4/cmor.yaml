@@ -8,15 +8,14 @@ cmor:
   exp_json:
     'fremor/tests/test_files/CMOR_input_example.json'
   directories:
-    pp_dir: !join [fremor/tests/test_files/ascii_files/mock_archive/cm6/, *FRE_STEM, /, DECK/, *name, /, *platform, -, *target, /, pp]
+    pp_dir: 'fremor/tests/test_files/ascii_files/mock_archive/cm6/ESM4/DECK/ESM4_historical_D1/pp'
     table_dir: &table_dir
       'fremor/tests/test_files/cmip6-cmor-tables/Tables'
     outdir:
       'fremor/tests/test_files/iamnotreallyused/outdir/'
   table_targets:
     - table_name: 'Amon'
-      variable_list:
-        !join [*table_dir, '/', 'GFDL-ESM4_amip_CMOR-Amon.lst']
+      variable_list: 'fremor/tests/test_files/cmip6-cmor-tables/Tables/GFDL-ESM4_amip_CMOR-Amon.lst'
       freq:
       gridding:
         <<: *gr1
