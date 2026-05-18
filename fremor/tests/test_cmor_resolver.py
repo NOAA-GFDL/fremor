@@ -1,4 +1,6 @@
-"""Tests for fremor.cmor_resolver."""
+"""
+Tests for fremor.cmor_resolver.
+"""
 
 from pathlib import Path
 

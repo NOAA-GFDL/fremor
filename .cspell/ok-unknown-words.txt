@@ -6,6 +6,7 @@ CMIP
 CMOR
 CMOR's
 CMORBITE
+CPLD
 Clim
 Docstrings
 Dorkey
@@ -101,6 +102,7 @@ giccm
 gridding
 hgrid
 hpoint
+iamnotreallyused
 ierr
 ilaflott
 indir
