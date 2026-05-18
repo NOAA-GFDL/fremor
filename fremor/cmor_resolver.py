@@ -8,7 +8,7 @@ fixtures and debugging sessions.
 Here "resolve" means: locate the model YAML, identify which CMOR YAML and
 optional grids YAML belong to the requested experiment, concatenate those
 files into one YAML document so that anchors defined in the model or grids
-files are visible when the CMOR section is parsed, and return the materialised
+files are visible when the CMOR section is parsed, and return the materialized
 mapping with every anchor already expanded into plain Python values.
 """
 
@@ -51,7 +51,7 @@ def resolve_fremor_yaml(yamlfile: str,
     files into one YAML document, and let the YAML parser expand all anchors and
     merge keys across the combined text.  The caller receives only the sections
     that are useful downstream — ``fre_properties``, ``grids``, and ``cmor`` —
-    with every anchor already materialised into plain Python values.
+    with every anchor already materialized into plain Python values.
 
     :param yamlfile: Path to the model YAML file.
     :param experiment: Experiment name to select from the model YAML.
