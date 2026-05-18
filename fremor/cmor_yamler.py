@@ -124,7 +124,7 @@ def cmor_yaml_subtool( yamlfile: str = None,
             fre_logger.info('cmorized_outdir does not exist.')
             fre_logger.info('attempt to create it...')
             Path(cmorized_outdir).mkdir(exist_ok=False, parents=True)
-        except Exception as exc: #uncovered
+        except Exception as exc:
             raise OSError(
                 f'could not create cmorized_outdir = {cmorized_outdir} for some reason!') from exc
 
@@ -267,7 +267,7 @@ def cmor_yaml_subtool( yamlfile: str = None,
                                           f'    calendar_type = {calendar_type}'
                                            ')\n' )
                 continue
-            try: #uncovered
+            try:
                 cmor_run_subtool(
                     indir = indir ,
                     json_var_list = json_var_list ,

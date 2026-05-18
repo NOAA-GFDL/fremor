@@ -183,7 +183,7 @@ def resolve(yamlfile, experiment, platform, target, output):
 @click.option('-v', '--opt_var_name', type = str,
               help=OPT_VAR_NAME_HELP,
               required=False)
-def find(varlist, table_config_dir, opt_var_name): #uncovered
+def find(varlist, table_config_dir, opt_var_name):
     """
     loop over json table files in config_dir and show which tables contain variables in var list/
     the tool will also print what that table entry is expecting of that variable as well. if given
