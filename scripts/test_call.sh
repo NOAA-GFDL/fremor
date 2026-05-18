@@ -6,13 +6,13 @@
 #   fre [-vv, -q] [-l LOGFILE] cmor X → fremor [-vv, -q] [-l LOGFILE] X
 #
 # Command list:
-#   fremor [-vv, -q] [-l LOGIFLE] init
-#   fremor [-vv, -q] [-l LOGIFLE] varlist (optional, create variable lists)
-#   fremor [-vv, -q] [-l LOGIFLE] find    (optional, *basic* search of tables for variables)
-#   fremor [-vv, -q] [-l LOGIFLE] resolve (optional, for working with multiple yamls in the FRE-universe)
-#   fremor [-vv, -q] [-l LOGIFLE] config
-#   fremor [-vv, -q] [-l LOGIFLE] yaml
-#   fremor [-vv, -q] [-l LOGIFLE] run
+#   fremor [-vv, -q] [-l LOGFILE] init
+#   fremor [-vv, -q] [-l LOGFILE] varlist (optional, create variable lists)
+#   fremor [-vv, -q] [-l LOGFILE] find    (optional, *basic* search of tables for variables)
+#   fremor [-vv, -q] [-l LOGFILE] resolve (optional, for working with multiple yamls in the FRE-universe)
+#   fremor [-vv, -q] [-l LOGFILE] config
+#   fremor [-vv, -q] [-l LOGFILE] yaml
+#   fremor [-vv, -q] [-l LOGFILE] run
 
 
 # ─────────────────────────────────────────────────────────────────────────────
