@@ -1,15 +1,18 @@
 #!/bin/bash
-# test_call.sh — manual/smoke-test call examples for fremor
-#
-# Ported from NOAA-GFDL/fre-cli/test_call.sh, updated for fremor CLI syntax.
+# test_call.sh — manual/smoke-test call examples for fremor ported from NOAA-GFDL/fre-cli and updated
 # Lines are commented out by default; uncomment and edit paths as needed.
 #
 # Command map (fre-cli → fremor):
-#   fre [-vv] cmor init    → fremor [-vv] init
-#   fre [-vv] cmor config  → fremor [-vv] config
-#   fre [-vv] cmor resolve → fremor [-vv] resolve        (new in fremor)
-#   fre [-vv] cmor yaml    → fremor [-vv] yaml           (no -e/-p/-t)
-#   fre [-vv] cmor run     → fremor [-vv] run
+#   fre [-vv, -q] [-l LOGFILE] cmor X → fremor [-vv, -q] [-l LOGFILE] X
+#
+# Command list:
+#   fremor [-vv, -q] [-l LOGIFLE] init
+#   fremor [-vv, -q] [-l LOGIFLE] varlist (optional, create variable lists)
+#   fremor [-vv, -q] [-l LOGIFLE] find    (optional, *basic* search of tables for variables)
+#   fremor [-vv, -q] [-l LOGIFLE] resolve (optional, for working with multiple yamls in the FRE-universe)
+#   fremor [-vv, -q] [-l LOGIFLE] config
+#   fremor [-vv, -q] [-l LOGIFLE] yaml
+#   fremor [-vv, -q] [-l LOGIFLE] run
 
 
 # ─────────────────────────────────────────────────────────────────────────────
