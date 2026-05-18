@@ -82,7 +82,7 @@ def _write_table_json(table_dir, era, table_name, frequency='mon'):
     table_dir = Path(table_dir)
     table_dir.mkdir(parents=True, exist_ok=True)
     (table_dir / f'{era}_{table_name}.json').write_text(
-        json.dumps({'variable_entry': {'foo': {'frequency': frequency}}}),
+        json.dumps({'variable_entry': {'sos': {'frequency': frequency}}}),
         encoding='utf-8',
     )
     return str(table_dir)
