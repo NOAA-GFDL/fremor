@@ -72,7 +72,7 @@ def _assert_dtypes_match(ds_in, ds_out, in_var_name, out_var_name):
     helper: assert that the science variable dtype is preserved between
     the input netCDF file and the CMORized output file.
     """
-    in_dtype  = ds_in.variables[in_var_name][:].dtype
+    in_dtype = ds_in.variables[in_var_name][:].dtype
     out_dtype = ds_out.variables[out_var_name][:].dtype
     assert in_dtype == out_dtype, (
         f'{in_var_name} input dtype {in_dtype} differs from '
