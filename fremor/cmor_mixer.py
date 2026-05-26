@@ -43,7 +43,8 @@ from .cmor_helpers import ( from_dis_gimme_dis, create_lev_bnds,
 from .cmor_tripolar import load_tripolar_grid
 from .cmor_constants import ( ACCEPTED_VERT_DIMS, NON_HYBRID_SIGMA_COORDS, ALT_HYBRID_SIGMA_COORDS,
                               DEPTH_COORDS, CMOR_NC_FILE_ACTION, CMOR_VERBOSITY,
-                              CMOR_EXIT_CTL, CMOR_MK_SUBDIRS, CMOR_LOG )
+                              CMOR_EXIT_CTL, CMOR_MK_SUBDIRS, CMOR_LOG,
+                              CMOR_LAT_AXIS_NAME, CMOR_LON_AXIS_NAME )
 
 fre_logger = logging.getLogger(__name__)
 
@@ -272,9 +273,9 @@ def rewrite_netcdf_file_var( mip_var_cfgs: dict = None,
     else:
         fre_logger.info('assigning cmor_y')
         if lat_bnds is None:
-            cmor_y = cmor.axis('lat', coord_vals=lat[:], units='degrees_N') #uncovered
+            cmor_y = cmor.axis(CMOR_LAT_AXIS_NAME, coord_vals=lat[:], units='degrees_N') #uncovered
         else:
-            cmor_y = cmor.axis('lat', coord_vals=lat[:], cell_bounds=lat_bnds, units='degrees_N')
+            cmor_y = cmor.axis(CMOR_LAT_AXIS_NAME, coord_vals=lat[:], cell_bounds=lat_bnds, units='degrees_N')
         fre_logger.info('DONE assigning cmor_y')
 
     # setup cmor longitude axis if relevant
@@ -287,9 +288,9 @@ def rewrite_netcdf_file_var( mip_var_cfgs: dict = None,
     else:
         fre_logger.info('assigning cmor_x')
         if lon_bnds is None:
-            cmor_x = cmor.axis('lon', coord_vals=lon[:], units='degrees_E') #uncovered
+            cmor_x = cmor.axis(CMOR_LON_AXIS_NAME, coord_vals=lon[:], units='degrees_E') #uncovered
         else:
-            cmor_x = cmor.axis('lon', coord_vals=lon[:], cell_bounds=lon_bnds, units='degrees_E')
+            cmor_x = cmor.axis(CMOR_LON_AXIS_NAME, coord_vals=lon[:], cell_bounds=lon_bnds, units='degrees_E')
         fre_logger.info('DONE assigning cmor_x')
 
     cmor_grid = None

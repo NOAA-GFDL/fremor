@@ -473,24 +473,32 @@ def _make_mock_dataset(dims_info):
 
 
 def test_get_vertical_dimension_axis_z():
-    """ detects vertical dim via standard 'axis' == 'Z' attribute """
+    """
+    detects vertical dim via standard 'axis' == 'Z' attribute
+    """
     ds = _make_mock_dataset({'lev': {'axis': 'Z'}, 'time': {'axis': 'T'}})
     assert get_vertical_dimension(ds, 'var') == 'lev'
 
 
 def test_get_vertical_dimension_cartesian_axis_z():
-    """ detects vertical dim via 'cartesian_axis' == 'Z' when 'axis' is absent """
+    """
+    detects vertical dim via 'cartesian_axis' == 'Z' when 'axis' is absent
+    """
     ds = _make_mock_dataset({'pfull': {'cartesian_axis': 'Z'}, 'time': {'axis': 'T'}})
     assert get_vertical_dimension(ds, 'var') == 'pfull'
 
 
 def test_get_vertical_dimension_no_vert_dim():
-    """ returns 0 when no vertical dimension is present """
+    """
+    returns 0 when no vertical dimension is present
+    """
     ds = _make_mock_dataset({'time': {'axis': 'T'}, 'lat': {'axis': 'Y'}})
     assert get_vertical_dimension(ds, 'var') == 0
 
 
 def test_get_vertical_dimension_landuse():
-    """ returns 'landuse' dimension directly without checking axis attr """
+    """
+    returns 'landuse' dimension directly without checking axis attr
+    """
     ds = _make_mock_dataset({'landuse': None, 'time': {'axis': 'T'}})
     assert get_vertical_dimension(ds, 'var') == 'landuse'

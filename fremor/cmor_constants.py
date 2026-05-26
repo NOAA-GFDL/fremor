@@ -43,6 +43,13 @@ ALT_HYBRID_SIGMA_COORDS = ['level', 'lev', 'levhalf']
 
 DEPTH_COORDS = ['z_l']
 
+# ---------------------------------------------------------------------------
+# Horizontal-coordinate axis names (used by cmor_mixer for cmor.axis calls)
+# ---------------------------------------------------------------------------
+# Change these if your MIP tables use different names for the lat/lon axes.
+CMOR_LAT_AXIS_NAME = 'lat'
+CMOR_LON_AXIS_NAME = 'lon'
+
 
 # ---------------------------------------------------------------------------
 # CMOR module defaults (passed to cmor.setup in cmor_mixer)

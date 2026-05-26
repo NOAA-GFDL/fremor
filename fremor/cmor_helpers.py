@@ -420,15 +420,16 @@ def get_vertical_dimension( ds: Dataset,
             if dim.lower() == 'landuse':
                 vert_dim = dim
                 break
-            # Check for both 'axis' and 'cartesian_axis' attributes
+            dim_attrs = ds[dim].ncattrs()
             axis_attr = None
-            try:
+            if 'axis' in dim_attrs:
                 axis_attr = ds[dim].axis
-            except AttributeError:
-                try:
-                    axis_attr = ds[dim].cartesian_axis
-                except AttributeError:
-                    pass
+                fre_logger.debug('dim %s has axis=%s', dim, axis_attr)
+            elif 'cartesian_axis' in dim_attrs:
+                axis_attr = ds[dim].cartesian_axis
+                fre_logger.debug('dim %s has cartesian_axis=%s', dim, axis_attr)
+            else:
+                fre_logger.debug('dim %s has neither axis nor cartesian_axis attr, skipping', dim)
             if not (axis_attr and axis_attr == 'Z'):
                 continue
             vert_dim = dim
