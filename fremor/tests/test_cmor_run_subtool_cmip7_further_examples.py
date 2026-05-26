@@ -19,6 +19,7 @@ import glob
 from pathlib import Path
 
 import pytest
+from netCDF4 import Dataset
 
 from fremor import cmor_run_subtool
 from fremor.tests.conftest import ncgen
@@ -156,7 +157,7 @@ def test_case_cmip7(  # pylint: disable=too-many-arguments,too-many-positional-a
             'needs new mock data or a different variable mapping'
         )
 
-    _ncgen_for_case(testfile_dir, opt_var_name)
+    input_nc = _ncgen_for_case(testfile_dir, opt_var_name)
 
     table_file = f'{CMIP7_TABLE_REPO_PATH}/tables/{table}.json'
     outdir = str(tmp_path / 'outdir')
@@ -186,4 +187,12 @@ def test_case_cmip7(  # pylint: disable=too-many-arguments,too-many-positional-a
         f'no CMOR output found matching {cmor_output_glob}'
     )
     assert Path(cmor_output_files[0]).exists()
+
+    # dtype must be preserved between input and CMOR output
+    with Dataset(input_nc) as ds_in, Dataset(cmor_output_files[0]) as ds_out:
+        in_dtype  = ds_in.variables[opt_var_name][:].dtype
+        out_dtype = ds_out.variables[opt_var_name][:].dtype
+        assert in_dtype == out_dtype, (
+            f'{opt_var_name} input dtype {in_dtype} differs from CMOR output dtype {out_dtype}'
+        )
 

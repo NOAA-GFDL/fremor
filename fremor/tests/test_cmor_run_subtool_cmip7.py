@@ -63,6 +63,19 @@ CMIP7_REQUIRED_GLOBAL_ATTRS = [
 ]
 
 
+def _assert_dtypes_match(ds_in, ds_out, in_var_name, out_var_name):
+    """
+    helper: assert that the science variable dtype is preserved between
+    the input netCDF file and the CMORized output file.
+    """
+    in_dtype  = ds_in.variables[in_var_name][:].dtype
+    out_dtype = ds_out.variables[out_var_name][:].dtype
+    assert in_dtype == out_dtype, (
+        f'{in_var_name} input dtype {in_dtype} differs from '
+        f'{out_var_name} CMOR output dtype {out_dtype}'
+    )
+
+
 def _assert_data_matches(ds_in, ds_out, in_var_name='sos'):
     """
     helper: assert that science variable data, coordinate data, and shapes
@@ -83,6 +96,9 @@ def _assert_data_matches(ds_in, ds_out, in_var_name='sos'):
     # variable shapes must be preserved
     assert ds_in.variables[in_var_name][:].shape == ds_out.variables['sos'][:].shape, \
         'sos data shape differs between input and CMOR output'
+
+    # dtype must be preserved through CMORization
+    _assert_dtypes_match(ds_in, ds_out, in_var_name, 'sos')
 
 
 def _assert_metadata_matches(ds_in, ds_out, in_var_name='sos'):
