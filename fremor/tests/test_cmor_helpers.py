@@ -13,7 +13,7 @@ from fremor.cmor_helpers import ( find_statics_file, print_data_minmax,
                                     create_lev_bnds, get_iso_datetime_ranges, iso_to_bronx_chunk,
                                     create_tmp_dir, get_json_file_data,
                                     update_grid_and_label, get_bronx_freq_from_mip_table, #update_outpath,
-                                    filter_brands )
+                                    filter_brands, get_vertical_dimension )
 
 def test_iso_to_bronx_chunk():
     """ tests value error raising by iso_to_bronx_chunk """
@@ -435,3 +435,62 @@ def test_filter_brands_multiple_remain():
             has_time_bnds=True,
             input_vert_dim=0,
         )
+
+
+def _make_mock_dataset(dims_info):
+    """
+    Build a minimal mock netCDF4-like dataset for get_vertical_dimension tests.
+
+    ``dims_info`` is a dict mapping dim name → attribute dict (or None for no attrs).
+    Returns an object with a ``variables`` dict containing a single variable 'var'
+    whose dimensions are the keys of ``dims_info``.
+    """
+    class MockVar:
+        def __init__(self, attrs):
+            self._attrs = attrs or {}
+        def ncattrs(self):
+            return list(self._attrs.keys())
+        def __getattr__(self, name):
+            if name.startswith('_'):
+                raise AttributeError(name)
+            try:
+                return self._attrs[name]
+            except KeyError:
+                raise AttributeError(name)
+
+    class MockDataVar:
+        def __init__(self, dims):
+            self.dimensions = tuple(dims)
+
+    class MockDS:
+        def __init__(self, dims_info):
+            self._dims = {k: MockVar(v) for k, v in dims_info.items()}
+            self.variables = {'var': MockDataVar(list(dims_info.keys()))}
+        def __getitem__(self, key):
+            return self._dims[key]
+
+    return MockDS(dims_info)
+
+
+def test_get_vertical_dimension_axis_z():
+    """ detects vertical dim via standard 'axis' == 'Z' attribute """
+    ds = _make_mock_dataset({'lev': {'axis': 'Z'}, 'time': {'axis': 'T'}})
+    assert get_vertical_dimension(ds, 'var') == 'lev'
+
+
+def test_get_vertical_dimension_cartesian_axis_z():
+    """ detects vertical dim via 'cartesian_axis' == 'Z' when 'axis' is absent """
+    ds = _make_mock_dataset({'pfull': {'cartesian_axis': 'Z'}, 'time': {'axis': 'T'}})
+    assert get_vertical_dimension(ds, 'var') == 'pfull'
+
+
+def test_get_vertical_dimension_no_vert_dim():
+    """ returns 0 when no vertical dimension is present """
+    ds = _make_mock_dataset({'time': {'axis': 'T'}, 'lat': {'axis': 'Y'}})
+    assert get_vertical_dimension(ds, 'var') == 0
+
+
+def test_get_vertical_dimension_landuse():
+    """ returns 'landuse' dimension directly without checking axis attr """
+    ds = _make_mock_dataset({'landuse': None, 'time': {'axis': 'T'}})
+    assert get_vertical_dimension(ds, 'var') == 'landuse'
