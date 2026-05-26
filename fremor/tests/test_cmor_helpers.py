@@ -8,12 +8,14 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+import netCDF4
+
 from fremor.cmor_helpers import ( find_statics_file, print_data_minmax,
                                     find_gold_ocean_statics_file,
                                     create_lev_bnds, get_iso_datetime_ranges, iso_to_bronx_chunk,
                                     create_tmp_dir, get_json_file_data,
                                     update_grid_and_label, get_bronx_freq_from_mip_table, #update_outpath,
-                                    filter_brands )
+                                    filter_brands, from_dis_gimme_dis )
 
 def test_iso_to_bronx_chunk():
     """ tests value error raising by iso_to_bronx_chunk """
@@ -435,3 +437,23 @@ def test_filter_brands_multiple_remain():
             has_time_bnds=True,
             input_vert_dim=0,
         )
+
+
+# ---- from_dis_gimme_dis dtype tests ----
+
+@pytest.mark.parametrize("nc_dtype,np_dtype", [
+    ("f4", np.float32),
+    ("f8", np.float64),
+])
+def test_from_dis_gimme_dis_preserves_dtype(tmp_path, nc_dtype, np_dtype):
+    """from_dis_gimme_dis must preserve the variable's native dtype."""
+    nc_file = tmp_path / "test.nc"
+    with netCDF4.Dataset(str(nc_file), "w") as ds:
+        ds.createDimension("x", 4)
+        v = ds.createVariable("myvar", nc_dtype, ("x",))
+        v[:] = np.array([1, 2, 3, 4], dtype=np_dtype)
+
+    with netCDF4.Dataset(str(nc_file), "r") as ds:
+        result = from_dis_gimme_dis(from_dis=ds, gimme_dis="myvar")
+
+    assert result.dtype == np_dtype
