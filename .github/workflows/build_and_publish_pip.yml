@@ -1,7 +1,10 @@
-name: build_pip
+name: build_and_publish_pip
 on:
   pull_request:
     branches:
+  push:
+    tags:
+      - '*'
 
 # cancel running jobs if theres a newer push
 concurrency:
@@ -9,6 +12,7 @@ concurrency:
   cancel-in-progress: true
 
 permissions:
+  id-token: write
   contents: read
 
 jobs:
@@ -34,8 +38,13 @@ jobs:
           python -m build
 
       - name: Upload pip Package Artifacts
+        if: github.ref_type != 'tag'
         uses: actions/upload-artifact@v4
         with:
           name: fremor-pip-packages
           path: dist/*
           if-no-files-found: error
+
+      - name: Publish package to PyPI
+        if: github.ref_type == 'tag'
+        uses: pypa/gh-action-pypi-publish@release/v1
