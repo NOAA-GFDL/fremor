@@ -78,7 +78,7 @@ Review the output CMOR YAML for completeness. Note any QoL friction (confusing k
 If the user is working with complex, multi-file configurations (e.g., using a model YAML that points to separate CMOR and grids YAMLs), use `fremor resolve`:
 
 ```bash
-fremor resolve -y {model_yaml}
+fremor resolve -y {model_yaml} -e {experiment}
 ```
 
 This reads the model YAML, finds the named experiment, extracts the CMOR/grids paths, and concatenates them so anchors resolve properly into a single combined dictionary. This replaces the legacy `fre yamltools combine` functionality.
