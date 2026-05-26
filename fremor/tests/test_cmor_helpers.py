@@ -15,7 +15,7 @@ from fremor.cmor_helpers import ( find_statics_file, print_data_minmax,
                                     create_lev_bnds, get_iso_datetime_ranges, iso_to_bronx_chunk,
                                     create_tmp_dir, get_json_file_data,
                                     update_grid_and_label, get_bronx_freq_from_mip_table, #update_outpath,
-                                    filter_brands, from_dis_gimme_dis )
+                                    filter_brands, from_ds_get_this )
 
 def test_iso_to_bronx_chunk():
     """ tests value error raising by iso_to_bronx_chunk """
@@ -439,14 +439,14 @@ def test_filter_brands_multiple_remain():
         )
 
 
-# ---- from_dis_gimme_dis dtype tests ----
+# ---- from_ds_get_this dtype tests ----
 
 @pytest.mark.parametrize("nc_dtype,np_dtype", [
     ("f4", np.float32),
     ("f8", np.float64),
 ])
-def test_from_dis_gimme_dis_preserves_dtype(tmp_path, nc_dtype, np_dtype):
-    """from_dis_gimme_dis must preserve the variable's native dtype."""
+def test_from_ds_get_this_preserves_dtype(tmp_path, nc_dtype, np_dtype):
+    """from_ds_get_this must preserve the variable's native dtype."""
     nc_file = tmp_path / "test.nc"
     with netCDF4.Dataset(str(nc_file), "w") as ds:
         ds.createDimension("x", 4)
@@ -454,6 +454,38 @@ def test_from_dis_gimme_dis_preserves_dtype(tmp_path, nc_dtype, np_dtype):
         v[:] = np.array([1, 2, 3, 4], dtype=np_dtype)
 
     with netCDF4.Dataset(str(nc_file), "r") as ds:
-        result = from_dis_gimme_dis(from_dis=ds, gimme_dis="myvar")
+        result = from_ds_get_this(from_dis=ds, gimme_dis="myvar")
+
+    assert result.dtype == np_dtype
+
+
+@pytest.mark.parametrize("nc_dtype,np_dtype", [
+    ("f4", np.float32),
+    ("f8", np.float64),
+])
+def test_dtype_preserved_through_cmorize_roundtrip(tmp_path, nc_dtype, np_dtype):
+    """Input dtype must survive a CMORize round-trip (read → write → read back)."""
+    input_nc  = tmp_path / "input.nc"
+    output_nc = tmp_path / "output.nc"
+    data = np.array([1.0, 2.0, 3.0, 4.0], dtype=np_dtype)
+
+    # write input file
+    with netCDF4.Dataset(str(input_nc), "w") as ds:
+        ds.createDimension("x", data.size)
+        v = ds.createVariable("myvar", nc_dtype, ("x",))
+        v[:] = data
+
+    # simulate cmor round-trip: read with from_ds_get_this, store to a new file
+    with netCDF4.Dataset(str(input_nc), "r") as ds:
+        arr = from_ds_get_this(from_dis=ds, gimme_dis="myvar")
+
+    with netCDF4.Dataset(str(output_nc), "w") as ds_out:
+        ds_out.createDimension("x", arr.size)
+        v_out = ds_out.createVariable("myvar", arr.dtype, ("x",))
+        v_out[:] = arr
+
+    # read back the CMORized output and confirm dtype is unchanged
+    with netCDF4.Dataset(str(output_nc), "r") as ds_out:
+        result = from_ds_get_this(from_dis=ds_out, gimme_dis="myvar")
 
     assert result.dtype == np_dtype

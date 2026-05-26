@@ -19,7 +19,7 @@ tasks including:
 Functions
 ---------
 - ``print_data_minmax(ds_variable, desc)``
-- ``from_dis_gimme_dis(from_dis, gimme_dis)``
+- ``from_ds_get_this(from_dis, gimme_dis)``
 - ``find_statics_file(bronx_file_path)``
 - ``create_lev_bnds(bound_these, with_these)``
 - ``get_iso_datetime_ranges(var_filenames, iso_daterange_arr, start, stop)``
@@ -139,8 +139,8 @@ def print_data_minmax( ds_variable: Optional[np.ma.core.MaskedArray] = None,
         fre_logger.warning('could not print min/max entries for desc = %s', desc)
 
 
-def from_dis_gimme_dis( from_dis: Dataset,
-                        gimme_dis: str) -> Optional[np.ndarray]:
+def from_ds_get_this( from_dis: Dataset,
+                      gimme_dis: str) -> Optional[np.ndarray]:
     """
     Retrieve and return a copy of a variable from a netCDF4.Dataset-like object.
 
@@ -151,8 +151,7 @@ def from_dis_gimme_dis( from_dis: Dataset,
     :return: A copy of the requested variable's data, or None if not found.
     :rtype: np.ndarray or None
 
-    .. note:: Logs a warning if the variable is not found. The name comes from a hypothetical pronunciation of 'ds',
-              the common monniker for a netCDF4.Dataset object.
+    .. note:: Logs a warning if the variable is not found.
     """
     try:
         return from_dis[gimme_dis][:].copy()

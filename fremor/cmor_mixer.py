@@ -35,7 +35,7 @@ import cmor
 import numpy as np
 import netCDF4 as nc
 
-from .cmor_helpers import ( print_data_minmax, from_dis_gimme_dis, create_lev_bnds,
+from .cmor_helpers import ( print_data_minmax, from_ds_get_this, create_lev_bnds,
                             get_iso_datetime_ranges, check_dataset_for_ocean_grid, get_vertical_dimension,
                             create_tmp_dir, get_json_file_data, update_grid_and_label,
                             update_calendar_type, filter_brands,
@@ -90,7 +90,7 @@ def rewrite_netcdf_file_var( mip_var_cfgs: dict = None,
 
     # read the input variable data using the modeler's variable name (local_var)
     fre_logger.info('attempting to read variable data, %s', local_var)
-    var = from_dis_gimme_dis(from_dis=ds, gimme_dis=local_var)
+    var = from_ds_get_this(from_dis=ds, gimme_dis=local_var)
 
     ## var type
     #var_dtype = var.dtype
@@ -169,17 +169,17 @@ def rewrite_netcdf_file_var( mip_var_cfgs: dict = None,
 
     # Attempt to read lat/lon coordinates and bnds. will check for none later
     fre_logger.info('attempting to read coordinate, lat')
-    lat = from_dis_gimme_dis(from_dis=ds, gimme_dis='lat')
+    lat = from_ds_get_this(from_dis=ds, gimme_dis='lat')
     fre_logger.info('attempting to read coordinate BNDS, lat_bnds')
-    lat_bnds = from_dis_gimme_dis(from_dis=ds, gimme_dis='lat_bnds')
+    lat_bnds = from_ds_get_this(from_dis=ds, gimme_dis='lat_bnds')
     fre_logger.info('attempting to read coordinate, lon')
-    lon = from_dis_gimme_dis(from_dis=ds, gimme_dis='lon')
+    lon = from_ds_get_this(from_dis=ds, gimme_dis='lon')
     fre_logger.info('attempting to read coordinate BNDS, lon_bnds')
-    lon_bnds = from_dis_gimme_dis(from_dis=ds, gimme_dis='lon_bnds')
+    lon_bnds = from_ds_get_this(from_dis=ds, gimme_dis='lon_bnds')
 
     # read in time_coords + units
     fre_logger.info('attempting to read coordinate time, and units...')
-    time_coords = from_dis_gimme_dis(from_dis=ds, gimme_dis='time')
+    time_coords = from_ds_get_this(from_dis=ds, gimme_dis='time')
     time_coord_units = ds['time'].units
     fre_logger.info('    time_coord_units = %s', time_coord_units)
 
@@ -205,7 +205,7 @@ def rewrite_netcdf_file_var( mip_var_cfgs: dict = None,
 
     # read in time_bnds, if present
     fre_logger.info('attempting to read coordinate BNDS, time_bnds')
-    time_bnds = from_dis_gimme_dis(from_dis=ds, gimme_dis='time_bnds')
+    time_bnds = from_ds_get_this(from_dis=ds, gimme_dis='time_bnds')
 
     # determine the vertical dimension by looping over netcdf variables
     vert_dim = get_vertical_dimension(ds, local_var)  # returns int(0) if not present
@@ -386,7 +386,7 @@ def rewrite_netcdf_file_var( mip_var_cfgs: dict = None,
             # find the ps file nearby
             ps_file = netcdf_file.replace(f'.{local_var}.nc', '.ps.nc')
             ds_ps = nc.Dataset(ps_file)
-            ps = from_dis_gimme_dis(ds_ps, 'ps')
+            ps = from_ds_get_this(ds_ps, 'ps')
 
             # assign lev_half specifics
             if vert_dim == 'levhalf':
