@@ -1,3 +1,11 @@
+> **Note:** Please select the appropriate template for your pull request:
+> * [Standard Pull Request](?expand=1&template=pull_request_template.md)
+> * [New Release](?expand=1&template=new_release.md)
+
+---
+
+[Your standard PR template content goes here...]
+
 ## Describe your changes
 short description of the PR
 
