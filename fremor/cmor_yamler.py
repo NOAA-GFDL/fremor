@@ -76,7 +76,15 @@ def cmor_yaml_subtool( yamlfile: str = None,
     # parsing the target cmor yaml ----------------------
     # ---------------------------------------------------
     with open(yamlfile, 'r', encoding='utf-8') as handle:
-        cmor_yaml_dict = yaml.safe_load(handle)['cmor']
+        yaml_doc = yaml.safe_load(handle)
+
+    if not isinstance(yaml_doc, dict) or 'cmor' not in yaml_doc:
+        raise ValueError(
+            f"Invalid CMOR YAML file '{yamlfile}': expected a top-level mapping "
+            "containing a 'cmor' section."
+        )
+
+    cmor_yaml_dict = yaml_doc['cmor']
     fre_logger.debug('yaml loading produced the following dictionary of cmor-settings from yaml: \n%s',
                      pprint.pformat(cmor_yaml_dict) )
 
