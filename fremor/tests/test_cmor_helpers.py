@@ -454,7 +454,7 @@ def test_from_ds_get_this_preserves_dtype(tmp_path, nc_dtype, np_dtype):
         v[:] = np.array([1, 2, 3, 4], dtype=np_dtype)
 
     with netCDF4.Dataset(str(nc_file), "r") as ds:
-        result = from_ds_get_this(from_dis=ds, gimme_dis="myvar")
+        result = from_ds_get_this(from_ds=ds, var_name="myvar")
 
     assert result.dtype == np_dtype
 
@@ -477,7 +477,7 @@ def test_dtype_preserved_through_cmorize_roundtrip(tmp_path, nc_dtype, np_dtype)
 
     # simulate cmor round-trip: read with from_ds_get_this, store to a new file
     with netCDF4.Dataset(str(input_nc), "r") as ds:
-        arr = from_ds_get_this(from_dis=ds, gimme_dis="myvar")
+        arr = from_ds_get_this(from_ds=ds, var_name="myvar")
 
     with netCDF4.Dataset(str(output_nc), "w") as ds_out:
         ds_out.createDimension("x", arr.size)
@@ -486,6 +486,6 @@ def test_dtype_preserved_through_cmorize_roundtrip(tmp_path, nc_dtype, np_dtype)
 
     # read back the CMORized output and confirm dtype is unchanged
     with netCDF4.Dataset(str(output_nc), "r") as ds_out:
-        result = from_ds_get_this(from_dis=ds_out, gimme_dis="myvar")
+        result = from_ds_get_this(from_ds=ds_out, var_name="myvar")
 
     assert result.dtype == np_dtype

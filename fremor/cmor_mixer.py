@@ -90,7 +90,7 @@ def rewrite_netcdf_file_var( mip_var_cfgs: dict = None,
 
     # read the input variable data using the modeler's variable name (local_var)
     fre_logger.info('attempting to read variable data, %s', local_var)
-    var = from_ds_get_this(from_dis=ds, gimme_dis=local_var)
+    var = from_ds_get_this(from_ds=ds, var_name=local_var)
 
     ## var type
     #var_dtype = var.dtype
@@ -169,17 +169,17 @@ def rewrite_netcdf_file_var( mip_var_cfgs: dict = None,
 
     # Attempt to read lat/lon coordinates and bnds. will check for none later
     fre_logger.info('attempting to read coordinate, lat')
-    lat = from_ds_get_this(from_dis=ds, gimme_dis='lat')
+    lat = from_ds_get_this(from_ds=ds, var_name='lat')
     fre_logger.info('attempting to read coordinate BNDS, lat_bnds')
-    lat_bnds = from_ds_get_this(from_dis=ds, gimme_dis='lat_bnds')
+    lat_bnds = from_ds_get_this(from_ds=ds, var_name='lat_bnds')
     fre_logger.info('attempting to read coordinate, lon')
-    lon = from_ds_get_this(from_dis=ds, gimme_dis='lon')
+    lon = from_ds_get_this(from_ds=ds, var_name='lon')
     fre_logger.info('attempting to read coordinate BNDS, lon_bnds')
-    lon_bnds = from_ds_get_this(from_dis=ds, gimme_dis='lon_bnds')
+    lon_bnds = from_ds_get_this(from_ds=ds, var_name='lon_bnds')
 
     # read in time_coords + units
     fre_logger.info('attempting to read coordinate time, and units...')
-    time_coords = from_ds_get_this(from_dis=ds, gimme_dis='time')
+    time_coords = from_ds_get_this(from_ds=ds, var_name='time')
     time_coord_units = ds['time'].units
     fre_logger.info('    time_coord_units = %s', time_coord_units)
 
@@ -205,7 +205,7 @@ def rewrite_netcdf_file_var( mip_var_cfgs: dict = None,
 
     # read in time_bnds, if present
     fre_logger.info('attempting to read coordinate BNDS, time_bnds')
-    time_bnds = from_ds_get_this(from_dis=ds, gimme_dis='time_bnds')
+    time_bnds = from_ds_get_this(from_ds=ds, var_name='time_bnds')
 
     # determine the vertical dimension by looping over netcdf variables
     vert_dim = get_vertical_dimension(ds, local_var)  # returns int(0) if not present
