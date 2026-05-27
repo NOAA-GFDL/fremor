@@ -49,6 +49,7 @@ SPHINXBUILD
 SPHINXOPTS
 Sergey
 Subtool
+TOAR
 Umip
 WCRP
 YAMLFILE
@@ -78,6 +79,7 @@ cfgs
 chdir
 chunkstr
 classmethod
+climo
 cmip
 cmor
 cmorize
