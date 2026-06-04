@@ -2,10 +2,9 @@
 ``fremor yaml``: YAML-Driven CMORization Workhorse
 ==================================================
 
-This module powers the ``fremor yaml`` command, steering the CMORization workflow by parsing model-YAML
-files that describe target experiments and their configurations. It combines model-level and experiment-level
-configuration, parses required metadata and paths, and orchestrates calls to ``cmor_run_subtool`` for each
-target variable/component.
+This module powers the ``fremor yaml`` command, steering the CMORization workflow by parsing a
+self-contained CMOR YAML file, resolving required metadata and paths, and orchestrating calls to
+``cmor_run_subtool`` for each target variable/component.
 
 Functions
 ---------
@@ -20,10 +19,8 @@ import logging
 import os
 from typing import Optional
 
-try:
-    from fre.yamltools.combine_yamls_script import consolidate_yamls
-except ImportError:
-    consolidate_yamls = None
+import yaml
+
 from .cmor_mixer import cmor_run_subtool
 from .cmor_helpers import ( check_path_existence, iso_to_bronx_chunk,
                             get_bronx_freq_from_mip_table )
@@ -31,10 +28,6 @@ from .cmor_helpers import ( check_path_existence, iso_to_bronx_chunk,
 fre_logger = logging.getLogger(__name__)
 
 def cmor_yaml_subtool( yamlfile: str = None,
-                       exp_name: str = None,
-                       platform: str = None,
-                       target: str = None,
-                       output: Optional[str] = None,
                        opt_var_name: Optional[str] = None,
                        run_one_mode: bool = False,
                        dry_run_mode: bool = False,
@@ -43,21 +36,13 @@ def cmor_yaml_subtool( yamlfile: str = None,
                        calendar_type: Optional[str] = None,
                        print_cli_call: bool = True):
     """
-    Main driver for CMORization using model YAML configuration files.
-    This routine parses the model YAML, combines configuration, resolves and checks all required
+    Main driver for CMORization using self-contained CMOR YAML configuration files.
+    This routine parses the CMOR YAML, resolves and checks all required
     paths and metadata, and orchestrates calls to cmor_run_subtool for each table/component/variable
     defined in the configuration.
 
-    :param yamlfile: Path to a model-yaml file holding experiment and workflow configuration.
+    :param yamlfile: Path to a self-contained CMOR YAML file.
     :type yamlfile: str
-    :param exp_name: Experiment name (must be present in the YAML file).
-    :type exp_name: str
-    :param platform: Platform target (e.g., 'ncrc4.intel').
-    :type platform: str
-    :param target: Compilation target (e.g., 'prod-openmp').
-    :type target: str
-    :param output: filename for YAML output.
-    :type output: str, optional
     :param opt_var_name: If specified, process only files matching this variable name.
     :type opt_var_name: str, optional
     :param run_one_mode: If True, process only one file and exit.
@@ -80,7 +65,7 @@ def cmor_yaml_subtool( yamlfile: str = None,
     :return: None
     :rtype: None
 
-    .. note:: Reads and combines YAML and JSON configuration.
+    .. note:: Reads CMOR YAML and JSON configuration.
     .. note:: Performs path, frequency, and gridding checks.
     .. note:: Delegates actual CMORization to cmor_run_subtool, except in dry-run mode.
     .. note:: All actions and key decisions are logged.
@@ -88,17 +73,19 @@ def cmor_yaml_subtool( yamlfile: str = None,
     check_path_existence(yamlfile)
 
     # ---------------------------------------------------
-    # parsing the target model yaml ---------------------
+    # parsing the target cmor yaml ----------------------
     # ---------------------------------------------------
-    fre_logger.info('calling consolidate yamls to create a combined cmor-yaml dictionary')
-    if consolidate_yamls is None:
-        raise ImportError(
-            'the \'fremor yaml\' command requires fre-cli\'s yamltools module.\n'
-            'install it with: pip install fre-cli')
-    cmor_yaml_dict = consolidate_yamls(yamlfile=yamlfile,
-                                       experiment=exp_name, platform=platform, target=target,
-                                       use='cmor', output=output)['cmor']
-    fre_logger.debug('consolidate_yamls produced the following dictionary of cmor-settings from yamls: \n%s',
+    with open(yamlfile, 'r', encoding='utf-8') as handle:
+        yaml_doc = yaml.safe_load(handle)
+
+    if not isinstance(yaml_doc, dict) or 'cmor' not in yaml_doc:
+        raise ValueError(
+            f"Invalid CMOR YAML file '{yamlfile}': expected a top-level mapping "
+            "containing a 'cmor' section."
+        )
+
+    cmor_yaml_dict = yaml_doc['cmor']
+    fre_logger.debug('yaml loading produced the following dictionary of cmor-settings from yaml: \n%s',
                      pprint.pformat(cmor_yaml_dict) )
 
     mip_era = cmor_yaml_dict['mip_era'].upper()
@@ -129,7 +116,7 @@ def cmor_yaml_subtool( yamlfile: str = None,
             fre_logger.info('cmorized_outdir does not exist.')
             fre_logger.info('attempt to create it...')
             Path(cmorized_outdir).mkdir(exist_ok=False, parents=True)
-        except Exception as exc: #uncovered
+        except Exception as exc:
             raise OSError(
                 f'could not create cmorized_outdir = {cmorized_outdir} for some reason!') from exc
 
@@ -272,18 +259,24 @@ def cmor_yaml_subtool( yamlfile: str = None,
                                           f'    calendar_type = {calendar_type}'
                                            ')\n' )
                 continue
-            cmor_run_subtool( #uncovered
-                indir = indir ,
-                json_var_list = json_var_list ,
-                json_table_config = json_mip_table_config ,
-                json_exp_config = json_exp_config ,
-                outdir = cmor_run_call_outdir ,
-                run_one_mode = run_one_mode ,
-                opt_var_name = opt_var_name ,
-                grid = grid_desc ,
-                grid_label = grid_label ,
-                nom_res = nom_res ,
-                start = start ,
-                stop = stop ,
-                calendar_type = calendar_type
-            )
+            try:
+                cmor_run_subtool(
+                    indir = indir ,
+                    json_var_list = json_var_list ,
+                    json_table_config = json_mip_table_config ,
+                    json_exp_config = json_exp_config ,
+                    outdir = cmor_run_call_outdir ,
+                    run_one_mode = run_one_mode ,
+                    opt_var_name = opt_var_name ,
+                    grid = grid_desc ,
+                    grid_label = grid_label ,
+                    nom_res = nom_res ,
+                    start = start ,
+                    stop = stop ,
+                    calendar_type = calendar_type
+                )
+            except Exception as exc: #uncovered
+                fre_logger.warning(
+                    'cmor_run_subtool failed for (%s, %s), skipping: %s',
+                    table_name, component, exc
+                )

@@ -6,11 +6,13 @@ CMIP
 CMOR
 CMOR's
 CMORBITE
+CPLD
 Clim
 Docstrings
 Dorkey
 Emon
-GDFL's
+GFDL
+GFDL's
 Geophys
 INDIR
 INPUTFILE
@@ -47,6 +49,7 @@ SPHINXBUILD
 SPHINXOPTS
 Sergey
 Subtool
+TOAR
 Umip
 WCRP
 YAMLFILE
@@ -76,6 +79,7 @@ cfgs
 chdir
 chunkstr
 classmethod
+climo
 cmip
 cmor
 cmorize
@@ -100,6 +104,7 @@ giccm
 gridding
 hgrid
 hpoint
+iamnotreallyused
 ierr
 ilaflott
 indir

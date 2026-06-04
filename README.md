@@ -151,7 +151,7 @@ from PyPI.
 
 
 ### as a command line interface (CLI)
-The CLI entry point is `fremor`, currently a suite of (currently) six routines for facilitating data preparation for
+The CLI entry point is `fremor`, currently a suite of seven routines for facilitating data preparation for
 CMIP7. 
 ```bash
 # The full list of subcommands
@@ -159,6 +159,7 @@ fremor init      # Initialize CMOR configuration resources: generate template us
 fremor find      # Find and print variables in MIP tables according to your variable lists or other input
 fremor varlist   # Create a simple variable list of netCDF files in a directory
 fremor config    # Generate a basic CMOR YAML configuration from a pp directory tree
+fremor resolve   # Resolve a FRE model YAML + cmor/grids YAMLs into one combined document for inspection
 fremor yaml      # Bulk routine for processing data based on a CMOR YAML config, calls fremor run many times
 fremor run       # Lowest-level routine, no CMOR YAML needed, rewrites output files in a directory with CMOR
 ```

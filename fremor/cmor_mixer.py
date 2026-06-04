@@ -35,7 +35,7 @@ import cmor
 import numpy as np
 import netCDF4 as nc
 
-from .cmor_helpers import ( print_data_minmax, from_dis_gimme_dis, create_lev_bnds,
+from .cmor_helpers import ( from_dis_gimme_dis, create_lev_bnds,
                             get_iso_datetime_ranges, check_dataset_for_ocean_grid, get_vertical_dimension,
                             create_tmp_dir, get_json_file_data, update_grid_and_label,
                             update_calendar_type, filter_brands,
@@ -160,7 +160,7 @@ def rewrite_netcdf_file_var( mip_var_cfgs: dict = None,
             '    expected_mip_coord_dims = %s\n',
             expected_mip_coord_dims
         )
-    except Exception as exc: #uncovered
+    except Exception as exc:
         fre_logger.warning(
             'could not get expected coordinate dimensions for %s. '
             '   in mip_var_cfgs file %s. \n exc = %s',
@@ -629,7 +629,7 @@ def cmorize_target_var_files(indir: str = None,
                                                       json_exp_config,
                                                       json_table_config,
                                                       prev_path=nc_fls[i] )
-        except Exception as exc: #uncovered
+        except Exception as exc:
             raise Exception(
                 'problem with rewrite_netcdf_file_var. '
                 f'exc={exc}\n'
@@ -742,7 +742,7 @@ def cmorize_all_variables_in_dir(vars_to_run: Dict[str, Any],
                                      name_of_set, json_exp_config, outdir,
                                      mip_var_cfgs, json_table_config, run_one_mode)
             return_status = 0
-        except Exception as exc: #uncovered
+        except Exception as exc:
             return_status = 1
             fre_logger.exception('!!!EXCEPTION CAUGHT!!!')
             fre_logger.warning('this message came from within cmorize_target_var_files')
