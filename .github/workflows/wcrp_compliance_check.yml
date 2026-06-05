@@ -27,7 +27,7 @@ jobs:
       - name: Setup Conda
         uses: conda-incubator/setup-miniconda@v3
         with:
-          activate-environment: fremorizer-wcrp
+          activate-environment: fremor-wcrp
           environment-file: environment.yaml
           conda-remove-defaults: true
           auto-activate: false
@@ -47,7 +47,7 @@ jobs:
           echo "printing conda config just in case"
           conda config --show
 
-      - name: Install fremorizer
+      - name: Install fremor
         run: |
           pip install .
 
@@ -68,10 +68,10 @@ jobs:
           echo "Running all output-generating tests..."
           echo "=========================================="
           pytest \
-            fremorizer/tests/test_cmor_run_subtool.py \
-            fremorizer/tests/test_cmor_run_subtool_further_examples.py \
-            fremorizer/tests/test_cmor_yamler_subtool.py::test_cmor_yaml_subtool_dry_run_false \
-            fremorizer/tests/test_cli.py \
+            fremor/tests/test_cmor_run_subtool.py \
+            fremor/tests/test_cmor_run_subtool_further_examples.py \
+            fremor/tests/test_cmor_yamler_subtool.py::test_cmor_yaml_subtool_dry_run_false \
+            fremor/tests/test_cli.py \
             -v --basetemp=tmp/pytest_basetemp || true
 
           echo ""
@@ -104,10 +104,10 @@ jobs:
           echo "This may indicate that tests did not run successfully or outputs were not generated"
           echo ""
           echo "Checking known test output directories for debugging..."
-          echo "--- fremorizer/tests/test_files/outdir ---"
-          find fremorizer/tests/test_files/outdir -name "*.nc" -type f 2>/dev/null || echo "(empty or missing)"
-          echo "--- fremorizer/tests/test_files/outdir_ppan_only ---"
-          find fremorizer/tests/test_files/outdir_ppan_only -name "*.nc" -type f 2>/dev/null || echo "(empty or missing)"
+          echo "--- fremor/tests/test_files/outdir ---"
+          find fremor/tests/test_files/outdir -name "*.nc" -type f 2>/dev/null || echo "(empty or missing)"
+          echo "--- fremor/tests/test_files/outdir_ppan_only ---"
+          find fremor/tests/test_files/outdir_ppan_only -name "*.nc" -type f 2>/dev/null || echo "(empty or missing)"
           echo "--- tmp/pytest_basetemp ---"
           find tmp/pytest_basetemp -name "*.nc" -type f 2>/dev/null || echo "(empty or missing)"
 
@@ -120,10 +120,9 @@ jobs:
       - name: Configure esgvoc controlled vocabularies
         if: steps.gather_outputs.outputs.file_count != '0'
         run: |
-          esgvoc config add cordex-cmip6
-          esgvoc config add cmip7
-          esgvoc config set project:branch=esgvoc
-          esgvoc install
+          esgvoc use universe@latest
+          esgvoc use cmip6@latest
+          esgvoc use cmip7@latest
 
       - name: Verify cc-plugin-wcrp installation
         if: steps.gather_outputs.outputs.file_count != '0'

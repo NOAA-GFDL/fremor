@@ -28,14 +28,14 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install build
 
-      - name: Build fremorizer pip Package
+      - name: Build fremor pip Package
         run: |
-          echo "Building fremorizer package using python -m build"
+          echo "Building fremor package using python -m build"
           python -m build
 
       - name: Upload pip Package Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: fremorizer-pip-packages
+          name: fremor-pip-packages
           path: dist/*
           if-no-files-found: error

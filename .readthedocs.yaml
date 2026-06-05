@@ -16,7 +16,7 @@ build:
       - pip install sphinx renku-sphinx-theme sphinx-rtd-theme click pyyaml jsonschema rstcheck
     pre_build:
       # Generate API documentation from source
-      - sphinx-apidoc --ext-autodoc --output-dir docs fremorizer/ --separate
+      - sphinx-apidoc --ext-autodoc --output-dir docs fremor/ --separate
       # rst lint
       - rstcheck --recursive docs/
 

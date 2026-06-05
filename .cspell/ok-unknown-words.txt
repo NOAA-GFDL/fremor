@@ -6,11 +6,13 @@ CMIP
 CMOR
 CMOR's
 CMORBITE
+CPLD
 Clim
 Docstrings
 Dorkey
 Emon
-GDFL's
+GFDL
+GFDL's
 Geophys
 INDIR
 INPUTFILE
@@ -30,6 +32,7 @@ PCMDI
 PCMDI's
 PLACEHOLD
 PPAN
+PYTHONPATH
 Pylint
 ROOTDIR
 Rbite
@@ -46,6 +49,7 @@ SPHINXBUILD
 SPHINXOPTS
 Sergey
 Subtool
+TOAR
 Umip
 WCRP
 YAMLFILE
@@ -75,6 +79,7 @@ cfgs
 chdir
 chunkstr
 classmethod
+climo
 cmip
 cmor
 cmorize
@@ -90,7 +95,6 @@ docstrings
 filenotfound
 fremake
 fremor
-fremorizer
 fullvar
 geolat
 geolon
@@ -98,7 +102,9 @@ getcwd
 getncattr
 giccm
 gridding
+hgrid
 hpoint
+iamnotreallyused
 ierr
 ilaflott
 indir
@@ -157,6 +163,7 @@ olevel
 openmp
 optparse
 optvarname
+orcid
 outpath
 outputfile
 overgeneral
@@ -210,5 +217,6 @@ yamlfile
 yamls
 yamltools
 zaxis
+zenodo
 zfactor
 zonavg

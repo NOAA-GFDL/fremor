@@ -1,7 +1,7 @@
-[submodule "fremorizer/tests/test_files/cmip6-cmor-tables"]
-	path = fremorizer/tests/test_files/cmip6-cmor-tables
+[submodule "fremor/tests/test_files/cmip6-cmor-tables"]
+	path = fremor/tests/test_files/cmip6-cmor-tables
 	url = https://github.com/pcmdi/cmip6-cmor-tables.git
-[submodule "fremorizer/tests/test_files/cmip7-cmor-tables"]
-	path = fremorizer/tests/test_files/cmip7-cmor-tables
+[submodule "fremor/tests/test_files/cmip7-cmor-tables"]
+	path = fremor/tests/test_files/cmip7-cmor-tables
 	url = https://github.com/WCRP-CMIP/cmip7-cmor-tables.git
 	branch = DR-1.2.2.3-v1.0.5

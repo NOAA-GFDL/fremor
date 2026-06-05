@@ -10,14 +10,14 @@ the FRE ecosystem.
 
 .. note::
 
-   ``fremorizer`` is an independent package extracted from the ``fre.cmor`` submodule of
+   ``fremor`` is an independent package extracted from the ``fre.cmor`` submodule of
    `fre-cli <https://github.com/NOAA-GFDL/fre-cli>`_. The ``fre cmor`` subcommand maps
    directly to ``fremor``:
 
    .. code-block:: text
 
       fre -vv -l logfile.txt cmor run [OPTIONS]   # fre-cli
-      fremor -vv -l logfile.txt run [OPTIONS]      # fremorizer
+      fremor -vv -l logfile.txt run [OPTIONS]      # fremor
 
 Background
 ----------
@@ -64,5 +64,5 @@ Additional Resources
 * `CMIP6 Tables <https://github.com/pcmdi/cmip6-cmor-tables>`_
 * `CMIP6 Controlled Vocabulary <https://github.com/WCRP-CMIP/CMIP6_CVs>`_
 * `PCMDI CMOR User Guide <http://cmor.llnl.gov/>`_
-* `fremorizer on GitHub <https://github.com/ilaflott/fremorizer>`_
+* `fremor on GitHub <https://github.com/NOAA-GFDL/fremor>`_
 * `fre-cli (upstream) <https://github.com/NOAA-GFDL/fre-cli>`_

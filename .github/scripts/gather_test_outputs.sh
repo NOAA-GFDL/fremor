@@ -111,8 +111,8 @@ gather_files() {
 }
 
 # Gather files from different test output directories
-gather_files "fremorizer/tests/test_files/outdir" "CMIP6 basic tests"
-gather_files "fremorizer/tests/test_files/outdir_ppan_only" "Extended test examples"
+gather_files "fremor/tests/test_files/outdir" "CMIP6 basic tests"
+gather_files "fremor/tests/test_files/outdir_ppan_only" "Extended test examples"
 
 # Gather files from pytest basetemp directory (CLI and yamler tests)
 if [ -n "${BASETEMP_DIR}" ]; then

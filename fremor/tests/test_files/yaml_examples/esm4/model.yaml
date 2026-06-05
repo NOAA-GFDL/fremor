@@ -1,0 +1,28 @@
+## This unit test is dedicated to Larry Horowitz, rest in peace
+## Ian peeked at script Larry was using, and it called Sergey's original CMORcommander.py
+## the cmor.yaml format is based off of the loop structure in that old script
+## see NOAA-GFDL/fre-cli d5225b122822e61aa2f419bb8509a9f98f587a6a
+##
+## this is to try to process 
+##     /archive/lwh/ESM4/TOAR_O3RF/ESM4_TOAR_2014climo_2050ozone_v2/gfdl.ncrc5-intel22-prod-openmp/pp
+##
+## yaml combining step:
+##   fremor -vv resolve -y fre/yamltools/tests/esm4_cmip6_ex/esm4_cmip6.yaml \
+##                      -e ESM4_TOAR_2014climo_2050ozone_v2 -p gfdl.ncrc5-intel22 -t prod-openmp 
+## 
+## running (includes yaml combining step):
+##   fremor -vv yaml -y fre/yamltools/tests/esm4_cmip6_ex/esm4_cmip6.yaml \
+##                   -e ESM4_TOAR_2014climo_2050ozone_v2 -p gfdl.ncrc5-intel22 -t prod-openmp
+
+fre_properties:
+  - &FRE_STEM        "ESM4"
+  - &PP_CHUNK_A      "P5Y"
+  - &CMOR_START        null
+  - &CMOR_STOP         null
+
+experiments:
+  - name: "ESM4_historical_D1"
+    grid_yaml:
+      - "grids.yaml"
+    cmor:
+      - "cmor.yaml"

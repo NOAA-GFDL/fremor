@@ -1,0 +1,11 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+title: "fremor"
+abstract: "fremor CMORizes FRE data with CMOR"
+authors:
+  - family-names: "Laflotte"
+    given-names: "Ian"
+    orcid: "https://orcid.org/0000-0002-7366-8090"
+version: 
+date-released: 
+repository-code: "https://github.com/NOAA-GFDL/fremor"

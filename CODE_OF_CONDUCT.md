@@ -1,7 +1,7 @@
-# fremorizer Code of Conduct
+# `fremor` Code of Conduct
 
 ## Purpose
-Modeling Systems Division, and GFDL as whole, seeks to create a friendly, safe and welcoming environment for all, regardless of gender, sexual orientation, ability, ethnicity, socioeconomic status, and religion. In order to protect this collaborative environment, the following Code of Conduct sets out a series of guidelines to follow while interacting with the fremorizer repository, and its contributors. This code applies equally to mentors, mentees, and independent contributors.
+Modeling Systems Division, and GFDL as whole, seeks to create a friendly, safe and welcoming environment for all, regardless of gender, sexual orientation, ability, ethnicity, socioeconomic status, and religion. In order to protect this collaborative environment, the following Code of Conduct sets out a series of guidelines to follow while interacting with the `fremor` repository, and its contributors. This code applies equally to mentors, mentees, and independent contributors.
 
 ## Expected Behavior
 * Demonstrating empathy and kindness toward other people

@@ -3,7 +3,7 @@ requires = ["setuptools>=77.0.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "fremorizer"
+name = "fremor"
 description = "Model output rewriter (CMORizer) for FRE/FMS based models"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -40,11 +40,11 @@ dynamic = [
 
 
 [tool.setuptools.dynamic]
-version = {attr = "fremorizer._version.__version__"}
+version = {attr = "fremor._version.__version__"}
 
 
 [project.scripts]
-fremor = 'fremorizer.cli:fremor'
+fremor = 'fremor.cli:fremor'
 
 
 [project.optional-dependencies]
@@ -77,3 +77,8 @@ ignore_directives = [
     "glossary",
 ]
 ignore_roles = ["ref"]
+
+[project.urls]
+Homepage = "https://github.com/NOAA-GFDL/fremor"
+Repository = "https://github.com/NOAA-GFDL/fremor"
+Changelog = "https://github.com/NOAA-GFDL/fremor/releases"

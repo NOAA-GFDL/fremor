@@ -20,6 +20,6 @@
         "cspell.json",
         "*.cdl",
         "build",
-        "fremorizer.egg-info"
+        "fremor.egg-info"
     ]
 }

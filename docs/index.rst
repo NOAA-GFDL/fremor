@@ -1,7 +1,7 @@
-.. fremorizer documentation master file
+.. fremor documentation master file
 
 ==============
-``fremorizer``
+``fremor``
 ==============
 
 .. toctree::

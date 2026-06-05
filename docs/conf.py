@@ -14,8 +14,8 @@ import importlib.util
 # Load _version.py directly to avoid triggering the full package init
 # (which imports heavy optional dependencies like cmor, netCDF4, etc.)
 _ver_spec = importlib.util.spec_from_file_location(
-    "fremorizer._version",
-    Path('..').resolve() / 'fremorizer' / '_version.py'
+    "fremor._version",
+    Path('..').resolve() / 'fremor' / '_version.py'
 )
 _ver_mod = importlib.util.module_from_spec(_ver_spec)  # type: ignore[arg-type]
 _ver_spec.loader.exec_module(_ver_mod)  # type: ignore[union-attr]
@@ -24,7 +24,7 @@ pkg_version = _ver_mod.__version__
 # -- Project information -----------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
 
-project = 'fremorizer'
+project = 'fremor'
 copyright = f'{dt.datetime.now().year}, NOAA-GFDL MSD Workflow Team'
 author = 'NOAA-GFDL MSD Workflow Team'
 release = pkg_version   # type: ignore

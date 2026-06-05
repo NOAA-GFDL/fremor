@@ -40,7 +40,7 @@ jobs:
           python-version: ${{ matrix.python-version }}
           conda-remove-defaults: true
           environment-file: environment.yaml
-          activate-environment: fremorizer
+          activate-environment: fremor
 
       - name: Show installed packages
         run: |
@@ -53,13 +53,13 @@ jobs:
           echo "printing conda config just in case"
           conda config --show
 
-      - name: Install fremorizer
+      - name: Install fremor
         run: |
           pip install .
 
       - name: Run pytest
         run: |
-          pytest --cov=fremorizer --cov-config=coveragerc --cov-report=xml fremorizer/tests/ -v
+          pytest --cov=fremor --cov-config=coveragerc --cov-report=xml fremor/tests/ -v
 
       - name: Upload Coverage to Codecov
         if: ${{ always() }}

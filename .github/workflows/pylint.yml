@@ -27,7 +27,7 @@ jobs:
       - name: Setup Conda
         uses: conda-incubator/setup-miniconda@v3
         with:
-          activate-environment: fremorizer
+          activate-environment: fremor
           environment-file: environment.yaml
           auto-activate: false
           miniforge-version: latest
@@ -46,10 +46,10 @@ jobs:
           echo "printing conda config just in case"
           conda config --show
 
-      - name: Install fremorizer
+      - name: Install fremor
         run: |
           pip install .
 
       - name: Run pylint
         run: |
-          pylint --rcfile pylintrc fremorizer/
+          pylint --rcfile pylintrc fremor/
