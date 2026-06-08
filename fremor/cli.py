@@ -48,13 +48,24 @@ STOP_YEAR_HELP = 'string representing the maximum calendar year CMOR should stop
         'fremor is the main CLI for fremor. it houses the cmor subcommands.',
         fg = 'cyan')
 )
-@click.option( '-v', '--verbose', default = 0, required = False, count = True, type = int,
+@click.option( '-v', '--verbose',
+               default = 0,
+               required = False,
+               count = True,
+               type = click.IntRange(0, 2, clamp=True), # Replaced int with click.IntRange
                help = 'Increment logging verbosity from default (logging.WARNING) to logging.INFO. ' + \
                       'use -vv for logging.DEBUG. will be overridden by -q/--quiet' )
-@click.option( '-q', '--quiet', default = False, required = False, is_flag = True, type = bool,
+@click.option( '-q', '--quiet',
+               default = False,
+               required = False,
+               is_flag = True,
+               type = bool,
                help = 'Set logging verbosity from default (logging.WARNING) to logging.ERROR, printing ' + \
                       'less output to screen. overrides -v[v]/--verbose' )
-@click.option( '-l', '--log_file', default = None, required = False, type = str,
+@click.option( '-l', '--log_file',
+               default = None,
+               required = False,
+               type = str,
                help = 'Path to log file for all fremor calls, the output to screen will still print with the ' + \
                       'path specified. If the log file already exists, it is appended to.' )
 def fremor(verbose = 0, quiet = False, log_file = None):
