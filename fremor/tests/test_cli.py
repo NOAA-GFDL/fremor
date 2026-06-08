@@ -23,6 +23,7 @@ import tempfile
 from unittest.mock import patch
 
 from click.testing import CliRunner
+import yaml
 
 from fremor.cli import fremor
 
@@ -33,6 +34,7 @@ from .conftest import (
 )
 
 runner = CliRunner()
+AM5_YAML_EX_DIR = ROOTDIR / 'yaml_examples' / 'am5'
 
 # log format strings produced by the fremor group callback (cli.py / fremor)
 LOG_INFO_LINE = '[ INFO:                  cli.py:                  fremor] ' + \
@@ -137,33 +139,78 @@ def test_cli_fremor_yaml_opt_dne():
 
 @patch('fremor.cli.cmor_yaml_subtool')
 def test_cli_fremor_yaml_case1(mock_subtool, tmp_path):
-    """ fremor yaml --dry_run -y YAMLFILE ... --output FOO_cmor.yaml """
-    # use a temporary yaml placeholder file as the model yaml input
-    dummy_yaml = tmp_path / 'model.yaml'
+    """ fremor yaml --dry_run -y YAMLFILE """
+    dummy_yaml = tmp_path / 'cmor.yaml'
     dummy_yaml.write_text('placeholder', encoding='utf-8')
-    output_yaml = tmp_path / 'FOO_cmor.yaml'
 
     mock_subtool.return_value = None
 
     result = runner.invoke(fremor, args=['-v', '-v', 'yaml', '--dry_run',
-                                         '-y', str(dummy_yaml),
-                                         '-e', 'test_experiment',
-                                         '-p', 'test_platform',
-                                         '-t', 'test_target',
-                                         '--output', str(output_yaml) ])
+                                         '-y', str(dummy_yaml)])
 
     assert result.exit_code == 0
     mock_subtool.assert_called_once_with(
         yamlfile=str(dummy_yaml),
-        exp_name='test_experiment',
-        target='test_target',
-        platform='test_platform',
-        output=str(output_yaml),
         run_one_mode=False,
         dry_run_mode=True,
         start=None,
         stop=None,
         print_cli_call=True,
+    )
+
+
+# ── fremor resolve ───────────────────────────────────────────────────────────
+
+def test_cli_fremor_resolve():
+    """ fremor resolve """
+    result = runner.invoke(fremor, args=['resolve'])
+    assert result.exit_code == 2
+
+
+def test_cli_fremor_resolve_help():
+    """ fremor resolve --help """
+    result = runner.invoke(fremor, args=['resolve', '--help'])
+    assert result.exit_code == 0
+
+
+def test_cli_fremor_resolve_opt_dne():
+    """ fremor resolve optionDNE """
+    result = runner.invoke(fremor, args=['resolve', 'optionDNE'])
+    assert result.exit_code == 2
+
+
+def test_cli_fremor_resolve_case1(tmp_path):
+    """ fremor resolve --output should write the resolved AM5 YAML """
+    output_yaml = tmp_path / 'resolved_am5.yaml'
+    expected_yaml = AM5_YAML_EX_DIR / 'expected_resolved.yaml'
+
+    result = runner.invoke(fremor, args=[
+        'resolve',
+        '-y', str(AM5_YAML_EX_DIR / 'model.yaml'),
+        '-e', 'c96L65_am5f7b12r1_amip',
+        '--output', str(output_yaml),
+    ])
+
+    assert result.exit_code == 0, result.output
+    with open(output_yaml, encoding='utf-8') as handle:
+        resolved = yaml.safe_load(handle)
+    with open(expected_yaml, encoding='utf-8') as handle:
+        expected = yaml.safe_load(handle)
+    assert resolved == expected
+
+
+def test_cli_fremor_resolve_case2_stdout():
+    """ fremor resolve without --output should print resolved YAML to stdout """
+    result = runner.invoke(fremor, args=[
+        'resolve',
+        '-y', str(AM5_YAML_EX_DIR / 'model.yaml'),
+        '-e', 'c96L65_am5f7b12r1_amip',
+    ])
+
+    assert result.exit_code == 0, result.output
+    resolved = yaml.safe_load(result.output)
+    assert resolved['cmor']['directories']['pp_dir'].endswith(
+        'c96L65_am5f7b12r1_amip/pp'
     )
 
 
@@ -446,6 +493,11 @@ def test_cli_fremor_config_case1(cli_sos_nc_file): # pylint: disable=redefined-o
     yaml_text = output_yaml.read_text(encoding='utf-8')
     assert 'cmor:' in yaml_text
     assert 'table_targets:' in yaml_text
+    loaded_yaml = yaml.safe_load(yaml_text)
+    assert loaded_yaml['cmor']['start'] is None
+    assert loaded_yaml['cmor']['stop'] is None
+    assert loaded_yaml['cmor']['table_targets'][0]['gridding']['grid_label'] == 'gn'
+    assert loaded_yaml['cmor']['table_targets'][0]['target_components'][0]['chunk'] == 'P5Y'
 
     # clean up
     if dst_nc.is_symlink():

@@ -254,26 +254,26 @@ later consume.
 Common Issues and Solutions
 ---------------------------
 
-``fremor yaml`` Fails at YAML Combination Step
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+``fremor resolve`` Fails at YAML Combination Step
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 .. note::
 
    This section and general YAML behavior is under-review and being refactored
 
-``fremor yaml`` fails with key errors or anchor errors during the YAML combination step.
+``fremor resolve`` fails with key errors or anchor errors during model/CMOR YAML resolution.
 
 .. note::
 
-   The ``fremor yaml`` subcommand optionally relies on ``fre-cli``\'s ``yamltools`` module for
-   YAML consolidation. If ``fre-cli`` is not installed, you can use
-   ``fremor``\'s native YAML loader with a single pre-consolidated YAML file.
+   ``fremor resolve`` now uses ``fremor``'s own lightweight YAML loader. It reads the
+   model yaml, finds the referenced CMOR yaml and optional grids yaml, and resolves
+   only the YAML needed for CMOR debugging.
 
 To debug this issue:
 
 * Verify all referenced YAML files exist and are readable
-* Verify anchors referenced in the CMOR YAML are defined in the model YAML
-* Verify that the ``cmor:`` section exists in the experiment definition
+* Verify anchors referenced in the CMOR YAML are defined in the model YAML or grids YAML
+* Verify that the ``cmor:`` section exists in the resolved output
 * Verify the CMOR YAML path is relative to the model YAML location
 
 No Files Found in Input Directory
