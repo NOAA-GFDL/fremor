@@ -84,7 +84,7 @@ _CMIP6_EXP_CONFIG_DATA = {
 }
 
 _CMIP7_EXP_CONFIG_DATA = {
-    '#_TESTING_ONLY': ' ***** This is for unit-test functionality of NOAA-GDFL\'s fremor module for CMIP7, they do not reflect values used in actual production *****',
+    '#_TESTING_ONLY': ' ***** This is for unit-test functionality of NOAA-GFDL\'s fremor module for CMIP7, they do not reflect values used in actual production *****',
     'contact ': 'MIP participant mipmember@foobar.c.om',
     'comment': 'additional important information not fitting into other fields can be placed here',
     'license_id': 'CC-BY-4.0',

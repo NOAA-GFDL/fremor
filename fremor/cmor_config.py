@@ -15,13 +15,29 @@ Functions
 """
 
 import glob
+import json
 import logging
 from pathlib import Path
+import re
 
 from .cmor_finder import make_simple_varlist
 from .cmor_constants import EXCLUDED_TABLE_SUFFIXES
 
 fre_logger = logging.getLogger(__name__)
+
+
+def _bronx_to_iso_chunk(chunk: str) -> str:
+    """Convert FRE-bronx chunk syntax like ``5yr`` to CMOR YAML syntax like ``P5Y``.
+
+    This helper intentionally only handles year-based chunks because that is the
+    only chunk shape currently emitted by ``fremor config``.
+    """
+    if chunk.startswith('P') and chunk.endswith('Y'):
+        return chunk
+    match = re.fullmatch(r'(\d+)yr', str(chunk))
+    if match is None:
+        raise ValueError(f'chunk must be ISO8601 like P5Y or bronx-style like 5yr, got {chunk}')
+    return f'P{match.group(1)}Y'
 
 
 def _filter_mip_tables(mip_tables_dir: str, mip_era: str):
@@ -108,6 +124,11 @@ def cmor_config_subtool(
         raise FileNotFoundError(f'mip_tables_dir does not exist: {mip_tables_dir}')
     if not Path(exp_config).is_file():
         raise FileNotFoundError(f'exp_config does not exist: {exp_config}')
+    with open(exp_config, encoding='utf-8') as handle:
+        exp_config_data = json.load(handle)
+    grid_desc = exp_config_data.get('grid')
+    nominal_resolution = exp_config_data.get('nominal_resolution')
+    chunk_iso = _bronx_to_iso_chunk(chunk)
 
     # ensure output directories exist
     Path(varlist_dir).mkdir(parents=True, exist_ok=True)
@@ -127,10 +148,8 @@ def cmor_config_subtool(
     lines = [
         '',
         'cmor:',
-        '  start:',
-        '    *CMOR_START',
-        '  stop:',
-        '    *CMOR_STOP',
+        '  start: null',
+        '  stop: null',
         '  calendar_type:',
         f"    '{calendar_type}'",
         '  mip_era:',
@@ -205,15 +224,17 @@ def cmor_config_subtool(
                     lines.append('')
                     lines.append(f"    - table_name: '{table_name}'")
                     lines.append(f"      freq: '{freq}'")
-                    lines.append( '      gridding:')
-                    lines.append(f'        <<: *{grid}')
+                    lines.append('      gridding:')
+                    lines.append(f"        grid_label: '{grid}'")
+                    lines.append(f"        grid_desc: '{grid_desc}'")
+                    lines.append(f"        nom_res: '{nominal_resolution}'")
                     lines.append( '      target_components:')
                     appended_table_header = True
 
                 lines.append(f"        - component_name: '{component_name}'")
                 lines.append(f"          variable_list: '{variable_list}'")
                 lines.append("          data_series_type: 'ts'")
-                lines.append('          chunk: *PP_CMIP_CHUNK')
+                lines.append(f"          chunk: '{chunk_iso}'")
 
 
     # ---- write output YAML ----
