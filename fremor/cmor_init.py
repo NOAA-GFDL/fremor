@@ -16,8 +16,9 @@ This module powers the ``fremor init`` command, providing two key capabilities:
 
 Trusted sources
 ---------------
-- CMIP6: https://github.com/pcmdi/cmip6-cmor-tables
-- CMIP7: https://github.com/WCRP-CMIP/cmip7-cmor-tables
+- CMIP6:     https://github.com/PCMDI/cmip6-cmor-tables
+- CMIP6Plus: https://github.com/PCMDI/mip-cmor-tables
+- CMIP7:     https://github.com/WCRP-CMIP/cmip7-cmor-tables
 
 Functions
 ---------
@@ -38,8 +39,9 @@ fre_logger = logging.getLogger(__name__)
 # Trusted sources for MIP tables
 # ---------------------------------------------------------------------------
 MIP_TABLE_REPOS = {
-    'cmip6': 'https://github.com/pcmdi/cmip6-cmor-tables',
-    'cmip7': 'https://github.com/WCRP-CMIP/cmip7-cmor-tables',
+    'cmip6'     : 'https://github.com/PCMDI/cmip6-cmor-tables',
+    'cmip6plus' : 'https://github.com/PCMDI/mip-cmor-tables',
+    'cmip7'     : 'https://github.com/WCRP-CMIP/cmip7-cmor-tables',
 }
 
 
@@ -103,6 +105,9 @@ def _cmip6_exp_config_template():
         ),
     }
 
+def _cmip6plus_exp_config_template():
+    """ return a template for CMIP6Plus. currently, this is the identical object for cmip6 """
+    return _cmip6_exp_config_template()
 
 def _cmip7_exp_config_template():
     """Return an ordered dict-like structure for an empty CMIP7 experiment config."""

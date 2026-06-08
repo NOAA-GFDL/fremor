@@ -16,8 +16,9 @@ import fremor
 # ── path constants ──────────────────────────────────────────────────────────
 ROOTDIR = Path(fremor.__file__).parent / 'tests' / 'test_files'
 
-CMIP6_TABLE_CONFIG = ROOTDIR / 'cmip6-cmor-tables' / 'Tables' / 'CMIP6_Omon.json'
-CMIP7_TABLE_CONFIG = ROOTDIR / 'cmip7-cmor-tables' / 'tables' / 'CMIP7_ocean.json'
+CMIP6_TABLE_CONFIG     = ROOTDIR / 'cmip6-cmor-tables' / 'Tables' / 'CMIP6_Omon.json'
+CMIP6PLUS_TABLE_CONFIG = ROOTDIR / 'mip-cmor-tables'   / 'Tables' / 'MIP_OPmon.json'
+CMIP7_TABLE_CONFIG     = ROOTDIR / 'cmip7-cmor-tables' / 'tables' / 'CMIP7_ocean.json'
 
 INDIR = ROOTDIR / 'ocean_sos_var_file'
 VARLIST = ROOTDIR / 'varlist'
@@ -54,7 +55,7 @@ _CMIP6_EXP_CONFIG_DATA = {
     'branch_method': 'no parent',
     'branch_time_in_child': 59400.0,
     'branch_time_in_parent': 0.0,
-    'institution_id': 'PCMDI',
+    'institution_id': 'NOAA-GFDL',
     'source_id': 'PCMDI-test-1-0',
     'calendar': 'julian',
     'grid': 'FOO_BAR_PLACEHOLD',
@@ -68,7 +69,7 @@ _CMIP6_EXP_CONFIG_DATA = {
     'comment': '',
     'references': 'Model described by Koder and Tolkien (J. Geophys. Res., 2001, 576-591).  Also see http://www.GICC.su/giccm/doc/index.html.  The ssp245 simulation is described in Dorkey et al. \'(Clim. Dyn., 2003, 323-357.)\'',
     'sub_experiment': 'none',
-    'institution': '',
+    'institution': 'NOAA-GFDL',
     'source': 'PCMDI-test 1.0 (1989)',
     '_controlled_vocabulary_file': 'CMIP6_CV.json',
     '_AXIS_ENTRY_FILE': 'CMIP6_coordinate.json',
@@ -102,8 +103,7 @@ _CMIP7_EXP_CONFIG_DATA = {
     'activity_id': 'CMIP',
     'parent_activity_id': 'CMIP',
     '#_SOURCE_SECTION': '***** anything to do with identifying this experiment, it\'s relationships to other experiments, the producers, and their institution *****',
-    'institution': '',
-    'institution_id': 'CCCma',
+    'institution_id': 'NOAA-GFDL',
     'source': 'DUMMY-MODEL: aerosol: Dummy Aerosol; atmosphere: Dummy Atmosphere; atmospheric_chemistry: Dummy Atmospheric Chemistry; land_surface: Dummy Land Surface; ocean: Dummy Ocean; ocean_biogeochemistry: Dummy Ocean Biogeochemistry; sea_ice: Dummy Sea Ice',
     'parent_source_id': 'DUMMY-MODEL',
     'source_id': 'DUMMY-MODEL',
