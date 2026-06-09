@@ -910,7 +910,7 @@ def cmor_run_subtool(indir: str = None,
     # if opt_var_name is specified, the routine is short-circuited to care only about opt_var_name
     vars_to_run = {}
     for local_var in var_list:
-        if opt_var_name is not None and opt_var_name in mip_var_list:
+        if all( [ opt_var_name is not None, opt_var_name in mip_var_list ] ):
             vars_to_run[opt_var_name] = opt_var_name
             break
         if var_list[local_var] not in mip_var_list: #mip_var_cfgs['variable_entry']:
