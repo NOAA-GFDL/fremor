@@ -1,6 +1,5 @@
 """
-tests for fremor.cmor_finder.cmor_find_subtool,
-mostly
+tests for fremor.cmor_finder.cmor_find_subtool, mostly
 """
 
 import json

@@ -222,7 +222,7 @@ def cmor_yaml_subtool( yamlfile: str = None,
             fre_logger.info('PROCESSING: ( %s, %s )', table_name, component)
             cmor_run_call_outdir=f'{cmorized_outdir}/{component}/{table_name}'
 
-
+            opt_var_name = '' if opt_var_name is None else opt_var_name
             if dry_run_mode:
                 if print_cli_call:
                     fre_logger.info( '%s', '--DRY RUN CLI CALL---\n' + \
@@ -233,7 +233,7 @@ def cmor_yaml_subtool( yamlfile: str = None,
                                           f'    --exp_config {json_exp_config} \\ \n' + \
                                           f'    --outdir {cmor_run_call_outdir} \\ \n' + \
                                            '    --run_one \\ \n' + \
-                                          f'    --opt_var_name {opt_var_name} ,\n' + \
+                                          f'    --opt_var_name {opt_var_name} \\ \n' + \
                                           f'    --grid_desc "{grid_desc}" \\ \n' + \
                                           f'    --grid_label {grid_label} \\ \n' + \
                                           f'    --nom_res "{nom_res}" \\ \n' + \

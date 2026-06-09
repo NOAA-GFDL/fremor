@@ -170,12 +170,13 @@ def cmor_config_subtool(
 
     for mip_table in sorted(mip_tables):
         table_name = Path(mip_table).stem.split('.')[0].split('_')[1]   # e.g. CMIP7_ocean
-        fre_logger.debug('processing mip_table = %s', table_name)
+        fre_logger.info('processing mip_table = %s', table_name)
 
         appended_table_header = False
 
         for entry in ppcompdirs:
             component_name = Path(entry).name
+            fre_logger.info('making variable list for %s', component_name)
             variable_list = f'{varlist_dir}/{era_upper}_{table_name}_{component_name}.list'
 
             # optionally regenerate

@@ -210,9 +210,9 @@ def make_simple_varlist( dir_targ: str,
         return None
 
     if len(all_nc_files) == 1:
-        fre_logger.warning('Warning: Only one file found matching the pattern.')
+        fre_logger.debug('Warning: Only one file found matching the pattern.')
 
-    fre_logger.info('Files found matching pattern. Number of files: %d', len(all_nc_files))
+    fre_logger.debug('Files found matching pattern. Number of files: %d', len(all_nc_files))
 
     mip_vars = None
     if json_mip_table is not None:
@@ -254,7 +254,7 @@ def make_simple_varlist( dir_targ: str,
     # Write the variable list to the output JSON file
     if output_variable_list is not None:
         try:
-            fre_logger.info('writing output variable list, %s', list(var_list.keys()))
+            fre_logger.debug('writing output variable list, %s', list(var_list.keys()))
             with open(output_variable_list, 'w', encoding='utf-8') as f:
                 json.dump(var_list, f, indent=4)
         except Exception as exc:
