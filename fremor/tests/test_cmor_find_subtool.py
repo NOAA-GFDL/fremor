@@ -44,7 +44,7 @@ def test_find_subtool_no_json_dir_err(tmp_path):
     """
     target_dir_dne = Path(tmp_path) / 'foo'
     assert not target_dir_dne.exists(), 'target dir should not exist for this test'
-    with pytest.raises(OSError, match=f'ERROR directory {target_dir_dne} does not exist! exit.'):
+    with pytest.raises(OSError, match=f'ERROR directory {target_dir_dne} does not exist, exit.'):
         cmor_find_subtool(json_var_list=None,
                           json_table_config_dir=str(target_dir_dne),
                           opt_var_name=None)
@@ -67,7 +67,7 @@ def test_find_subtool_no_varlist_no_optvarname_err():
     """
     test no opt_var_name AND no varlist error
     """
-    with pytest.raises(ValueError, match='ERROR: no opt_var_name given but also no content in variable list!!! exit!'):
+    with pytest.raises(ValueError, match='ERROR: no opt_var_name given but also no content in variable list, exit'):
         cmor_find_subtool(json_var_list=None,
                           json_table_config_dir='fremor/tests/test_files/cmip6-cmor-tables/Tables',
                           opt_var_name=None)
