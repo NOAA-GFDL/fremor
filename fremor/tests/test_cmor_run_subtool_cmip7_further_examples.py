@@ -186,4 +186,3 @@ def test_case_cmip7(  # pylint: disable=too-many-arguments,too-many-positional-a
         f'no CMOR output found matching {cmor_output_glob}'
     )
     assert Path(cmor_output_files[0]).exists()
-

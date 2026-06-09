@@ -66,7 +66,7 @@ def test_find_subtool_no_json_files_in_dir_err(tmp_path):
 def test_find_subtool_no_varlist_no_optvarname_err():
     """
     test no opt_var_name AND no varlist error
-    """    
+    """
     with pytest.raises(ValueError, match='ERROR: no opt_var_name given but also no content in variable list!!! exit!'):
         cmor_find_subtool(json_var_list=None,
                           json_table_config_dir='fremor/tests/test_files/cmip6-cmor-tables/Tables',

@@ -30,7 +30,6 @@ from .cmor_constants import DO_NOT_PRINT_LIST
 
 fre_logger = logging.getLogger(__name__)
 
-# TODO update for cmip7 if desired
 def print_var_content(table_config_file: IO[str],
                       var_name: str) -> None:
     """
@@ -50,33 +49,85 @@ def print_var_content(table_config_file: IO[str],
     """
     # this function can assume the existence of this was checked in the prev routine.
     proj_table_vars = json.load(table_config_file)
+    if proj_table_vars is None or len(proj_table_vars) == 0:
+        raise ValueError( 'proj_table_vars has nothing in it! contents are:'
+                         f'{proj_table_vars}')
 
-    table_name = None
+    table_name, table_file_name, mip_era = None, None, None
     try:
-        table_name = proj_table_vars['Header'].get('table_id').split(' ')[1]
+        table_mip_era = proj_table_vars['Header'].get('mip_era')
+        mip_era = 'cmip7' if table_mip_era is None else 'cmip6'
+        table_name_split = proj_table_vars['Header'].get('table_id').split(' ')
+        table_name = table_name_split[0] if len(table_name_split) < 2 else table_name_split[1]
+        table_file_name = Path(table_config_file.name).name # something not fun happening here...
     except KeyError:
         fre_logger.warning('couldn\'t get header and table_name field')
     except IndexError:
         fre_logger.warning("couldn't get header and table_name, probably not a variable table")
 
     if table_name is not None:
-        fre_logger.info('looking for %s data in table %s!', var_name, table_name)
+        fre_logger.debug('looking for %s data in table %s!', var_name, table_name)
     else:
-        fre_logger.info('looking for %s data in table %s, but could not find its table_name!',
+        fre_logger.debug('looking for %s data in table %s, but could not find its table_name!',
                         var_name, table_config_file.name)
 
-    var_content = proj_table_vars.get('variable_entry', {}).get(var_name)
-    if var_content is None:
-        fre_logger.debug('variable %s not found in %s, moving on!', var_name, Path(table_config_file.name).name)
+    var_content = None
+    if mip_era != 'cmip7':
+        var_content = proj_table_vars.get('variable_entry', {}).get(var_name)
+    else:
+        # branded variables
+        fre_logger.debug('    cmip7 case detected, checking branded variable content')
+        all_branded_vars = proj_table_vars.get('variable_entry', {}).keys()
+        relevant_branded_vars = [ branded_var for branded_var in all_branded_vars if var_name in branded_var ]
+        fre_logger.debug('found relevant_branded_vars = %s', relevant_branded_vars)
+
+        var_content = []
+        for relevant_var_name in relevant_branded_vars:
+            var_content.append(
+                { relevant_var_name : proj_table_vars.get('variable_entry', {}).get(relevant_var_name) }
+            )
+
+    if var_content in [None, []]:
+        fre_logger.debug('variable %s not found in %s, moving on!', var_name, table_file_name)
         return
 
-    fre_logger.info('    variable key: %s', var_name)
-    for content in var_content:
-        if content in DO_NOT_PRINT_LIST:
-            continue
-        fre_logger.info('    %s: %s', content, var_content[content])
+    if isinstance(var_content, list):
+        fre_logger.info('amongst branded variables, looked for variable name: %s', var_name)
+        for brand_var_content in var_content:
+            branded_var=str(list(brand_var_content)[0])
+            fre_logger.info('\n')
+
+            fre_logger.info('in table %s / table_name %s, found %s', table_file_name, table_name, branded_var)
+            fre_logger.debug(brand_var_content[branded_var])
+            fre_logger.debug(type(brand_var_content[branded_var]))
+            for thing in brand_var_content[branded_var]:
+                if thing in DO_NOT_PRINT_LIST:
+                    continue
+                fre_logger.info('    %s: %s', thing, brand_var_content[branded_var][thing])
+    else:
+        fre_logger.info('    variable key: %s', var_name)
+        for content in var_content:
+            if content in DO_NOT_PRINT_LIST:
+                continue
+            fre_logger.info('    %s: %s', content, var_content[content])
     fre_logger.info('\n')
 
+def print_var_content_in_dir_w_mip_tables(json_table_configs: list = None,
+                                          var_name: str = None) -> None:
+    """
+    given a list of table configuration files and a variable name, find and print info
+    on the variable name when found. CMIP6 and CMIP7 compatible.
+    """
+    if var_name in [None, '']:
+        fre_logger.info('no varname, nothing to print, moving on')
+        return
+    if json_table_configs in [None, []] or len(json_table_configs)==0:
+        fre_logger.warning('no mip table configurations to loop over, moving on')
+        return
+    for json_table_config in json_table_configs:
+        fre_logger.debug('looking for %s content in %s', var_name, Path(json_table_config).name)
+        with open(json_table_config, 'r', encoding='utf-8') as table_config_file:
+            print_var_content(table_config_file, var_name)
 
 def cmor_find_subtool( json_var_list: Optional[str] = None,
                        json_table_config_dir: Optional[str] = None,
@@ -99,13 +150,13 @@ def cmor_find_subtool( json_var_list: Optional[str] = None,
               CMIP6 tables. Information is printed via the logger.
     """
     if not Path(json_table_config_dir).exists():
-        raise OSError(f'ERROR directory {json_table_config_dir} does not exist! exit.')
+        raise OSError(f'ERROR directory {json_table_config_dir} does not exist, exit.')
 
-    fre_logger.info('attempting to find and open files in dir: \n %s ', json_table_config_dir)
+    fre_logger.debug('looking for files in dir: %s ', json_table_config_dir)
     json_table_configs = glob.glob(f'{json_table_config_dir}/*.json')
     if not json_table_configs:
         raise OSError(f'ERROR directory {json_table_config_dir} contains no JSON files, exit.')
-    fre_logger.info('found content in json_table_config_dir')
+    fre_logger.info('found JSON tables in json_table_config_dir')
 
     var_list = None
     if json_var_list is not None:
@@ -113,21 +164,18 @@ def cmor_find_subtool( json_var_list: Optional[str] = None,
             var_list = json.load(var_list_file)
 
     if opt_var_name is None and var_list is None:
-        raise ValueError('ERROR: no opt_var_name given but also no content in variable list!!! exit!')
+        raise ValueError('ERROR: no opt_var_name given but also no content in variable list, exit')
 
     if opt_var_name is not None:
-        fre_logger.info('opt_var_name is not None: looking for only ONE variables worth of info!')
-        for json_table_config in json_table_configs:
-            with open(json_table_config, 'r', encoding='utf-8') as table_config_file:
-                print_var_content(table_config_file, opt_var_name)
+        fre_logger.info('looking for %s info', opt_var_name)
+        print_var_content_in_dir_w_mip_tables(json_table_configs=json_table_configs,
+                                              var_name=opt_var_name)
 
     elif var_list is not None:
-        fre_logger.info('opt_var_name is None, and var_list is not None, looking for many variables worth of info!')
+        fre_logger.info('looking for %s variables worth of info', len(var_list))
         for var in var_list:
-            for json_table_config in json_table_configs:
-                with open(json_table_config, 'r', encoding='utf-8') as table_config_file:
-                    print_var_content(table_config_file, str(var_list[var]))
-
+            print_var_content_in_dir_w_mip_tables(json_table_configs=json_table_configs,
+                                                  var_name=var_list[var])
 
 def make_simple_varlist( dir_targ: str,
                          output_variable_list: Optional[str],
