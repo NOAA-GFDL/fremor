@@ -13,6 +13,7 @@ concurrency:
 
 permissions:
   contents: read
+  code-quality: write
 
 jobs:
   conda-test:
@@ -67,3 +68,11 @@ jobs:
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           verbose: true
+
+      - name: Upload coverage report to GitHub
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+        uses: actions/upload-code-coverage@v1
+        with:
+          file: coverage.xml
+          language: Python
+          label: code-coverage/fremor
