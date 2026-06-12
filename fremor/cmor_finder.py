@@ -158,7 +158,7 @@ def make_simple_varlist( dir_targ: str,
     # if the variable is in the filename, it's likely delimited by another period.
     all_nc_files = glob.glob(os.path.join(dir_targ, '*.*.nc'))
     if not all_nc_files:
-        fre_logger.error('No files found in the directory.') #uncovered
+        fre_logger.error('No files found in the directory.')
         return None
 
     if len(all_nc_files) == 1:

@@ -10,11 +10,13 @@ each ``fremor <command>`` has it's own, similarly named python function.
 import logging
 
 import click
+import yaml as pyyaml
 
 from . import __version__ as version, FORMAT
 from .cmor_finder import cmor_find_subtool, make_simple_varlist
 from .cmor_mixer import cmor_run_subtool
 from .cmor_yamler import cmor_yaml_subtool
+from .cmor_resolver import resolve_fremor_yaml
 from .cmor_config import cmor_config_subtool
 from .cmor_init import cmor_init_subtool
 
@@ -46,13 +48,24 @@ STOP_YEAR_HELP = 'string representing the maximum calendar year CMOR should stop
         'fremor is the main CLI for fremor. it houses the cmor subcommands.',
         fg = 'cyan')
 )
-@click.option( '-v', '--verbose', default = 0, required = False, count = True, type = int,
+@click.option( '-v', '--verbose',
+               default = 0,
+               required = False,
+               count = True,
+               type = click.IntRange(0, 2, clamp=True), # Replaced int with click.IntRange
                help = 'Increment logging verbosity from default (logging.WARNING) to logging.INFO. ' + \
                       'use -vv for logging.DEBUG. will be overridden by -q/--quiet' )
-@click.option( '-q', '--quiet', default = False, required = False, is_flag = True, type = bool,
+@click.option( '-q', '--quiet',
+               default = False,
+               required = False,
+               is_flag = True,
+               type = bool,
                help = 'Set logging verbosity from default (logging.WARNING) to logging.ERROR, printing ' + \
                       'less output to screen. overrides -v[v]/--verbose' )
-@click.option( '-l', '--log_file', default = None, required = False, type = str,
+@click.option( '-l', '--log_file',
+               default = None,
+               required = False,
+               type = str,
                help = 'Path to log file for all fremor calls, the output to screen will still print with the ' + \
                       'path specified. If the log file already exists, it is appended to.' )
 def fremor(verbose = 0, quiet = False, log_file = None):
@@ -95,17 +108,6 @@ def fremor(verbose = 0, quiet = False, log_file = None):
 @click.option('-y', '--yamlfile', type = str,
               help = 'YAML file to be used for parsing',
               required = True )
-@click.option('-e', '--experiment', type = str,
-              help = 'Experiment name',
-              required = True )
-@click.option('-p', '--platform', type = str,
-              help = 'Platform name',
-              required = True )
-@click.option('-t', '--target', type = str,
-              help = 'Target name',
-              required = True )
-@click.option('-o', '--output', type = str, default = None,
-              help = 'Output file if desired', required = False)
 @click.option('--run_one', is_flag = True, default = False,
               help=RUN_ONE_HELP,
               required = False)
@@ -122,24 +124,37 @@ def fremor(verbose = 0, quiet = False, log_file = None):
               help = 'In dry-run mode, print the equivalent CLI invocation (default) '
                      'or the Python cmor_run_subtool() call.',
               required = False)
-def yaml(yamlfile, experiment, target, platform, output, run_one, dry_run, start, stop, print_cli_call):
-    """
-    Processes a CMOR (Climate Model Output Rewriter) YAML configuration file. This function takes a YAML file
-    and various parameters related to a climate model experiment, and processes the YAML file using the CMOR
-    YAML subtool.
-    """
+def yaml(yamlfile, run_one, dry_run, start, stop, print_cli_call):
+    """Process a self-contained CMOR YAML file and run the requested CMORization steps."""
     cmor_yaml_subtool(
         yamlfile = yamlfile,
-        exp_name = experiment,
-        target = target,
-        platform = platform,
-        output = output,
         run_one_mode = run_one,
         dry_run_mode = dry_run,
         start = start,
         stop = stop,
         print_cli_call = print_cli_call
     )
+
+
+@fremor.command()
+@click.option('-y', '--yamlfile', type=str,
+              help='Model YAML file to resolve',
+              required=True)
+@click.option('-e', '--experiment', type=str,
+              help='Experiment name to resolve',
+              required=True)
+@click.option('-o', '--output', type=str, default=None,
+              help='Optional output file for the resolved YAML',
+              required=False)
+def resolve(yamlfile, experiment, output):
+    """Resolve one model-YAML experiment into a combined YAML document for inspection."""
+    resolved_yaml = resolve_fremor_yaml(
+        yamlfile=yamlfile,
+        experiment=experiment,
+        output=output,
+    )
+    if output is None:
+        click.echo(pyyaml.safe_dump(resolved_yaml, sort_keys=False))
 
 
 @fremor.command()
@@ -152,7 +167,7 @@ def yaml(yamlfile, experiment, target, platform, output, run_one, dry_run, start
 @click.option('-v', '--opt_var_name', type = str,
               help=OPT_VAR_NAME_HELP,
               required=False)
-def find(varlist, table_config_dir, opt_var_name): #uncovered
+def find(varlist, table_config_dir, opt_var_name):
     """
     loop over json table files in config_dir and show which tables contain variables in var list/
     the tool will also print what that table entry is expecting of that variable as well. if given
