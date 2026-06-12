@@ -1,9 +1,12 @@
 name: test_cmor_nightly
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 on:
-  pull_request: # PR test only, REMOVE / TODO / DONOTMERGE
-#  schedule:
-#    - cron: '0 6 * * *'  # daily at 06:00 UTC
-#  workflow_dispatch:
+  schedule:
+    - cron: '0 6 * * *'  # daily at 06:00 UTC
+  workflow_dispatch:
 
 # cancel running jobs if theres a newer push
 concurrency:
