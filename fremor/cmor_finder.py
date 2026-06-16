@@ -174,7 +174,7 @@ def make_simple_varlist( dir_targ: str,
             full_mip_vars_list=get_json_file_data(json_mip_table)['variable_entry'].keys()
 
         except Exception as exc:
-            raise Exception( 'problem opening mip table and getting variable entry data.'
+            raise Exception( 'problem opening mip table and getting variable entry data.'  # pylint: disable=broad-exception-raised
                             f'exc = {exc}') from exc
 
         fre_logger.debug('attempting to make mip variable list')

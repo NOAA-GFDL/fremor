@@ -203,7 +203,7 @@ def test_calendars_are_equivalent_different_calendars():
 
 # ---- get_time_calendar_value tests ----
 
-class _FakeTime:
+class _FakeTime:  # pylint: disable=too-few-public-methods
     """Minimal stand-in for a netCDF time variable.
 
     Only sets an attribute when a non-None value is supplied, so that

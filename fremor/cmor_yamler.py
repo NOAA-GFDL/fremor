@@ -27,7 +27,8 @@ from .cmor_helpers import ( check_path_existence, iso_to_bronx_chunk,
 
 fre_logger = logging.getLogger(__name__)
 
-def cmor_yaml_subtool( yamlfile: str = None,
+def cmor_yaml_subtool(  # pylint: disable=too-many-arguments,too-many-positional-arguments,too-many-locals,too-many-branches,too-many-statements
+        yamlfile: str = None,
                        opt_var_name: Optional[str] = None,
                        run_one_mode: bool = False,
                        dry_run_mode: bool = False,
@@ -275,7 +276,7 @@ def cmor_yaml_subtool( yamlfile: str = None,
                     stop = stop ,
                     calendar_type = calendar_type
                 )
-            except Exception as exc: #uncovered
+            except Exception as exc:  # pylint: disable=broad-exception-caught  #uncovered
                 fre_logger.warning(
                     'cmor_run_subtool failed for (%s, %s), skipping: %s',
                     table_name, component, exc

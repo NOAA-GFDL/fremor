@@ -32,7 +32,8 @@ from .cmor_helpers import ( print_data_minmax, from_ds_get_this,
 fre_logger = logging.getLogger(__name__)
 
 
-def load_tripolar_grid( ds: nc.Dataset,
+def load_tripolar_grid(  # pylint: disable=too-many-locals,too-many-statements
+        ds: nc.Dataset,
                         netcdf_file: str,
                         prev_path: Optional[str] = None ) -> dict:
     """

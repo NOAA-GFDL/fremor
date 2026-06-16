@@ -142,9 +142,9 @@ def _ncgen_for_case(testfile_dir, opt_var_name):
         ),
     ],
 )
-def test_case_cmip7(  # pylint: disable=too-many-arguments,too-many-positional-arguments
+def test_case_cmip7(  # pylint: disable=too-many-arguments,too-many-positional-arguments,too-many-locals
     testfile_dir, table, opt_var_name, grid_label, start, calendar,
-    tmp_path, monkeypatch,
+    tmp_path,
 ):
     """
     Run cmor_run_subtool for a single CMIP7 variable and assert output exists.
@@ -195,4 +195,3 @@ def test_case_cmip7(  # pylint: disable=too-many-arguments,too-many-positional-a
         assert in_dtype == out_dtype, (
             f'{opt_var_name} input dtype {in_dtype} differs from CMOR output dtype {out_dtype}'
         )
-

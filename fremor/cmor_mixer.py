@@ -35,7 +35,7 @@ import cmor
 import numpy as np
 import netCDF4 as nc
 
-from .cmor_helpers import ( print_data_minmax, from_ds_get_this, create_lev_bnds,
+from .cmor_helpers import ( from_ds_get_this, create_lev_bnds,
                             get_iso_datetime_ranges, check_dataset_for_ocean_grid, get_vertical_dimension,
                             create_tmp_dir, get_json_file_data, update_grid_and_label,
                             update_calendar_type, filter_brands,
@@ -47,7 +47,8 @@ from .cmor_constants import ( ACCEPTED_VERT_DIMS, NON_HYBRID_SIGMA_COORDS, ALT_H
 
 fre_logger = logging.getLogger(__name__)
 
-def rewrite_netcdf_file_var( mip_var_cfgs: dict = None,
+def rewrite_netcdf_file_var(  # pylint: disable=too-many-arguments,too-many-positional-arguments,too-many-locals,too-many-branches,too-many-statements
+        mip_var_cfgs: dict = None,
                              local_var: str = None,
                              netcdf_file: str = None,
                              target_var: str = None,
@@ -160,7 +161,7 @@ def rewrite_netcdf_file_var( mip_var_cfgs: dict = None,
             '    expected_mip_coord_dims = %s\n',
             expected_mip_coord_dims
         )
-    except Exception as exc:
+    except Exception as exc:  # pylint: disable=broad-exception-caught
         fre_logger.warning(
             'could not get expected coordinate dimensions for %s. '
             '   in mip_var_cfgs file %s. \n exc = %s',
@@ -187,7 +188,7 @@ def rewrite_netcdf_file_var( mip_var_cfgs: dict = None,
     time_coords_calendar = None
     try:
         time_coords_calendar = get_time_calendar_value(ds['time'])
-    except Exception:
+    except Exception:  # pylint: disable=broad-exception-caught
         fre_logger.debug('could not read time variable for calendar detection.')
 
     # if it's still None, give a warning and move on.
@@ -323,7 +324,7 @@ def rewrite_netcdf_file_var( mip_var_cfgs: dict = None,
                               coord_vals=time_coords,
                               cell_bounds=time_bnds,
                               interval=None)#interval='mon')#
-    except Exception as exc: #ValueError as exc: #uncovered
+    except Exception as exc:  # pylint: disable=broad-exception-caught  #ValueError as exc: #uncovered
         fre_logger.error('exc is %s', str(exc))
         fre_logger.info('assigning cmor_time WITHOUT time_bnds...')
         ntimes_passed=len(time_coords)
@@ -529,7 +530,8 @@ def rewrite_netcdf_file_var( mip_var_cfgs: dict = None,
     return filename
 
 
-def cmorize_target_var_files(indir: str = None,
+def cmorize_target_var_files(  # pylint: disable=too-many-arguments,too-many-positional-arguments,too-many-locals,too-many-branches,too-many-statements
+        indir: str = None,
                              target_var: str = None,
                              local_var: str = None,
                              iso_datetime_range_arr: List[str] = None,
@@ -629,8 +631,8 @@ def cmorize_target_var_files(indir: str = None,
                                                       json_exp_config,
                                                       json_table_config,
                                                       prev_path=nc_fls[i] )
-        except Exception as exc:
-            raise Exception(
+        except Exception as exc:  # pylint: disable=broad-exception-caught
+            raise Exception(  # pylint: disable=broad-exception-raised
                 'problem with rewrite_netcdf_file_var. '
                 f'exc={exc}\n'
                 'exiting and executing finally block.') from exc
@@ -688,7 +690,8 @@ def cmorize_target_var_files(indir: str = None,
             break
 
 
-def cmorize_all_variables_in_dir(vars_to_run: Dict[str, Any],
+def cmorize_all_variables_in_dir(  # pylint: disable=too-many-arguments,too-many-positional-arguments,too-many-locals
+        vars_to_run: Dict[str, Any],
                                  indir: str,
                                  iso_datetime_range_arr: List[str],
                                  name_of_set: str,
@@ -742,7 +745,7 @@ def cmorize_all_variables_in_dir(vars_to_run: Dict[str, Any],
                                      name_of_set, json_exp_config, outdir,
                                      mip_var_cfgs, json_table_config, run_one_mode)
             return_status = 0
-        except Exception as exc:
+        except Exception as exc:  # pylint: disable=broad-exception-caught
             return_status = 1
             fre_logger.exception('!!!EXCEPTION CAUGHT!!!')
             fre_logger.warning('this message came from within cmorize_target_var_files')
@@ -773,7 +776,8 @@ def cmorize_all_variables_in_dir(vars_to_run: Dict[str, Any],
     return return_status
 
 
-def cmor_run_subtool(indir: str = None,
+def cmor_run_subtool(  # pylint: disable=too-many-arguments,too-many-positional-arguments,too-many-locals,too-many-branches,too-many-statements
+        indir: str = None,
                      json_var_list: str = None,
                      json_table_config: str = None,
                      json_exp_config: str = None,

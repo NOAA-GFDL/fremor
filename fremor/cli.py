@@ -231,7 +231,8 @@ def find(varlist, table_config_dir, opt_var_name):
 @click.option('--calendar', type=str, default=None,
               help = 'calendar type, e.g. 360_day, noleap, gregorian... etc',
               required = False)
-def run(indir, varlist, table_config, exp_config, outdir, run_one, opt_var_name,
+def run(  # pylint: disable=too-many-arguments,too-many-positional-arguments
+        indir, varlist, table_config, exp_config, outdir, run_one, opt_var_name,
         grid_label, grid_desc, nom_res, start, stop, calendar):
     """
     Rewrite climate model output files with CMIP-compliant metadata for down-stream publishing
@@ -294,8 +295,9 @@ def varlist_(dir_targ, output_variable_list, mip_table):
               help='Overwrite existing variable list files.')
 @click.option('--calendar', type=str, default='noleap',
               help='Calendar type, e.g. noleap, 360_day. Default noleap.')
-def config(pp_dir, mip_tables_dir, mip_era, exp_config, output_yaml,
-           output_dir, varlist_dir, freq, chunk, grid, overwrite, calendar):
+def config(  # pylint: disable=too-many-arguments,too-many-positional-arguments
+        pp_dir, mip_tables_dir, mip_era, exp_config, output_yaml,
+        output_dir, varlist_dir, freq, chunk, grid, overwrite, calendar):
     """
     Generate a CMOR YAML configuration file from a post-processing directory tree.
     Scans pp_dir for components and time-series data, cross-references against MIP tables,

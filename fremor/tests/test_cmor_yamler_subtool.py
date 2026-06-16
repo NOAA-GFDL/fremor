@@ -28,7 +28,8 @@ GRID_LABEL = 'gr'
 NOM_RES = '10000 km'
 
 
-def _build_cmor_dict(*, pp_dir, table_dir, outdir, exp_config,
+def _build_cmor_dict(  # pylint: disable=too-many-arguments
+        *, pp_dir, table_dir, outdir, exp_config,
                      varlist, mip_era='CMIP6', table_name='Omon',
                      freq='monthly', component='ocean_monthly_1x1deg',
                      chunk='P5Y', data_series_type='ts',
