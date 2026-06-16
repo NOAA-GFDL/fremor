@@ -75,6 +75,7 @@ def cmor_config_subtool(
         output_yaml: str,
         output_dir: str,
         varlist_dir: str,
+        strict_varlist: bool = False,
         freq: str = 'monthly',
         chunk: str = '5yr',
         grid: str = 'g999',
@@ -210,6 +211,7 @@ def cmor_config_subtool(
             try:
                 make_simple_varlist(
                     dir_targ=dir_targ,
+                    return_none_if_no_mip_vars=strict_varlist,
                     output_variable_list=variable_list,
                     json_mip_table=mip_table
                 )

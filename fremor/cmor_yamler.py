@@ -29,6 +29,7 @@ fre_logger = logging.getLogger(__name__)
 
 def cmor_yaml_subtool( yamlfile: str = None,
                        opt_var_name: Optional[str] = None,
+                       run_strict_mode: bool = False,
                        run_one_mode: bool = False,
                        dry_run_mode: bool = False,
                        start: Optional[str] = None,
@@ -45,6 +46,8 @@ def cmor_yaml_subtool( yamlfile: str = None,
     :type yamlfile: str
     :param opt_var_name: If specified, process only files matching this variable name.
     :type opt_var_name: str, optional
+    :param run_strict_mode: If True, exit on an exception being raised from a fremor run (cmor_run_subtool) call.
+    :type run_strict_mode: bool
     :param run_one_mode: If True, process only one file and exit.
     :type run_one_mode: bool
     :param dry_run_mode: If True, print configuration and actions without executing cmor_run_subtool.
@@ -280,3 +283,5 @@ def cmor_yaml_subtool( yamlfile: str = None,
                     'cmor_run_subtool failed for (%s, %s), skipping: %s',
                     table_name, component, exc
                 )
+                if run_strict_mode:
+                    raise exc

@@ -31,13 +31,15 @@ VARLIST_HELP='path pointing to a json file containing directory of key/value pai
              'pointed to by those keys are strings representing the corresponding ' + \
              'MIP table variable name. the key and value are often the same, ' + \
              'but it is not required.'
+RUN_STRICT_HELP='exit when a cmor_run_subtool call throws an exception'
 RUN_ONE_HELP='process only one file, then exit. mostly for debugging and isolating issues.'
 DRY_RUN_HELP='don\'t call the cmor_mixer subtool, just printout what would be called and move on until natural exit'
 START_YEAR_HELP = 'string representing the minimum calendar year CMOR should start processing for. ' + \
                   'currently, only YYYY format is supported.'
 STOP_YEAR_HELP = 'string representing the maximum calendar year CMOR should stop processing for. ' + \
                   'currently, only YYYY format is supported.'
-
+VARLIST_STRICT_MODE_HELP='if indicated, and given a table and variable names found in filenames, if none of the ' + \
+                         'found variable names are in the table (sans brand if cmip7), do not write the list.'
 
 @click.version_option(
     package_name = 'fremor',
@@ -108,6 +110,9 @@ def fremor(verbose = 0, quiet = False, log_file = None):
 @click.option('-y', '--yamlfile', type = str,
               help = 'YAML file to be used for parsing',
               required = True )
+@click.option('--run_strict', is_flag = True, default = False,
+              help=RUN_STRICT_HELP,
+              required = False)
 @click.option('--run_one', is_flag = True, default = False,
               help=RUN_ONE_HELP,
               required = False)
@@ -124,10 +129,11 @@ def fremor(verbose = 0, quiet = False, log_file = None):
               help = 'In dry-run mode, print the equivalent CLI invocation (default) '
                      'or the Python cmor_run_subtool() call.',
               required = False)
-def yaml(yamlfile, run_one, dry_run, start, stop, print_cli_call):
+def yaml(yamlfile, run_strict, run_one, dry_run, start, stop, print_cli_call):
     """Process a self-contained CMOR YAML file and run the requested CMORization steps."""
     cmor_yaml_subtool(
         yamlfile = yamlfile,
+        run_strict_mode = run_strict,
         run_one_mode = run_one,
         dry_run_mode = dry_run,
         start = start,
@@ -257,14 +263,18 @@ def run(indir, varlist, table_config, exp_config, outdir, run_one, opt_var_name,
 
 @fremor.command('varlist')
 @click.option('-d', '--dir_targ', type=str, required=True, help='Target directory')
+@click.option('--strict_mode', is_flag = True, default = False,
+              help=VARLIST_STRICT_MODE_HELP,
+              required=False)
 @click.option('-o', '--output_variable_list', type=str, required=True, help='Output variable list file')
 @click.option('-t', '--mip_table', type=str, required=False, default=None,
               help='Target MIP table for making variable list')
-def varlist_(dir_targ, output_variable_list, mip_table):
+def varlist_(dir_targ, strict_mode, output_variable_list, mip_table):
     """
     Create a simple variable list from netCDF files in the target directory.
     """
     make_simple_varlist(dir_targ = dir_targ,
+                        return_none_if_no_mip_vars= strict_mode,
                         output_variable_list = output_variable_list,
                         json_mip_table = mip_table)
 
@@ -284,6 +294,8 @@ def varlist_(dir_targ, output_variable_list, mip_table):
               help='Root output directory for CMORized data.')
 @click.option('-l', '--varlist_dir', type=str, required=True,
               help='Directory in which per-component variable list JSON files are written.')
+@click.option('--strict_varlist', is_flag=True, default=False,
+              help='pass strict_mode flag to fremor varlist')
 @click.option('--freq', type=str, default='monthly',
               help='Temporal frequency string, e.g. monthly, daily. Default monthly.')
 @click.option('--chunk', type=str, default='5yr',
@@ -295,7 +307,7 @@ def varlist_(dir_targ, output_variable_list, mip_table):
 @click.option('--calendar', type=str, default='noleap',
               help='Calendar type, e.g. noleap, 360_day. Default noleap.')
 def config(pp_dir, mip_tables_dir, mip_era, exp_config, output_yaml,
-           output_dir, varlist_dir, freq, chunk, grid, overwrite, calendar):
+           output_dir, strict_varlist, varlist_dir, freq, chunk, grid, overwrite, calendar):
     """
     Generate a CMOR YAML configuration file from a post-processing directory tree.
     Scans pp_dir for components and time-series data, cross-references against MIP tables,
@@ -309,6 +321,7 @@ def config(pp_dir, mip_tables_dir, mip_era, exp_config, output_yaml,
         output_yaml=output_yaml,
         output_dir=output_dir,
         varlist_dir=varlist_dir,
+        strict_varlist=strict_varlist,
         freq=freq,
         chunk=chunk,
         grid=grid,
