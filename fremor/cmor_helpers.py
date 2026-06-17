@@ -19,7 +19,7 @@ tasks including:
 Functions
 ---------
 - ``print_data_minmax(ds_variable, desc)``
-- ``from_dis_gimme_dis(from_dis, gimme_dis)``
+- ``from_ds_get_this(from_ds, var_name)``
 - ``find_statics_file(bronx_file_path)``
 - ``create_lev_bnds(bound_these, with_these)``
 - ``get_iso_datetime_ranges(var_filenames, iso_daterange_arr, start, stop)``
@@ -139,25 +139,24 @@ def print_data_minmax( ds_variable: Optional[np.ma.core.MaskedArray] = None,
         fre_logger.warning('could not print min/max entries for desc = %s', desc)
 
 
-def from_dis_gimme_dis( from_dis: Dataset,
-                        gimme_dis: str) -> Optional[np.ndarray]:
+def from_ds_get_this( from_ds: Dataset,
+                      var_name: str) -> Optional[np.ndarray]:
     """
     Retrieve and return a copy of a variable from a netCDF4.Dataset-like object.
 
-    :param from_dis: The source dataset object.
-    :type from_dis: netCDF4.Dataset
-    :param gimme_dis: The variable name to extract from the dataset.
-    :type gimme_dis: str
+    :param from_ds: The source dataset object.
+    :type from_ds: netCDF4.Dataset
+    :param var_name: The variable name to extract from the dataset.
+    :type var_name: str
     :return: A copy of the requested variable's data, or None if not found.
     :rtype: np.ndarray or None
 
-    .. note:: Logs a warning if the variable is not found. The name comes from a hypothetical pronunciation of 'ds',
-              the common monniker for a netCDF4.Dataset object.
+    .. note:: Logs a warning if the variable is not found.
     """
     try:
-        return from_dis[gimme_dis][:].copy()
+        return from_ds[var_name][:].copy()
     except Exception:
-        fre_logger.exception('I am sorry, I could not not give you this: %s\n returning None!\n', gimme_dis)
+        fre_logger.exception('could not retrieve variable: %s\n returning None!\n', var_name)
         return None
 
 
