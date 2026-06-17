@@ -75,6 +75,7 @@ def cmor_config_subtool(
         output_yaml: str,
         output_dir: str,
         varlist_dir: str,
+        pp_comp_glob: str = '*',
         strict_varlist: bool = False,
         freq: str = 'monthly',
         chunk: str = '5yr',
@@ -91,6 +92,8 @@ def cmor_config_subtool(
 
     :param pp_dir: Root post-processing directory containing per-component subdirectories.
     :type pp_dir: str
+    :param pp_comp_glob: glob pattern to use for selecting pp component directory names. default '*'.
+    :type pp_comp_glob: str
     :param mip_tables_dir: Directory containing MIP table JSON files.
     :type mip_tables_dir: str
     :param mip_era: MIP era identifier, e.g. 'cmip6' or 'cmip7'.
@@ -142,8 +145,11 @@ def cmor_config_subtool(
             f'no MIP tables found in {mip_tables_dir} for era {mip_era} after filtering')
 
     # ---- discover pp components ----
-    ppcompdirs = sorted(glob.glob(f'{pp_dir}/*'))
+    ppcompdirs = sorted(glob.glob(f'{pp_dir}/{pp_comp_glob}'))
     fre_logger.info('found %d entries in pp_dir', len(ppcompdirs))
+    if len(ppcompdirs) == 0:
+        fre_logger.error('ERROR: no pp component directories found under \n pp_dir = %s', pp_dir)
+        raise FileNotFoundError
 
     # ---- build YAML lines ----
     lines = [

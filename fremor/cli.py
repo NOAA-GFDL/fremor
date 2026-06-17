@@ -294,6 +294,8 @@ def varlist_(dir_targ, strict_mode, output_variable_list, mip_table):
               help='Root output directory for CMORized data.')
 @click.option('-l', '--varlist_dir', type=str, required=True,
               help='Directory in which per-component variable list JSON files are written.')
+@click.option('-g', '--pp_comp_glob', type=str, required=False, default = '*',
+              help="glob pattern to use for selecting pp component directory names. default '*'")
 @click.option('--strict_varlist', is_flag=True, default=False,
               help='pass strict_mode flag to fremor varlist')
 @click.option('--freq', type=str, default='monthly',
@@ -307,7 +309,7 @@ def varlist_(dir_targ, strict_mode, output_variable_list, mip_table):
 @click.option('--calendar', type=str, default='noleap',
               help='Calendar type, e.g. noleap, 360_day. Default noleap.')
 def config(pp_dir, mip_tables_dir, mip_era, exp_config, output_yaml,
-           output_dir, strict_varlist, varlist_dir, freq, chunk, grid, overwrite, calendar):
+           output_dir, pp_comp_glob, strict_varlist, varlist_dir, freq, chunk, grid, overwrite, calendar):
     """
     Generate a CMOR YAML configuration file from a post-processing directory tree.
     Scans pp_dir for components and time-series data, cross-references against MIP tables,
@@ -321,6 +323,7 @@ def config(pp_dir, mip_tables_dir, mip_era, exp_config, output_yaml,
         output_yaml=output_yaml,
         output_dir=output_dir,
         varlist_dir=varlist_dir,
+        pp_comp_glob=pp_comp_glob,
         strict_varlist=strict_varlist,
         freq=freq,
         chunk=chunk,
