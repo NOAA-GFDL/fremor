@@ -35,7 +35,7 @@ import cmor
 import numpy as np
 import netCDF4 as nc
 
-from .cmor_helpers import ( print_data_minmax, from_ds_get_this, create_lev_bnds,
+from .cmor_helpers import ( from_ds_get_this, create_lev_bnds,
                             get_iso_datetime_ranges, check_dataset_for_ocean_grid, get_vertical_dimension,
                             create_tmp_dir, get_json_file_data, update_grid_and_label,
                             update_calendar_type, filter_brands,
