@@ -458,10 +458,8 @@ def _assert_mapped_metadata_matches(ds_in, ds_out):
     assert ds_in.variables['sea_sfc_salinity'].long_name == ds_out.variables['sos'].long_name, \
         'long_name differs between input sea_sfc_salinity and CMOR output sos'
 
-    # pylint: disable=protected-access
     assert ds_in.variables['sea_sfc_salinity']._FillValue == ds_out.variables['sos']._FillValue, \
         '_FillValue differs between input sea_sfc_salinity and CMOR output sos'
-    # pylint: enable=protected-access
     assert ds_in.variables['sea_sfc_salinity'].missing_value == ds_out.variables['sos'].missing_value, \
         'missing_value differs between input sea_sfc_salinity and CMOR output sos'
 

@@ -40,8 +40,7 @@ def _load_yaml_dict(yaml_path: Path) -> dict:
     return loaded
 
 
-def resolve_fremor_yaml(  # pylint: disable=too-many-locals
-        yamlfile: str,
+def resolve_fremor_yaml(yamlfile: str,
                         experiment: str,
                         output: Optional[str] = None) -> dict:
     """

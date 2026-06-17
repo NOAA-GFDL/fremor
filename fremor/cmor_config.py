@@ -67,7 +67,7 @@ def _filter_mip_tables(mip_tables_dir: str, mip_era: str):
     return filtered
 
 
-def cmor_config_subtool(  # pylint: disable=too-many-arguments,too-many-positional-arguments,too-many-locals,too-many-branches,too-many-statements
+def cmor_config_subtool(
         pp_dir: str,
         mip_tables_dir: str,
         mip_era: str,
@@ -212,7 +212,7 @@ def cmor_config_subtool(  # pylint: disable=too-many-arguments,too-many-position
                     output_variable_list=variable_list,
                     json_mip_table=mip_table
                 )
-            except Exception:  # pylint: disable=broad-exception-caught
+            except Exception:
                 fre_logger.warning(
                     'variable list creation failed for %s %s %s',
                     dir_targ, variable_list, mip_table

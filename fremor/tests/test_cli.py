@@ -254,7 +254,7 @@ def test_cli_fremor_run_case1(cli_sos_nc_file, tmp_path):
     assert Path(cli_sos_nc_file).exists(), 'input file should still exist'
 
 
-def test_cli_fremor_run_case2(cli_sosv2_nc_file, tmp_path):  # pylint: disable=unused-argument
+def test_cli_fremor_run_case2(cli_sosv2_nc_file, tmp_path):
     """
     fremor run, test error case: filename variable != file variable (CMIP6).
     The sosV2 file has variable 'sos' inside, but the varlist expects 'sosV2' as the
@@ -526,8 +526,7 @@ def test_cli_fremor_varlist_opt_dne():
     assert result.exit_code == 2
 
 
-def test_cli_fremor_varlist_no_table_filter(  # pylint: disable=unused-argument
-        cli_sos_nc_file, cli_sosv2_nc_file, cli_mapped_nc_file, tmp_path):
+def test_cli_fremor_varlist_no_table_filter(cli_sos_nc_file, cli_sosv2_nc_file, cli_mapped_nc_file, tmp_path):
     """
     fremor varlist — no MIP table filter.
     Creates a variable list from the ocean_sos_var_file test data without a MIP table,
@@ -554,8 +553,7 @@ def test_cli_fremor_varlist_no_table_filter(  # pylint: disable=unused-argument
     assert len(var_list) == 3
 
 
-def test_cli_fremor_varlist_cmip6_table_filter(  # pylint: disable=unused-argument
-        cli_sos_nc_file, cli_sosv2_nc_file, cli_mapped_nc_file, tmp_path):
+def test_cli_fremor_varlist_cmip6_table_filter(cli_sos_nc_file, cli_sosv2_nc_file, cli_mapped_nc_file, tmp_path):
     """
     fremor varlist — with CMIP6 Omon MIP table filter.
     sos is a MIP variable and gets self-mapped; sosV2 and sea_sfc_salinity are
@@ -584,8 +582,7 @@ def test_cli_fremor_varlist_cmip6_table_filter(  # pylint: disable=unused-argume
     assert var_list['sea_sfc_salinity'] == '', 'sea_sfc_salinity should have empty string value'
 
 
-def test_cli_fremor_varlist_cmip7_table_filter(  # pylint: disable=unused-argument
-        cli_sos_nc_file, cli_sosv2_nc_file, cli_mapped_nc_file, tmp_path):
+def test_cli_fremor_varlist_cmip7_table_filter(cli_sos_nc_file, cli_sosv2_nc_file, cli_mapped_nc_file, tmp_path):
     """
     fremor varlist — with CMIP7 ocean MIP table filter.
     sos is a MIP variable (sos_tavg-u-hxy-sea splits to sos) and gets self-mapped;

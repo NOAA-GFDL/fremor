@@ -72,12 +72,9 @@ INPUT_TO_MIP_VERT_DIM = {
 # Archive / filesystem paths (used by cmor_helpers)
 # ---------------------------------------------------------------------------
 ARCHIVE_GOLD_DATA_DIR = '/archive/gold/datasets'
-# CMIP7_GOLD_OCEAN_FILE_STUB='OM5_025/ocean_mosaic_v20250916_unpacked/ocean_static.nc'
-# nope, yh/xh repurposed for "mesh index"
-# CMIP7_GOLD_OCEAN_FILE_STUB='OM5_025/ocean_mosaic_v20250916_unpacked/ocean_hgrid.nc'
-# nope, xh/xq/yh/yq all encoded but no geolat/lon
-CMIP7_GOLD_OCEAN_FILE_STUB='OM5_025/ocean_mosaic_v20250916_unpacked/ocean_static_no_basin.nc'
-# surprisingly, this should work
+#CMIP7_GOLD_OCEAN_FILE_STUB='OM5_025/ocean_mosaic_v20250916_unpacked/ocean_static.nc' # nope, yh/xh repurposed for "mesh index"
+#CMIP7_GOLD_OCEAN_FILE_STUB='OM5_025/ocean_mosaic_v20250916_unpacked/ocean_hgrid.nc' # nope, xh/xq/yh/yq all encoded but no geolat/lon
+CMIP7_GOLD_OCEAN_FILE_STUB='OM5_025/ocean_mosaic_v20250916_unpacked/ocean_static_no_basin.nc' # surprisingly, this should work
 CMIP6_GOLD_OCEAN_FILE_STUB=None #TODO
 
 # ---------------------------------------------------------------------------

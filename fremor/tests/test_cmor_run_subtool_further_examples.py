@@ -139,7 +139,7 @@ def _ncgen_for_case(testfile_dir, opt_var_name):
         ),
     ],
 )
-def test_case_cmip6(  # pylint: disable=too-many-arguments,too-many-positional-arguments,too-many-locals
+def test_case_cmip6(  # pylint: disable=too-many-arguments,too-many-positional-arguments
     testfile_dir, table, opt_var_name, grid_label, start, calendar,
     tmp_path, monkeypatch,
 ):

@@ -86,7 +86,7 @@ _MOCKS = [
 @patch(_MOCKS[0])
 @patch(_MOCKS[1])
 @patch(_MOCKS[2])
-def test_cmor_run_w_cal_type(  # pylint: disable=too-many-arguments,too-many-positional-arguments
+def test_cmor_run_w_cal_type(
     mock_glob,
     mock_cmorize,
     mock_update_cal,
@@ -119,7 +119,7 @@ def test_cmor_run_w_cal_type(  # pylint: disable=too-many-arguments,too-many-pos
 @patch(_MOCKS[0])
 @patch(_MOCKS[1])
 @patch(_MOCKS[2])
-def test_cmor_run_no_cal_type(  # pylint: disable=too-many-arguments,too-many-positional-arguments
+def test_cmor_run_no_cal_type(
     mock_glob,
     mock_cmorize,
     mock_update_cal,
