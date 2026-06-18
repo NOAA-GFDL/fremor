@@ -91,7 +91,7 @@ def print_var_content(table_config_file: IO[str],
         fre_logger.debug('variable %s not found in %s, moving on!', var_name, table_file_name)
         return
 
-    if isinstance(var_content, list): # likely, cmip7 case, shouldnt occur unless brands
+    if isinstance(var_content, list): # likely, cmip7 case, shouldn't occur unless brands
         fre_logger.info('amongst branded variables, looked for variable name: %s', var_name)
         for brand_var_content in var_content:
             branded_var=str(list(brand_var_content)[0])
