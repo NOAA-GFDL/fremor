@@ -148,7 +148,7 @@ def cmor_config_subtool(
     ppcompdirs = sorted(glob.glob(f'{pp_dir}/{pp_comp_glob}'))
     fre_logger.info('found %d entries in pp_dir', len(ppcompdirs))
     if len(ppcompdirs) == 0:
-        fre_logger.error('ERROR: no pp component directories found under \n pp_dir = %s', pp_dir)
+        fre_logger.error('ERROR: no pp component directories found under pp_dir = %s', pp_dir)
         raise FileNotFoundError
 
     # ---- build YAML lines ----
@@ -185,7 +185,8 @@ def cmor_config_subtool(
             component_name = Path(entry).name
             fre_logger.info('making variable list for %s', component_name)
             variable_list = f'{varlist_dir}/{era_upper}_{table_name}_{component_name}.list'
-
+            fre_logger.info('variable_list = %s', variable_list)
+            
             # optionally regenerate
             if Path(variable_list).exists() and overwrite:
                 fre_logger.debug('varlist %s exists, unlinking to recreate because overwrite=True',
