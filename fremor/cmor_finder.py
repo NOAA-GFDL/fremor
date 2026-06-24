@@ -230,37 +230,49 @@ def make_simple_varlist( dir_targ: str,
 
         fre_logger.debug('attempting to make mip variable list')
         mip_vars=[ key.split('_')[0] for key in full_mip_vars_list ]
-        fre_logger.debug('mip vars extracted for comparison when making var list: %s', mip_vars)
+        fre_logger.info('mip vars extracted for comparison when making var list: %s', mip_vars)
 
-    # Build a deduplicated dict of variable names extracted from all filenames across
-    # all datetimes. Assigning to a dict naturally deduplicates while preserving
-    # first-seen insertion order (Python 3.7+).
+    # build deduplicated list of unique candidate variable names to push through comparison below
+    candidate_var_list = []
+    for targetfile in all_nc_files:
+        var_name=os.path.basename(targetfile).split('.')[-2]
+        if var_name not in candidate_var_list:
+            candidate_var_list.append(var_name)
+    fre_logger.info('candidate vars extracted for comparison when making var list: %s', candidate_var_list)
+
+    # dict of variable names extracted from all filenames across all datetimes.
     # If a MIP table is provided, variables that match a MIP variable name get
     # self-mapped (key==value). Variables NOT in the MIP table get an empty string
     # as value, signaling they need manual mapping by the user.
     var_list: Dict[str, str] = {}
-    num_vars_wo_mip_var_key=0
-    for targetfile in all_nc_files:
-        var_name=os.path.basename(targetfile).split('.')[-2]
+    for var_name in candidate_var_list:
+        fre_logger.debug('candidate var_name = %s', var_name)
+
         if mip_vars is not None:
-            if var_name.lower() in mip_vars:
-                var_list[var_name] = var_name.lower()
-            else:
-                var_list[var_name] = ''
-                num_vars_wo_mip_var_key+=1
+            is_mip_var = False
+            for mip_var in mip_vars:
+                if var_name.lower() != mip_var.lower():
+                    continue
+                var_list[var_name] = mip_var
+                is_mip_var = True
+                break
+            if not is_mip_var:
+                fre_logger.debug('%s is not a mip var name', var_name)
+                if not return_none_if_no_mip_vars:
+                    var_list[var_name] = ''
         else:
             fre_logger.warning('no mip variable list to compare to, setting found variable name value to key.')
             var_list[var_name] = var_name
 
-    if not var_list:
-        fre_logger.warning('WARNING: no variables in target mip table found, or no matching pattern,'
-                           ' or not enough info in the filenames (i am expecting FRE-bronx like filenames)')
-        return None
-
-    if return_none_if_no_mip_vars and num_vars_wo_mip_var_key == len(var_list):
+    if return_none_if_no_mip_vars and len(var_list) == 0:
         fre_logger.warning('WARNING: all found variables have no known corresponding mip variable name.'
                            'returning None and not writing variable list!'
                            'return_none_if_no_mip_vars was True!')
+        return None
+
+    if not var_list:
+        fre_logger.warning('WARNING: no variables in target mip table found, or no matching pattern,'
+                           ' or not enough info in the filenames (i am expecting FRE-bronx like filenames)')
         return None
 
     # Write the variable list to the output JSON file

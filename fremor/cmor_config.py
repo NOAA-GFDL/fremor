@@ -215,12 +215,14 @@ def cmor_config_subtool(
                 continue
 
             try:
-                make_simple_varlist(
+                fre_logger.debug(f'return_none_if_no_mip_vars={strict_varlist}')
+                foo = make_simple_varlist(
                     dir_targ=dir_targ,
                     return_none_if_no_mip_vars=strict_varlist,
                     output_variable_list=variable_list,
                     json_mip_table=mip_table
                 )
+
             except Exception:
                 fre_logger.warning(
                     'variable list creation failed for %s %s %s',
