@@ -483,12 +483,12 @@ def get_json_file_data( json_file_path: Optional[str] = None) -> dict:
     except FileNotFoundError:
         fre_logger.error(
             'ERROR: a file was not found at json_file_path.\n'
-            f'       json_file_path = {json_file_path}'
+            '       json_file_path = %s', json_file_path
         )
         raise
     except json.JSONDecodeError:
         fre_logger.error(
-            f'ERROR: json file at {json_file_path} likely has a syntax error'
+            'ERROR: json file at %s likely has a syntax error', json_file_path
         )
         raise
     except Exception:

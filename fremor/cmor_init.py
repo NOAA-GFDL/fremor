@@ -133,7 +133,7 @@ def _cmip7_exp_config_template():
         'experiment_id': '',
         'parent_experiment_id': '',
         'parent_variant_label': '',
-        "parent_source_id": "DUMMY-MODEL",
+        'parent_source_id': 'DUMMY-MODEL',
         'sub_experiment': 'none',
         'sub_experiment_id': 'none',
         'realization_index': 'r1',

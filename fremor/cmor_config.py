@@ -215,8 +215,7 @@ def cmor_config_subtool(
                 continue
 
             try:
-                fre_logger.debug(f'return_none_if_no_mip_vars={strict_varlist}')
-                foo = make_simple_varlist(
+                make_simple_varlist(
                     dir_targ=dir_targ,
                     return_none_if_no_mip_vars=strict_varlist,
                     output_variable_list=variable_list,
