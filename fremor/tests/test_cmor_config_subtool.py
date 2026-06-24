@@ -11,7 +11,7 @@ import yaml
 
 import pytest
 
-from fremor.cmor_config import cmor_config_subtool
+from fremor.cmor_config import cmor_config_subtool, _bronx_to_iso_chunk
 
 @pytest.fixture
 def temp_dir():
@@ -176,3 +176,10 @@ def test_cmor_config_subtool_writes_self_contained_yaml(temp_dir): # pylint: dis
     assert loaded_yaml['cmor']['table_targets'][0]['gridding']['grid_label'] == 'gn'
     assert loaded_yaml['cmor']['table_targets'][0]['gridding']['grid_desc'] == 'native grid from exp config'
     assert target_component['chunk'] == 'P5Y'
+
+def test_bronx_to_iso_chunk_cases():
+    ''' test cases of conversion to ISO from bronx or ISO '''
+    assert _bronx_to_iso_chunk('5yr') == 'P5Y'
+    assert _bronx_to_iso_chunk('P5Y') == 'P5Y'
+    with pytest.raises(ValueError, match='chunk must be ISO8601 like P5Y or bronx-style like 5yr, got 999999'):
+        _bronx_to_iso_chunk('999999')
