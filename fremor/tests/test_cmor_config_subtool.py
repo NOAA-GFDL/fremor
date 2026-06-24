@@ -11,7 +11,7 @@ import yaml
 
 import pytest
 
-from fremor.cmor_config import cmor_config_subtool
+from fremor.cmor_config import cmor_config_subtool, _bronx_to_iso_chunk
 
 @pytest.fixture
 def temp_dir():
@@ -151,11 +151,60 @@ def test_cmor_config_subtool_writes_self_contained_yaml(temp_dir): # pylint: dis
     output_dir = temp_root / 'cmor_out'
     varlist_dir = temp_root / 'varlists'
 
-    def _fake_make_simple_varlist(dir_targ, output_variable_list, json_mip_table):
+    def _fake_make_simple_varlist(dir_targ, output_variable_list, json_mip_table, return_none_if_no_mip_vars):
         del dir_targ, json_mip_table
         Path(output_variable_list).write_text('{}', encoding='utf-8')
 
+    Path(varlist_dir).mkdir(parents=True)
+    Path(varlist_dir / 'CMIP6_Omon_ocean.list').touch() # for variable list recreation coverage
     with patch('fremor.cmor_config.make_simple_varlist', side_effect=_fake_make_simple_varlist):
+        cmor_config_subtool(
+            pp_dir=str(pp_dir),
+            mip_tables_dir=str(tables_dir),
+            mip_era='cmip6',
+            exp_config=str(exp_config),
+            output_yaml=str(output_yaml),
+            output_dir=str(output_dir),
+            varlist_dir=str(varlist_dir),
+            freq='monthly',
+            chunk='5yr',
+            grid='gn',
+            overwrite=True
+        )
+
+    loaded_yaml = yaml.safe_load(output_yaml.read_text(encoding='utf-8'))
+    target_component = loaded_yaml['cmor']['table_targets'][0]['target_components'][0]
+    assert loaded_yaml['cmor']['start'] is None
+    assert loaded_yaml['cmor']['stop'] is None
+    assert loaded_yaml['cmor']['table_targets'][0]['gridding']['grid_label'] == 'gn'
+    assert loaded_yaml['cmor']['table_targets'][0]['gridding']['grid_desc'] == 'native grid from exp config'
+    assert target_component['chunk'] == 'P5Y'
+
+def test_cmor_config_subtool_err_no_ppcompdirs(temp_dir): # pylint: disable=redefined-outer-name
+    ''' generated config yaml should be directly loadable without unresolved aliases '''
+    temp_root = Path(temp_dir)
+    pp_dir = temp_root / 'pp'
+    target_dir = pp_dir # / 'ocean' / 'ts' / 'monthly' / '5yr'
+    target_dir.mkdir(parents=True)
+    #(target_dir / 'dummy.nc').touch()
+
+    tables_dir = temp_root / 'tables'
+    tables_dir.mkdir()
+    (tables_dir / 'CMIP6_Omon.json').write_text(json.dumps({
+        'variable_entry': {'sos': {'frequency': 'mon'}}
+    }))
+
+    exp_config = temp_root / 'exp.json'
+    exp_config.write_text(json.dumps({
+        'grid': 'native grid from exp config',
+        'nominal_resolution': '100 km',
+    }))
+
+    output_yaml = temp_root / 'cmor.yaml'
+    output_dir = temp_root / 'cmor_out'
+    varlist_dir = temp_root / 'varlists'
+
+    with pytest.raises(FileNotFoundError):
         cmor_config_subtool(
             pp_dir=str(pp_dir),
             mip_tables_dir=str(tables_dir),
@@ -169,10 +218,9 @@ def test_cmor_config_subtool_writes_self_contained_yaml(temp_dir): # pylint: dis
             grid='gn',
         )
 
-    loaded_yaml = yaml.safe_load(output_yaml.read_text(encoding='utf-8'))
-    target_component = loaded_yaml['cmor']['table_targets'][0]['target_components'][0]
-    assert loaded_yaml['cmor']['start'] is None
-    assert loaded_yaml['cmor']['stop'] is None
-    assert loaded_yaml['cmor']['table_targets'][0]['gridding']['grid_label'] == 'gn'
-    assert loaded_yaml['cmor']['table_targets'][0]['gridding']['grid_desc'] == 'native grid from exp config'
-    assert target_component['chunk'] == 'P5Y'
+def test_bronx_to_iso_chunk_cases():
+    ''' test cases of conversion to ISO from bronx or ISO '''
+    assert _bronx_to_iso_chunk('5yr') == 'P5Y'
+    assert _bronx_to_iso_chunk('P5Y') == 'P5Y'
+    with pytest.raises(ValueError, match='chunk must be ISO8601 like P5Y or bronx-style like 5yr, got 999999'):
+        _bronx_to_iso_chunk('999999')

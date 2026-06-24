@@ -910,7 +910,7 @@ def cmor_run_subtool(indir: str = None,
     # if opt_var_name is specified, the routine is short-circuited to care only about opt_var_name
     vars_to_run = {}
     for local_var in var_list:
-        if opt_var_name is not None and opt_var_name in mip_var_list:
+        if all( [ opt_var_name is not None, opt_var_name != '', opt_var_name in mip_var_list ] ):
             vars_to_run[opt_var_name] = opt_var_name
             break
         if var_list[local_var] not in mip_var_list: #mip_var_cfgs['variable_entry']:
@@ -928,7 +928,7 @@ def cmor_run_subtool(indir: str = None,
         raise ValueError('runnable variable list is of length 0 '
                          'this means no variables in input variable list are in '
                          'the mip table configuration, so there\'s nothing to process!')
-    if all([opt_var_name is not None, opt_var_name not in list(vars_to_run)]):
+    if all([opt_var_name is not None, opt_var_name != '', opt_var_name not in list(vars_to_run)]):
         raise ValueError(f'opt_var_name is not None! (== {opt_var_name})'
                           '... but the variable is not contained in the target mip table'
                           '... there\'s nothing to process, exit')

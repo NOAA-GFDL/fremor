@@ -29,6 +29,7 @@ fre_logger = logging.getLogger(__name__)
 
 def cmor_yaml_subtool( yamlfile: str = None,
                        opt_var_name: Optional[str] = None,
+                       run_strict_mode: bool = False,
                        run_one_mode: bool = False,
                        dry_run_mode: bool = False,
                        start: Optional[str] = None,
@@ -45,6 +46,8 @@ def cmor_yaml_subtool( yamlfile: str = None,
     :type yamlfile: str
     :param opt_var_name: If specified, process only files matching this variable name.
     :type opt_var_name: str, optional
+    :param run_strict_mode: If True, exit on an exception being raised from a fremor run (cmor_run_subtool) call.
+    :type run_strict_mode: bool
     :param run_one_mode: If True, process only one file and exit.
     :type run_one_mode: bool
     :param dry_run_mode: If True, print configuration and actions without executing cmor_run_subtool.
@@ -222,7 +225,7 @@ def cmor_yaml_subtool( yamlfile: str = None,
             fre_logger.info('PROCESSING: ( %s, %s )', table_name, component)
             cmor_run_call_outdir=f'{cmorized_outdir}/{component}/{table_name}'
 
-
+            opt_var_name = '' if opt_var_name is None else opt_var_name
             if dry_run_mode:
                 if print_cli_call:
                     fre_logger.info( '%s', '--DRY RUN CLI CALL---\n' + \
@@ -233,7 +236,7 @@ def cmor_yaml_subtool( yamlfile: str = None,
                                           f'    --exp_config {json_exp_config} \\ \n' + \
                                           f'    --outdir {cmor_run_call_outdir} \\ \n' + \
                                            '    --run_one \\ \n' + \
-                                          f'    --opt_var_name {opt_var_name} ,\n' + \
+                                          f'    --opt_var_name {opt_var_name} \\ \n' + \
                                           f'    --grid_desc "{grid_desc}" \\ \n' + \
                                           f'    --grid_label {grid_label} \\ \n' + \
                                           f'    --nom_res "{nom_res}" \\ \n' + \
@@ -280,3 +283,5 @@ def cmor_yaml_subtool( yamlfile: str = None,
                     'cmor_run_subtool failed for (%s, %s), skipping: %s',
                     table_name, component, exc
                 )
+                if run_strict_mode:
+                    raise exc

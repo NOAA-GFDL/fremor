@@ -1,4 +1,8 @@
 name: create_test_conda_env
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 on:
   push:
     branches:
@@ -18,8 +22,6 @@ permissions:
 jobs:
   conda-test:
     runs-on: ubuntu-latest
-    env:
-      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     strategy:
       matrix:
         python-version: ["3.11", "3.12", "3.13", "3.14"]
@@ -60,7 +62,7 @@ jobs:
 
       - name: Run pytest
         run: |
-          pytest --cov=fremor --cov-config=coveragerc --cov-report=xml fremor/tests/ -v
+          pytest --ignore fremor/tests/test_files/mip-cmor-tables --cov=fremor --cov-config=coveragerc --cov-report=xml fremor/tests/ -v
 
       - name: Upload Coverage to Codecov
         if: ${{ always() }}

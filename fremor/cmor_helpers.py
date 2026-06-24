@@ -480,11 +480,22 @@ def get_json_file_data( json_file_path: Optional[str] = None) -> dict:
     try:
         with open(json_file_path, 'r', encoding='utf-8') as json_config_file:
             return json.load(json_config_file)
-    except Exception as exc:
-        raise FileNotFoundError(
-             'ERROR: json_file_path file cannot be opened.\n'
-            f'       json_file_path = {json_file_path}'
-        ) from exc
+    except FileNotFoundError:
+        fre_logger.error(
+            'ERROR: a file was not found at json_file_path.\n'
+            '       json_file_path = %s', json_file_path
+        )
+        raise
+    except json.JSONDecodeError:
+        fre_logger.error(
+            'ERROR: json file at %s likely has a syntax error', json_file_path
+        )
+        raise
+    except Exception:
+        fre_logger.error(
+            'unknown exception'
+        )
+        raise
 
 
 def update_grid_and_label( json_file_path: str,

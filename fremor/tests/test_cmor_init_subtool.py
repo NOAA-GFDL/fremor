@@ -187,6 +187,36 @@ def test_cmor_init_tables_dir_and_exp_config(tmp_path):
     assert tables_dir.exists()
 
 
+def test_cmor_init_cmip6plus_tables_dir_and_exp_config(tmp_path):
+    """
+    Test that both exp_config and tables_dir can be provided together.
+    CMIP6Plus case
+    """
+    tables_dir = tmp_path / 'tables'
+    exp_config = tmp_path / 'experiment.json'
+
+    result = cmor_init_subtool(
+        mip_era='cmip6plus',
+        exp_config=str(exp_config),
+        tables_dir=str(tables_dir),
+        tag=None,
+        fast=True
+    )
+
+    # Both should be created
+    assert result['exp_config'] == str(exp_config)
+    assert result['tables_dir'] == str(tables_dir)
+
+    # Verify exp_config was created
+    assert exp_config.exists()
+    with open(exp_config, encoding='utf-8') as f:
+        config = json.load(f)
+    assert config['mip_era'] == 'CMIP6'
+
+    # Verify tables were fetched
+    assert tables_dir.exists()
+
+
 def test_cmor_init_tables_dir_only_no_exp_config(tmp_path):
     """
     Test that when only tables_dir is provided, no exp_config is created.

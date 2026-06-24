@@ -75,6 +75,8 @@ def cmor_config_subtool(
         output_yaml: str,
         output_dir: str,
         varlist_dir: str,
+        pp_comp_glob: str = '*',
+        strict_varlist: bool = False,
         freq: str = 'monthly',
         chunk: str = '5yr',
         grid: str = 'g999',
@@ -90,6 +92,8 @@ def cmor_config_subtool(
 
     :param pp_dir: Root post-processing directory containing per-component subdirectories.
     :type pp_dir: str
+    :param pp_comp_glob: glob pattern to use for selecting pp component directory names. default '*'.
+    :type pp_comp_glob: str
     :param mip_tables_dir: Directory containing MIP table JSON files.
     :type mip_tables_dir: str
     :param mip_era: MIP era identifier, e.g. 'cmip6' or 'cmip7'.
@@ -141,8 +145,11 @@ def cmor_config_subtool(
             f'no MIP tables found in {mip_tables_dir} for era {mip_era} after filtering')
 
     # ---- discover pp components ----
-    ppcompdirs = sorted(glob.glob(f'{pp_dir}/*'))
+    ppcompdirs = sorted(glob.glob(f'{pp_dir}/{pp_comp_glob}'))
     fre_logger.info('found %d entries in pp_dir', len(ppcompdirs))
+    if len(ppcompdirs) == 0:
+        fre_logger.error('ERROR: no pp component directories found under pp_dir = %s', pp_dir)
+        raise FileNotFoundError
 
     # ---- build YAML lines ----
     lines = [
@@ -170,13 +177,15 @@ def cmor_config_subtool(
 
     for mip_table in sorted(mip_tables):
         table_name = Path(mip_table).stem.split('.')[0].split('_')[1]   # e.g. CMIP7_ocean
-        fre_logger.debug('processing mip_table = %s', table_name)
+        fre_logger.info('processing mip_table = %s', table_name)
 
         appended_table_header = False
 
         for entry in ppcompdirs:
             component_name = Path(entry).name
+            fre_logger.info('making variable list for %s', component_name)
             variable_list = f'{varlist_dir}/{era_upper}_{table_name}_{component_name}.list'
+            fre_logger.info('variable_list = %s', variable_list)
 
             # optionally regenerate
             if Path(variable_list).exists() and overwrite:
@@ -209,9 +218,11 @@ def cmor_config_subtool(
             try:
                 make_simple_varlist(
                     dir_targ=dir_targ,
+                    return_none_if_no_mip_vars=strict_varlist,
                     output_variable_list=variable_list,
                     json_mip_table=mip_table
                 )
+
             except Exception:
                 fre_logger.warning(
                     'variable list creation failed for %s %s %s',

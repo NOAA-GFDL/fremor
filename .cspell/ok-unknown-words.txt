@@ -70,6 +70,7 @@ autofunction
 autouse
 automethod
 automodule
+badyaml
 basetemp
 bnds
 booleaness

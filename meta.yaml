@@ -51,7 +51,7 @@ test:
     - fremor init --help
     - fremor run --help
     - fremor yaml --help
-    - pytest --durations=5 --log-level DEBUG fremor/
+    - pytest --ignore fremor/tests/test_files/mip-cmor-tables --durations=5 --log-level DEBUG fremor/
 
 about:
   home: https://github.com/NOAA-GFDL/fremor

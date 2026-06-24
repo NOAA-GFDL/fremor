@@ -16,8 +16,9 @@ This module powers the ``fremor init`` command, providing two key capabilities:
 
 Trusted sources
 ---------------
-- CMIP6: https://github.com/pcmdi/cmip6-cmor-tables
-- CMIP7: https://github.com/WCRP-CMIP/cmip7-cmor-tables
+- CMIP6:     https://github.com/PCMDI/cmip6-cmor-tables
+- CMIP6Plus: https://github.com/PCMDI/mip-cmor-tables
+- CMIP7:     https://github.com/WCRP-CMIP/cmip7-cmor-tables
 
 Functions
 ---------
@@ -38,8 +39,9 @@ fre_logger = logging.getLogger(__name__)
 # Trusted sources for MIP tables
 # ---------------------------------------------------------------------------
 MIP_TABLE_REPOS = {
-    'cmip6': 'https://github.com/pcmdi/cmip6-cmor-tables',
-    'cmip7': 'https://github.com/WCRP-CMIP/cmip7-cmor-tables',
+    'cmip6'     : 'https://github.com/PCMDI/cmip6-cmor-tables',
+    'cmip6plus' : 'https://github.com/PCMDI/mip-cmor-tables',
+    'cmip7'     : 'https://github.com/WCRP-CMIP/cmip7-cmor-tables',
 }
 
 
@@ -74,7 +76,7 @@ def _cmip6_exp_config_template():
         'grid': '',
         'grid_label': '',
         'nominal_resolution': '',
-        'license': '',
+        'license': 'CMIP6 model data produced by Lawrence Livermore NOAA-GFDL is licensed under a Creative Commons Attribution 4.0 International License (https://creativecommons.org/licenses/by/4.0/). Consult https://pcmdi.llnl.gov/CMIP6/TermsOfUse for terms of use governing CMIP6 output, including citation requirements and proper acknowledgment. Further information about this data, including some limitations, can be found via the further_info_url (recorded as a global attribute in this file) and at https:///pcmdi.llnl.gov/. The data producers and data providers make no warranty, either express or implied, including, but not limited to, warranties of merchantability and fitness for a particular purpose. All liabilities arising from the supply of the information (including any liability arising in negligence) are excluded to the fullest extent permitted by law.', # pylint: disable=line-too-long
         'outpath': '',
         'contact': '',
         'history': '',
@@ -103,6 +105,9 @@ def _cmip6_exp_config_template():
         ),
     }
 
+def _cmip6plus_exp_config_template():
+    """ return a template for CMIP6Plus. currently, this is the identical object for cmip6 """
+    return _cmip6_exp_config_template()
 
 def _cmip7_exp_config_template():
     """Return an ordered dict-like structure for an empty CMIP7 experiment config."""
@@ -110,20 +115,25 @@ def _cmip7_exp_config_template():
         '#note': ' **** CMIP7 experiment configuration template – fill in values below ****',
         'contact': 'MIP participant mipmember@foobar.c.om',
         'comment': 'additional important information not fitting into other fields can be placed here',
-        'license': '',
+        'license': 'CC-BY-4.0; CMIP7 data produced by NOAA-GFDL is licensed under a Creative Commons Attribution 4.0 International License (https://creativecommons.org/licenses/by/4.0). Consult https://wcrp-cmip.github.io/cmip7-guidance/docs/CMIP7/Guidance_for_users/#2-terms-of-use-and-citations-requirements for terms of use governing CMIP7 output, including citation requirements and proper acknowledgment. The data producers and data providers make no warranty, either express or implied, including, but not limited to, warranties of merchantability and fitness for a particular purpose. All liabilities arising from the supply of the information (including any liability arising in negligence) are excluded to the fullest extent permitted by law.', # pylint: disable=line-too-long
         'references': '',
         'drs_specs': 'MIP-DRS7',
         'archive_id': 'WCRP',
-        'license_id': 'CC-BY-4-0',
+        'license_id': 'CC-BY-4.0',
         'tracking_prefix': 'hdl:21.14107',
         '_cmip7_option': 1,
         'mip_era': 'CMIP7',
         'activity_id': 'CMIP',
+        'parent_mip_era': 'CMIP7',
+        'parent_activity_id': 'CMIP',
         'institution_id': 'NOAA-GFDL',
-        'source': '',
-        'source_id': '',
+        'source': 'DUMMY-MODEL',
+        'source_id': 'DUMMY-MODEL: aerosol: Dummy Aerosol; atmosphere: Dummy Atmosphere; atmospheric_chemistry: Dummy Atmospheric Chemistry; land_surface: Dummy Land Surface; ocean: Dummy Ocean; ocean_biogeochemistry: Dummy Ocean Biogeochemistry; sea_ice: Dummy Sea Ice', # pylint: disable=line-too-long
         'source_type': '',
         'experiment_id': '',
+        'parent_experiment_id': '',
+        'parent_variant_label': '',
+        'parent_source_id': 'DUMMY-MODEL',
         'sub_experiment': 'none',
         'sub_experiment_id': 'none',
         'realization_index': 'r1',
@@ -134,6 +144,7 @@ def _cmip7_exp_config_template():
         'branch_method': 'no parent',
         'branch_time_in_child': 0.0,
         'branch_time_in_parent': 0.0,
+        'parent_time_units': '',
         'calendar': '',
         'grid': 'PLACEHOLD',
         'grid_label': 'g999',
@@ -271,7 +282,7 @@ def cmor_init_subtool(
         and ``'tables_dir'`` (path written or *None*).
     """
     mip_era_lower = mip_era.lower()
-    if mip_era_lower not in ('cmip6', 'cmip7'):
+    if mip_era_lower not in ('cmip6', 'cmip6plus', 'cmip7'):
         raise ValueError(f'mip_era must be cmip6 or cmip7, got {mip_era}')
 
     result = {'exp_config': None, 'tables_dir': None}
@@ -284,8 +295,9 @@ def cmor_init_subtool(
             exp_config = f'CMOR_{mip_era_lower}_template.json'
 
         template_func = {
-            'cmip6': _cmip6_exp_config_template,
-            'cmip7': _cmip7_exp_config_template,
+            'cmip6'     : _cmip6_exp_config_template,
+            'cmip6plus' : _cmip6plus_exp_config_template,
+            'cmip7'     : _cmip7_exp_config_template,
         }[mip_era_lower]
 
         config_data = template_func()

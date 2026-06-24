@@ -4,6 +4,7 @@ tests for fremor helper functions in cmor_helpers
 
 import json
 from pathlib import Path
+import re
 
 import numpy as np
 import pytest
@@ -260,7 +261,7 @@ def test_get_json_file_data_success(tmp_path):
 
 def test_get_json_file_data_nonexistent():
     """ should raise FileNotFoundError for a missing file """
-    with pytest.raises(FileNotFoundError, match='cannot be opened'):
+    with pytest.raises(FileNotFoundError, match=re.escape("[Errno 2] No such file or directory: '/nonexistent/path/file.json'")):
         get_json_file_data('/nonexistent/path/file.json')
 
 
@@ -268,9 +269,15 @@ def test_get_json_file_data_invalid_json(tmp_path):
     """ should raise FileNotFoundError (wrapping JSONDecodeError) for invalid JSON """
     f = tmp_path / 'bad.json'
     f.write_text('NOT JSON {{{{')
-    with pytest.raises(FileNotFoundError, match='cannot be opened'):
+    with pytest.raises(json.JSONDecodeError):
         get_json_file_data(str(f))
 
+def test_get_json_file_data_actually_dir(tmp_path):
+    """ should raise general Exception (not the other two errors) """
+    f = tmp_path / 'actually_gonna_be_a_dir.json'
+    f.mkdir(parents=True)
+    with pytest.raises(Exception):
+        get_json_file_data(str(f))
 
 # ---- update_grid_and_label None-args test ----
 

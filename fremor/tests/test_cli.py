@@ -151,6 +151,7 @@ def test_cli_fremor_yaml_case1(mock_subtool, tmp_path):
     assert result.exit_code == 0
     mock_subtool.assert_called_once_with(
         yamlfile=str(dummy_yaml),
+        run_strict_mode=False,
         run_one_mode=False,
         dry_run_mode=True,
         start=None,
