@@ -8,6 +8,7 @@ import netCDF4
 import numpy as np
 import pytest
 
+from fremor import cmor_tripolar
 from fremor.cmor_tripolar import load_tripolar_grid
 
 
@@ -210,3 +211,27 @@ class TestLoadTripolarGrid:
         with pytest.raises(ValueError, match='hpoint_dim != qpoint_dim-1'):
             load_tripolar_grid(ds=ds, netcdf_file=str(data_nc), prev_path=str(data_nc))
         ds.close()
+
+    def test_load_tripolar_grid_gold_statics_fallback(self, monkeypatch, caplog):
+        """
+        Cover the exception block in load_tripolar_grid where the gold statics file
+        cannot be found, forcing the FRE-bronx fallback warning.
+        """
+        # 1. Mock the gold lookup to explicitly raise a FileNotFoundError
+        def mock_find_gold(*args, **kwargs):
+            raise FileNotFoundError("simulated gold statics failure")
+
+        monkeypatch.setattr(cmor_tripolar, 'find_gold_ocean_statics_file', mock_find_gold)
+
+        # 2. Mock the fallback find_statics_file so the test doesn't crash
+        # before we can verify the log output. Returning None hits the next raise.
+        monkeypatch.setattr(cmor_tripolar, 'find_statics_file', lambda prev_path: None)
+
+        # 3. Execute the function. We expect it to ultimately raise the
+        # "statics file not found." error because our fallback also returned None.
+        with pytest.raises(FileNotFoundError, match="statics file not found."):
+            cmor_tripolar.load_tripolar_grid(ds=None, netcdf_file="dummy.nc", prev_path="dummy_prev")
+
+        # 4. Assert that the specific uncovered warning line was executed
+        assert "gold statics lookup raised simulated gold statics failure" in caplog.text
+        assert "trying FRE-bronx fallback" in caplog.text
