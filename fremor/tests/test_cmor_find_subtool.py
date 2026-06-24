@@ -127,7 +127,7 @@ def test_print_var_content_cmip7_branded_vars(tmp_path, caplog):
     assert 'pr_brandC' not in log_output
     assert 'precipitation_flux' not in log_output
 
-def test_print_var_content_cmip7_branded_vars_no_contnet(tmp_path, caplog):
+def test_print_var_content_cmip7_branded_vars_no_content(tmp_path, caplog):
     """
     Test print_var_content for the CMIP7 branch to cover branded variables.
     Omitting 'mip_era' from the Header triggers the cmip7 logic.
