@@ -3,6 +3,7 @@ tests for fremor.cmor_finder.make_simple_varlist
 """
 
 import json
+import logging
 from unittest.mock import patch
 
 import pytest
@@ -259,6 +260,30 @@ def test_make_simple_varlist_mip_table_no_match(tmp_path):
     # With new semantics, all found variables are included: non-MIP vars get '' as value.
     assert result is not None
     assert result == {'fake_var': ''}
+
+# ---- mip table filtering: no variables match ----
+def test_make_simple_varlist_mip_table_no_match_on_strict(tmp_path, caplog):
+    """
+
+    """
+    (tmp_path / 'model.19900101.fake_var.nc').touch() # no variable name in filename
+
+    mip_table = tmp_path / 'table.json'
+    mip_table.write_text(json.dumps({
+        'variable_entry': {
+            'sos': {'frequency': 'mon'}
+        }
+    }))
+
+    with caplog.at_level(logging.WARNING):
+        result = make_simple_varlist(dir_targ = str(tmp_path),
+                                     output_variable_list = None,
+                                     return_none_if_no_mip_vars = True,
+                                     json_mip_table=str(mip_table))
+    assert 'WARNING: all found variables have no known corresponding mip variable name.' in caplog.text
+
+    # With new semantics, all found variables are included: non-MIP vars get '' as value.
+    assert result is None
 
 
 # ---- variable only present at a minority datetime is still returned ----

@@ -268,11 +268,6 @@ def make_simple_varlist( dir_targ: str,
                            'return_none_if_no_mip_vars was True!')
         return None
 
-    if not var_list:
-        fre_logger.warning('WARNING: no variables in target mip table found, or no matching pattern,'
-                           ' or not enough info in the filenames (i am expecting FRE-bronx like filenames)')
-        return None
-
     # Write the variable list to the output JSON file
     if output_variable_list is not None:
         try:
