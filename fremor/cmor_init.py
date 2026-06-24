@@ -282,7 +282,7 @@ def cmor_init_subtool(
         and ``'tables_dir'`` (path written or *None*).
     """
     mip_era_lower = mip_era.lower()
-    if mip_era_lower not in ('cmip6', 'cmip7'):
+    if mip_era_lower not in ('cmip6', 'cmip6plus', 'cmip7'):
         raise ValueError(f'mip_era must be cmip6 or cmip7, got {mip_era}')
 
     result = {'exp_config': None, 'tables_dir': None}
@@ -295,8 +295,9 @@ def cmor_init_subtool(
             exp_config = f'CMOR_{mip_era_lower}_template.json'
 
         template_func = {
-            'cmip6': _cmip6_exp_config_template,
-            'cmip7': _cmip7_exp_config_template,
+            'cmip6'     : _cmip6_exp_config_template,
+            'cmip6plus' : _cmip6plus_exp_config_template,
+            'cmip7'     : _cmip7_exp_config_template,
         }[mip_era_lower]
 
         config_data = template_func()
