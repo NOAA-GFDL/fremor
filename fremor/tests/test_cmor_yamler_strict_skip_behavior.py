@@ -81,15 +81,16 @@ def mock_badyaml_environment(tmp_path):
     yaml_file.write_text(yaml_content)
     return str(yaml_file)
 
-def test_cmor_yaml_subtool_exception_no_cmor_key(monkeypatch, mock_badyaml_environment, caplog):
+def test_cmor_yaml_subtool_exception_no_cmor_key(mock_badyaml_environment):
     # Run the function and capture the logs
-    with pytest.raises(ValueError, match=f"Invalid CMOR YAML file '{mock_badyaml_environment}': expected a top-level mapping containing a 'cmor' section."):
+    err_str_match=f"Invalid CMOR YAML file '{mock_badyaml_environment}': expected a top-level mapping containing a 'cmor' section."
+    with pytest.raises(ValueError, match=err_str_match):
         cmor_yamler.cmor_yaml_subtool(yamlfile=mock_badyaml_environment, run_strict_mode=False)
-    
-    
+
+
 def test_cmor_yaml_subtool_exception_non_strict(monkeypatch, mock_yaml_environment, caplog):
     """
-    Cover the exception block where cmor_run_subtool fails, 
+    Cover the exception block where cmor_run_subtool fails,
     but run_strict_mode=False (the default), so it just logs a warning.
     """
     # Force cmor_run_subtool to raise an Exception
@@ -106,7 +107,7 @@ def test_cmor_yaml_subtool_exception_non_strict(monkeypatch, mock_yaml_environme
 
 def test_cmor_yaml_subtool_exception_strict_mode(monkeypatch, mock_yaml_environment):
     """
-    Cover the exception block where cmor_run_subtool fails, 
+    Cover the exception block where cmor_run_subtool fails,
     and run_strict_mode=True, forcing it to re-raise the exception.
     """
     # Force cmor_run_subtool to raise an Exception
@@ -117,4 +118,3 @@ def test_cmor_yaml_subtool_exception_strict_mode(monkeypatch, mock_yaml_environm
     # Assert that the exception actually bubbles up and stops execution
     with pytest.raises(Exception, match="simulated strict failure"):
         cmor_yamler.cmor_yaml_subtool(yamlfile=mock_yaml_environment, run_strict_mode=True)
-
