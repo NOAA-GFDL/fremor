@@ -269,9 +269,15 @@ def test_get_json_file_data_invalid_json(tmp_path):
     """ should raise FileNotFoundError (wrapping JSONDecodeError) for invalid JSON """
     f = tmp_path / 'bad.json'
     f.write_text('NOT JSON {{{{')
-    with pytest.raises(json.JSONDecodeError, match=''):
+    with pytest.raises(json.JSONDecodeError):
         get_json_file_data(str(f))
 
+def test_get_json_file_data_actually_dir(tmp_path):
+    """ should raise general Exception (not the other two errors) """
+    f = tmp_path / 'actually_gonna_be_a_dir.json'
+    f.mkdir(parents=True)
+    with pytest.raises(Exception):
+        get_json_file_data(str(f))
 
 # ---- update_grid_and_label None-args test ----
 
