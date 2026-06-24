@@ -186,7 +186,7 @@ def cmor_config_subtool(
             fre_logger.info('making variable list for %s', component_name)
             variable_list = f'{varlist_dir}/{era_upper}_{table_name}_{component_name}.list'
             fre_logger.info('variable_list = %s', variable_list)
-            
+
             # optionally regenerate
             if Path(variable_list).exists() and overwrite:
                 fre_logger.debug('varlist %s exists, unlinking to recreate because overwrite=True',
