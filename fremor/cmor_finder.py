@@ -24,8 +24,8 @@ import logging
 import os
 from pathlib import Path
 from typing import Optional, Dict, IO
-from .cmor_helpers import get_json_file_data
 
+from .cmor_helpers import get_json_file_data
 from .cmor_constants import DO_NOT_PRINT_LIST
 
 fre_logger = logging.getLogger(__name__)
@@ -61,9 +61,7 @@ def print_var_content(table_config_file: IO[str],
         table_name = table_name_split[0] if len(table_name_split) < 2 else table_name_split[1]
         table_file_name = Path(table_config_file.name).name # something not fun happening here...
     except KeyError:
-        fre_logger.warning('couldn\'t get header and table_name field')
-    except IndexError:
-        fre_logger.warning("couldn't get header and table_name, probably not a variable table")
+        fre_logger.warning('couldn\'t get header and table_name field, possibly not a variable/mip table')
 
     if table_name is not None:
         fre_logger.debug('looking for %s data in table %s!', var_name, table_name)

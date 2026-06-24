@@ -89,7 +89,8 @@ def test_print_var_content_cmip7_branded_vars(tmp_path, caplog):
         "variable_entry": {
             "tas_brandA": {
                 "standard_name": "air_temperature",
-                "units": "K"
+                "units": "K",
+                "valid_min": 0 # for DO_NOT_PRINT_LIST control path coverage
             },
             "tas_brandB": {
                 "standard_name": "air_temperature_2",
@@ -125,6 +126,27 @@ def test_print_var_content_cmip7_branded_vars(tmp_path, caplog):
     # Verify that non-matching variables ("pr_brandC") were ignored
     assert "pr_brandC" not in log_output
     assert "precipitation_flux" not in log_output
+
+def test_print_var_content_cmip7_branded_vars_no_contnet(tmp_path, caplog):
+    """
+    Test print_var_content for the CMIP7 branch to cover branded variables.
+    Omitting 'mip_era' from the Header triggers the cmip7 logic.
+    """
+    mock_table_path = Path(tmp_path) / "CMIP7_Amon.json"
+
+    # Create mock JSON data lacking a mip_era to trigger cmip7 logic
+    mock_data = {
+    }
+
+    # Write the dummy table to the temporary path
+    with open(mock_table_path, "w", encoding="utf-8") as f:
+        json.dump(mock_data, f)
+
+    # Open the file and run the function, capturing INFO logs
+    with open(mock_table_path, "r", encoding="utf-8") as table_file:
+        with pytest.raises(ValueError):
+            print_var_content(table_file, var_name="tas")
+
 
 def test_print_var_content_in_dir_w_mip_tables_err_1(caplog):
     '''
