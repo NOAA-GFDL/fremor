@@ -16,7 +16,8 @@ Glossary
       rewrites climate model output into a standardized format for model intercomparison projects.
 
    MIP
-      Model Intercomparison Project. A coordinated effort to compare climate models (e.g. CMIP6, CMIP7).
+      Model Intercomparison Project. A coordinated effort to compare climate models
+      (e.g. CMIP6, CMIP6Plus, CMIP7).
 
    MIP table
       A JSON configuration file that defines variable metadata requirements for a specific realm and

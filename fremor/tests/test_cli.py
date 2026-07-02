@@ -677,6 +677,30 @@ def test_cli_fremor_init_cmip7_exp_config(tmp_path):
     assert 'output_path_template' in config
 
 
+def test_cli_fremor_init_cmip6plus_exp_config(tmp_path):
+    """
+    fremor init -- generate a CMIP6Plus experiment config template.
+    """
+    output_path = tmp_path / 'test_cmip6plus_init_template.json'
+
+    result = runner.invoke(fremor, args=[
+        'init',
+        '--mip_era', 'cmip6plus',
+        '--exp_config', str(output_path)
+    ])
+    assert result.exit_code == 0, f'init failed: {result.output}'
+    assert output_path.exists(), 'output config was not created'
+
+    with open(output_path, 'r', encoding='utf-8') as f:
+        config = json.load(f)
+
+    # CMIP6Plus shares the CMIP6 experiment config structure
+    assert config['mip_era'] == 'CMIP6'
+    assert config['_cmip6_option'] == 'CMIP6'
+    assert 'experiment_id' in config
+    assert 'output_path_template' in config
+
+
 def test_cli_fremor_init_default_name(tmp_path):
     """
     fremor init -- when no --exp_config is given and no --tables_dir,

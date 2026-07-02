@@ -31,6 +31,9 @@ Before beginning CMORization, initialize the required resources:
    # Generate CMIP6 experiment config template and fetch tables
    fremor init -m cmip6 -e CMOR_cmip6_config.json -t cmip6-tables
 
+   # Generate CMIP6Plus experiment config template and fetch tables (fast mode)
+   fremor init -m cmip6plus -e CMOR_cmip6plus_config.json -t mip-cmor-tables --fast
+
    # Generate CMIP7 experiment config template and fetch tables (fast mode)
    fremor init -m cmip7 -e CMOR_cmip7_config.json -t cmip7-tables --fast
 

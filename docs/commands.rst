@@ -4,7 +4,7 @@
 Subcommands Reference
 =====================
 
-``fremor`` rewrites climate model output files with CMIP-compliant metadata. Both CMIP6 and CMIP7
+``fremor`` rewrites climate model output files with CMIP-compliant metadata. CMIP6, CMIP6Plus, and CMIP7
 workflows are supported. Available subcommands:
 
 * ``fremor init`` — Initialize CMOR resources: generate config templates and fetch MIP tables
@@ -19,10 +19,10 @@ workflows are supported. Available subcommands:
 --------
 
 * Initializes CMOR resources by generating experiment configuration templates and/or fetching MIP tables
-* Fetches tables from trusted GitHub repositories (CMIP6: ``PCMDI/cmip6-cmor-tables``, CMIP7: ``WCRP-CMIP/cmip7-cmor-tables``)
+* Fetches tables from trusted GitHub repositories (CMIP6: ``PCMDI/cmip6-cmor-tables``, CMIP6Plus: ``PCMDI/mip-cmor-tables``, CMIP7: ``WCRP-CMIP/cmip7-cmor-tables``)
 * Minimal Syntax: ``fremor init -m [mip_era] [options]``
 * Required Options:
-   - ``-m, --mip_era TEXT`` — MIP era: ``cmip6`` or ``cmip7``
+   - ``-m, --mip_era TEXT`` — MIP era: ``cmip6``, ``cmip6plus``, or ``cmip7``
 * Optional:
    - ``-e, --exp_config TEXT`` — Output path for experiment config JSON template
    - ``-t, --tables_dir TEXT`` — Directory to fetch MIP tables into
@@ -30,6 +30,7 @@ workflows are supported. Available subcommands:
    - ``--fast`` — Use curl to download tarball instead of git clone (faster)
 * Examples:
    - ``fremor init -m cmip6 -e exp_config.json -t cmip6-tables``
+   - ``fremor init -m cmip6plus -e exp_config.json -t mip-cmor-tables --fast``
    - ``fremor init -m cmip7 -e exp_config.json -t cmip7-tables --fast``
    - ``fremor init -m cmip6 -t cmip6-tables --tag 6.9.33``
 
