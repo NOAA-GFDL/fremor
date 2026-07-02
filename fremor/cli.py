@@ -332,9 +332,9 @@ def config(pp_dir, mip_tables_dir, mip_era, exp_config, output_yaml,
 
 
 @fremor.command()
-@click.option('-m', '--mip_era', type=click.Choice(['cmip6', 'cmip7'], case_sensitive=False),
+@click.option('-m', '--mip_era', type=click.Choice(['cmip6', 'cmip6plus', 'cmip7'], case_sensitive=False),
               required=True,
-              help='MIP era for the template: cmip6 or cmip7.')
+              help='MIP era for the template: cmip6, cmip6plus, or cmip7.')
 @click.option('-e', '--exp_config', type=str, default=None,
               help='Output path for the template experiment-config JSON file. '
                    'When omitted and --tables_dir is also omitted, a default '

@@ -6,8 +6,8 @@ CMOR Quickstart (``fremor``)
 
 This guide adapts the ``README`` for ``fre.cmor`` in ``NOAA-GFDL/fre-cli`` for the
 standalone ``fremor`` package. The ``fremor`` CLI rewrites climate model output
-with CMIP-compliant metadata (\"CMORization\") and supports both CMIP6 and CMIP7
-workflows.
+with CMIP-compliant metadata (\"CMORization\") and supports CMIP6, CMIP6Plus, and
+CMIP7 workflows.
 
 Comprehensive API and CLI reference material lives in :ref:`usage` and
 :ref:`commands`. Use this page when you want a concise, end-to-end reminder of
@@ -33,6 +33,9 @@ Before CMORizing data, use ``fremor init`` to set up required resources:
    # Generate a CMIP6 config template and fetch CMIP6 tables
    fremor init -m cmip6 -e exp_config.json -t cmip6-tables
 
+   # Generate a CMIP6Plus config template and fetch CMIP6Plus tables (fast mode)
+   fremor init -m cmip6plus -e exp_config.json -t mip-cmor-tables --fast
+
    # Generate a CMIP7 config template and fetch CMIP7 tables (fast mode)
    fremor init -m cmip7 -e exp_config.json -t cmip7-tables --fast
 
@@ -50,8 +53,29 @@ The ``init`` command:
 * Generates experiment configuration JSON templates with required CMIP metadata fields
 * Fetches official MIP tables from trusted GitHub repositories:
    - CMIP6: `pcmdi/cmip6-cmor-tables <https://github.com/pcmdi/cmip6-cmor-tables>`_
+   - CMIP6Plus: `PCMDI/mip-cmor-tables <https://github.com/PCMDI/mip-cmor-tables>`_
    - CMIP7: `WCRP-CMIP/cmip7-cmor-tables <https://github.com/WCRP-CMIP/cmip7-cmor-tables>`_
 * Supports both git clone (default) and tarball download (``--fast``) methods
+
+MIP Era Differences
+~~~~~~~~~~~~~~~~~~~
+
+``fremor`` supports three MIP eras, selected via the ``-m/--mip_era`` option:
+
+* **CMIP6** — The original CMIP Phase 6 tables and controlled vocabularies from
+  `pcmdi/cmip6-cmor-tables <https://github.com/pcmdi/cmip6-cmor-tables>`_. Use this
+  for existing CMIP6 datasets.
+
+* **CMIP6Plus** — A transitional era using the unified
+  `PCMDI/mip-cmor-tables <https://github.com/PCMDI/mip-cmor-tables>`_ repository.
+  CMIP6Plus shares the same experiment configuration structure as CMIP6 but uses
+  updated table definitions. Choose this for new submissions that follow CMIP6-era
+  conventions but target the newer consolidated table infrastructure.
+
+* **CMIP7** — The next-generation CMIP Phase 7 tables from
+  `WCRP-CMIP/cmip7-cmor-tables <https://github.com/WCRP-CMIP/cmip7-cmor-tables>`_.
+  CMIP7 uses a distinct experiment configuration template with fields tailored to the
+  evolving CMIP7 data request.
 
 External configuration
 ~~~~~~~~~~~~~~~~~~~~~~
@@ -95,14 +119,14 @@ fetching MIP tables from trusted sources.
    # Generate config template and fetch tables
    fremor init -m cmip6 -e exp_config.json -t cmip6-tables
 
+   # CMIP6Plus: use the unified mip-cmor-tables repository
+   fremor init -m cmip6plus -e exp_config.json -t mip-cmor-tables --fast
+
    # Use fast mode (tarball download instead of git clone)
    fremor init -m cmip7 -e exp_config.json -t cmip7-tables --fast
 
    # Fetch a specific release tag
    fremor init -m cmip6 -t cmip6-tables --tag 6.9.33
-
-``run``
-~~~~~~~
 
 Rewrite NetCDF files in a directory using a specific MIP table and experiment
 configuration.

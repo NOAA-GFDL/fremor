@@ -39,6 +39,12 @@ contributed.
 
 
 ## Quickstart
+
+```bash
+# Initialize CMIP6Plus resources (config template + MIP tables)
+fremor init -m cmip6plus -e exp_config.json -t mip-cmor-tables --fast
+```
+
 For an overview of required inputs and sample commands, see the [CMOR Quickstart](docs/quickstart.rst).
 
 

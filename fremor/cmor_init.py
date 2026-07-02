@@ -283,7 +283,7 @@ def cmor_init_subtool(
     """
     mip_era_lower = mip_era.lower()
     if mip_era_lower not in ('cmip6', 'cmip6plus', 'cmip7'):
-        raise ValueError(f'mip_era must be cmip6 or cmip7, got {mip_era}')
+        raise ValueError(f'mip_era must be cmip6, cmip6plus, or cmip7, got {mip_era}')
 
     result = {'exp_config': None, 'tables_dir': None}
 
