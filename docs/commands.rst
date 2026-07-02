@@ -66,6 +66,7 @@ workflows are supported. Available subcommands:
 * Required Options:
    - ``-y, --yamlfile TEXT`` — YAML file to parse
 * Optional:
+   - ``--run_strict`` — Exit immediately when a ``fremor run`` call raises an exception, rather than logging a warning and continuing to the next component
    - ``--run_one`` — Process one file for testing
    - ``--dry_run`` — Print planned calls without executing
    - ``--print_cli_call/--no-print_cli_call`` — In dry-run mode, print the equivalent CLI invocation (default) or the Python ``cmor_run_subtool()`` call
@@ -102,13 +103,20 @@ workflows are supported. Available subcommands:
 -----------
 
 * Generates variable list from netCDF files in a directory
+* Scans filenames (``component.YYYYMMDD.variable.nc``) and extracts variable names; deduplicates across datetimes
+* When a MIP table is provided, variables that match a MIP entry are self-mapped (key == value); variables not found in the table receive an empty-string value signalling that manual mapping is required
+* Variable name matching is case-insensitive (e.g., ``LWP`` matches ``lwp`` in the MIP table)
 * Minimal Syntax: ``fremor varlist -d [dir_targ] -o [output_file]``
 * Required Options:
    - ``-d, --dir_targ TEXT`` — Target directory
    - ``-o, --output_variable_list TEXT`` — Output file path
 * Optional:
-   - ``-t, --mip_table TEXT`` — MIP table JSON file to filter variables against
-* Example: ``fremor varlist -d ocean_data/ -o varlist.json``
+   - ``-t, --mip_table TEXT`` — MIP table JSON file to cross-reference variables against
+   - ``--strict_mode`` — If a MIP table is provided and none of the found variable names match any MIP entry, do not write the output file (return nothing instead of a file full of empty-value entries)
+* Examples:
+   - ``fremor varlist -d ocean_data/ -o varlist.json``
+   - ``fremor varlist -d ocean_data/ -t CMIP6_Omon.json -o varlist.json``
+   - ``fremor varlist -d ocean_data/ -t CMIP6_Omon.json --strict_mode -o varlist.json``
 
 ``config``
 ----------
@@ -125,9 +133,11 @@ workflows are supported. Available subcommands:
    - ``-d, --output_dir TEXT`` — Root output directory for CMORized data
    - ``-l, --varlist_dir TEXT`` — Directory for per-component variable list files
 * Optional:
+   - ``-g, --pp_comp_glob TEXT`` — Glob pattern for selecting pp component directory names (default: ``*``)
+   - ``--strict_varlist`` — When generating per-component variable lists, apply ``--strict_mode``: if none of a component's variables match any MIP entry, skip that component entirely (no varlist file, no entry in the generated YAML)
    - ``--freq TEXT`` — Temporal frequency (default: ``monthly``)
    - ``--chunk TEXT`` — Time chunk string (default: ``5yr``)
-   - ``--grid TEXT`` — Grid label anchor name (default: ``g99``)
+   - ``--grid TEXT`` — Grid label anchor name (default: ``g999``)
    - ``--overwrite`` — Overwrite existing variable list files
    - ``--calendar TEXT`` — Calendar type (default: ``noleap``)
 * Example: ``fremor config -p /path/to/pp -t /path/to/tables -m cmip7 -e exp_config.json -o cmor.yaml -d /path/to/output -l /path/to/varlists``
