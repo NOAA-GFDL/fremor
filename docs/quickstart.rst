@@ -128,6 +128,9 @@ fetching MIP tables from trusted sources.
    # Fetch a specific release tag
    fremor init -m cmip6 -t cmip6-tables --tag 6.9.33
 
+``run``
+~~~~~~~
+
 Rewrite NetCDF files in a directory using a specific MIP table and experiment
 configuration.
 
