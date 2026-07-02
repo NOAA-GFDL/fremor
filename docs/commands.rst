@@ -137,7 +137,7 @@ workflows are supported. Available subcommands:
    - ``--strict_varlist`` — When generating per-component variable lists, apply ``--strict_mode``: if none of a component's variables match any MIP entry, skip that component entirely (no varlist file, no entry in the generated YAML)
    - ``--freq TEXT`` — Temporal frequency (default: ``monthly``)
    - ``--chunk TEXT`` — Time chunk string (default: ``5yr``)
-   - ``--grid TEXT`` — Grid label anchor name (default: ``g999``)
+   - ``--grid TEXT`` — Grid label anchor name (default: ``g999``; the previous documentation incorrectly listed ``g99``)
    - ``--overwrite`` — Overwrite existing variable list files
    - ``--calendar TEXT`` — Calendar type (default: ``noleap``)
 * Example: ``fremor config -p /path/to/pp -t /path/to/tables -m cmip7 -e exp_config.json -o cmor.yaml -d /path/to/output -l /path/to/varlists``
