@@ -106,8 +106,60 @@ def _cmip6_exp_config_template():
     }
 
 def _cmip6plus_exp_config_template():
-    """ return a template for CMIP6Plus. currently, this is the identical object for cmip6 """
-    return _cmip6_exp_config_template()
+    """ return a template for CMIP6Plus. currently, near-identical to object returned for cmip6 """
+    return {
+        '#note': ' **** CMIP6 experiment configuration template – fill in values below ****',
+        'source_type': '',
+        'experiment_id': '',
+        'activity_id': '',
+        'sub_experiment_id': 'none',
+        'realization_index': '1',
+        'initialization_index': '1',
+        'physics_index': '1',
+        'forcing_index': '1',
+        'run_variant': '',
+        'parent_experiment_id': 'no parent',
+        'parent_activity_id': 'no parent',
+        'parent_source_id': 'no parent',
+        'parent_variant_label': 'no parent',
+        'parent_time_units': 'no parent',
+        'branch_method': 'no parent',
+        'branch_time_in_child': 0.0,
+        'branch_time_in_parent': 0.0,
+        'institution_id': 'NOAA-GFDL',
+        'source_id': '',
+        'calendar': '',
+        'grid': '',
+        'grid_label': '',
+        'nominal_resolution': '',
+        'license': 'CMIP6 model data produced by Lawrence Livermore NOAA-GFDL is licensed under a Creative Commons Attribution 4.0 International License (https://creativecommons.org/licenses/by/4.0/). Consult https://pcmdi.llnl.gov/CMIP6/TermsOfUse for terms of use governing CMIP6 output, including citation requirements and proper acknowledgment. Further information about this data, including some limitations, can be found via the further_info_url (recorded as a global attribute in this file) and at https:///pcmdi.llnl.gov/. The data producers and data providers make no warranty, either express or implied, including, but not limited to, warranties of merchantability and fitness for a particular purpose. All liabilities arising from the supply of the information (including any liability arising in negligence) are excluded to the fullest extent permitted by law.', # pylint: disable=line-too-long
+        'outpath': '',
+        'contact': '',
+        'history': '',
+        'comment': '',
+        'references': '',
+        'sub_experiment': 'none',
+        'institution': 'NOAA-GFDL',
+        'source': '',
+        '_controlled_vocabulary_file': 'CMIP6_CV.json',
+        '_AXIS_ENTRY_FILE': 'CMIP6_coordinate.json',
+        '_FORMULA_VAR_FILE': 'CMIP6_formula_terms.json',
+        '_cmip6_option': 'CMIP6',
+        'mip_era': 'CMIP6Plus',
+        'parent_mip_era': 'no parent',
+        'tracking_prefix': 'hdl:21.14100',
+        '_history_template': (
+            '%s ;rewrote data to be consistent with '
+            '<activity_id> for variable <variable_id> found in table <table_id>.'
+        ),
+        'output_path_template': (
+            '<mip_era><activity_id><institution_id><source_id>'
+            '<experiment_id><_member_id><table><variable_id><grid_label><version>'
+        ),
+        'output_file_template': (
+            '<variable_id><table><source_id><experiment_id><_member_id><grid_label>'
+        ),
+    }
 
 def _cmip7_exp_config_template():
     """Return an ordered dict-like structure for an empty CMIP7 experiment config."""

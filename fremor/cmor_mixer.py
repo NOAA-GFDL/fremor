@@ -360,7 +360,7 @@ def rewrite_netcdf_file_var( mip_var_cfgs: dict = None,
                                    coord_vals=lev[:], units=lev_units)
             else:
                 landuse_str_list = ['primary_and_secondary_land', 'pastures', 'crops', 'urban']
-                cmor_vert_dim_name = 'landUse' if exp_cfg_mip_era == 'CMIP6' else 'landuse'
+                cmor_vert_dim_name = 'landUse' if exp_cfg_mip_era in ['CMIP6', 'CMIP6PLUS'] else 'landuse'
                 cmor_z = cmor.axis(cmor_vert_dim_name,
                                    coord_vals=np.array(
                                        landuse_str_list,
@@ -843,11 +843,14 @@ def cmor_run_subtool(indir: str = None,
         raise KeyError('no mip_era entry in experimental metadata configuration, the file is noncompliant!') from exc
 
     fre_logger.debug('exp_cfg_mip_era = %s', exp_cfg_mip_era)
-    if exp_cfg_mip_era not in ['CMIP6', 'CMIP7']:
-        raise ValueError('cmor_mixer only supports CMIP6 and CMIP7 cases')
+    if exp_cfg_mip_era not in ['CMIP6', 'CMIP6PLUS', 'CMIP7']:
+        raise ValueError('cmor_mixer only supports CMIP6, CMIP6 Plus, and CMIP7 cases')
 
     if exp_cfg_mip_era == 'CMIP7':
         fre_logger.warning('CMIP7 configuration detected, will be expecting and enforcing variable brands.')
+
+    if exp_cfg_mip_era == 'CMIP6PLUS':
+        fre_logger.warning('CMIP6Plus configuration detected, capability under development, treating as a CMIP6 case for now')
 
     # CHECK optional grid/grid_label/nom_res inputs from exp config, the function raises the potential error conditions
     if any( [ grid_label is not None,
@@ -870,8 +873,11 @@ def cmor_run_subtool(indir: str = None,
     table_mip_era = mip_var_cfgs.get('Header', {}).get('mip_era')
     if isinstance(table_mip_era, str):
         table_mip_era = table_mip_era.upper()
-    elif Path(json_table_config).stem.split('_', maxsplit=1)[0].upper() in ['CMIP6', 'CMIP7']:
+    elif Path(json_table_config).stem.split('_', maxsplit=1)[0].upper() in ['CMIP6', 'CMIP6PLUS', 'CMIP7']:
         table_mip_era = Path(json_table_config).stem.split('_', maxsplit=1)[0].upper()
+        if table_mip_era == 'MIP':
+            table_mip_era = 'CMIP6PLUS'
+
     if table_mip_era is not None and table_mip_era != exp_cfg_mip_era:
         raise ValueError(
             'mip_era mismatch between experiment config and MIP table.\n'
@@ -890,7 +896,7 @@ def cmor_run_subtool(indir: str = None,
         mip_var_brand_list = [ var.split('_')[1] for var in mip_fullvar_list ]
         if len(mip_var_list) != len(mip_var_brand_list):
             raise ValueError('the number of brands is not one-to-one with the number of variables. check config.')
-    elif exp_cfg_mip_era == 'CMIP6':
+    elif exp_cfg_mip_era in ['CMIP6', 'CMIP6PLUS']:
         mip_var_list = mip_fullvar_list
 
     fre_logger.debug('list of table variables we will process = \n %s', mip_var_list)

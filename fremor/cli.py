@@ -283,7 +283,7 @@ def varlist_(dir_targ, strict_mode, output_variable_list, mip_table):
 @click.option('-t', '--mip_tables_dir', type=str, required=True,
               help='Directory containing MIP table JSON files.')
 @click.option('-m', '--mip_era', type=str, required=True,
-              help='MIP era identifier, e.g. cmip6 or cmip7.')
+              help='MIP era identifier, e.g. cmip6, cmip6plus, or cmip7.')
 @click.option('-e', '--exp_config', type=str, required=True,
               help='Path to JSON experiment/input configuration file expected by CMOR.')
 @click.option('-o', '--output_yaml', type=str, required=True,
