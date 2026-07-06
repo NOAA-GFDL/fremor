@@ -597,7 +597,7 @@ def test_fre_cmor_run_subtool_unsupported_mip_era(tmp_path):
     exp_data['mip_era'] = 'CMIP99'
     bad_exp.write_text(json.dumps(exp_data))
 
-    with pytest.raises(ValueError, match='only supports CMIP6 and CMIP7'):
+    with pytest.raises(ValueError, match='only supports CMIP6, CMIP6 Plus, and CMIP7'):
         cmor_run_subtool(
             indir = INDIR,
             json_var_list = VARLIST,
