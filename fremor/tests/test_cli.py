@@ -695,7 +695,7 @@ def test_cli_fremor_init_cmip6plus_exp_config(tmp_path):
         config = json.load(f)
 
     # CMIP6Plus shares the CMIP6 experiment config structure
-    assert config['mip_era'] == 'CMIP6'
+    assert config['mip_era'] == 'CMIP6Plus'
     assert config['_cmip6_option'] == 'CMIP6'
     assert 'experiment_id' in config
     assert 'output_path_template' in config
