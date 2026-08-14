@@ -6,7 +6,7 @@ dependencies:
   - python>=3.11
   - pip
   - conda-forge::click>=8.2
-  - conda-forge::cmor>=3.15.2
+  - conda-forge::cmor>=3.15.3
   - conda-forge::netcdf4>=1.7
   - conda-forge::numpy>=2
   - conda-forge::pyyaml
