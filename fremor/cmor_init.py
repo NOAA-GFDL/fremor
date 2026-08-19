@@ -315,7 +315,7 @@ def cmor_init_subtool(
     Parameters
     ----------
     mip_era : str
-        ``'cmip6'`` or ``'cmip7'``.
+        ``'cmip6'``, ``'cmip6plus'```, or ``'cmip7'``.
     exp_config : str or None
         Output path for the template experiment-config JSON file.
         When *None* and *tables_dir* is also *None*, a default path
@@ -339,12 +339,22 @@ def cmor_init_subtool(
 
     result = {'exp_config': None, 'tables_dir': None}
 
+    if exp_config is None and tables_dir is None: # create a default user exp json
+        exp_config = f'CMOR_{mip_era_lower}_template.json'
+
+    # -- MIP tables --
+    if tables_dir is not None:
+        repo_url = MIP_TABLE_REPOS[mip_era_lower]
+        if fast:
+            _fetch_tables_curl(repo_url, tables_dir, tag=tag)
+        else:
+            _fetch_tables_git(repo_url, tables_dir, tag=tag)
+        result['tables_dir'] = tables_dir
+
     # -- experiment config --
     # Write config when explicitly requested OR when tables_dir is not given
     # (i.e. the user invoked `fremor init` without --tables_dir).
-    if exp_config is not None or tables_dir is None:
-        if exp_config is None:
-            exp_config = f'CMOR_{mip_era_lower}_template.json'
+    if exp_config is not None:
 
         template_func = {
             'cmip6'     : _cmip6_exp_config_template,
@@ -365,14 +375,5 @@ def cmor_init_subtool(
         click_echo = f'Wrote {mip_era_lower.upper()} experiment config template to {out_path}'
         print(click_echo)
         result['exp_config'] = str(out_path)
-
-    # -- MIP tables --
-    if tables_dir is not None:
-        repo_url = MIP_TABLE_REPOS[mip_era_lower]
-        if fast:
-            _fetch_tables_curl(repo_url, tables_dir, tag=tag)
-        else:
-            _fetch_tables_git(repo_url, tables_dir, tag=tag)
-        result['tables_dir'] = tables_dir
 
     return result
