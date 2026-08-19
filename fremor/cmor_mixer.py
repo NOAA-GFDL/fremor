@@ -488,10 +488,26 @@ def rewrite_netcdf_file_var( mip_var_cfgs: dict = None,
 
     if exp_cfg_mip_era == 'CMIP7':
         fre_logger.info('cmor.variable call: for cmip7_target_var = %s ', f'{target_var}_{var_brand}')
+
         cmor_var = cmor.variable(f'{target_var}_{var_brand}', units, axes,
                                  missing_value = var_missing_val,
                                  positive = positive)
         fre_logger.info('DONE cmor.variable call: for cmip7_target_var = %s ',f'{target_var}_{var_brand}')
+        
+        # need to add this kind of file opening
+        fre_logger.info('NOW trying to add the cell_measures field from CMIP7_cell_measures.json')
+        with open(f'{Path(json_table_config).parent}/CMIP7_cell_measures.json', 'r', encoding='utf-8') as handle:
+            cell_measures = json.load(handle)["cell_measures"]
+            
+            # need to add this kind of line
+            fre_logger.debug('setting cell_measures attribute for cmor variable: %s', cmor_var)
+            cmor.set_variable_attribute(
+                cmor_var,
+                "cell_measures",
+                "c",
+                cell_measures.get(f'{target_var}_{var_brand}', ""),
+            )
+
 
     else:
         fre_logger.info('cmor.variable call: for target_var = %s ',target_var)
