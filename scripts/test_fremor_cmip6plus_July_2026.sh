@@ -51,41 +51,40 @@ echo "target FREBRONX pp dir will be : ${TARG_FREBRONX_PPDIR}"
 TEST_COMPONENT_DIR=${TARG_FREBRONX_PPDIR}${COMPONENT_DIR_STUB_VARLIST_ONLY} # for varlist testing only, random
 echo "test component(s) for fremor variable listing will be : ${TEST_COMPONENT_DIR}"
 
-##### ACTION
-##### ------
-## from ~/Working, this is not technically required, but assists with org
-#echo "cd'ing to working dir ${WORKING_CWD}"
-#cd "${WORKING_CWD}" || return
-#
-#
-#
-##### INIT
-##### ----
-## NOTE: the required input data is not required for this step, and neither is the CWD/editable info above, it's just convenience scaffolding
-#FREMOR_INIT_OUTDIR=${WORKING_CWD}/fremor_init_outdir
-#USER_CONFIG=${FREMOR_INIT_OUTDIR}/CMIP7_user_input.json
-#CMIP7_TABLES=${FREMOR_INIT_OUTDIR}/cmip7-cmor-tables-main/tables
-#if [[ "${CHECK_INIT}" -eq 1 ]]; then
-#    echo "not checking fremor init"
-#else
-#    # fremor init - works, check!
-#    echo "setting up fremor init check, clobbering any prev made output"
-#    rm -rf "${FREMOR_INIT_OUTDIR}" || echo "no init output to remove, OK!" && mkdir "${FREMOR_INIT_OUTDIR}"
-#
-#    echo "running fremor init"
-#    echo "fremor init --mip_era cmip7 --exp_config ${USER_CONFIG} -t ${FREMOR_INIT_OUTDIR} --fast"
-#    fremor -v init \
-#           --mip_era cmip7 \
-#           --exp_config "${USER_CONFIG}" \
-#           -t "${FREMOR_INIT_OUTDIR}" \
-#           --fast
-#
-#    echo "checking that fremor init's output exists, return if not"
-#    ls -l "${USER_CONFIG}" || return
-#    ls -l "${CMIP7_TABLES}" || return
-#fi
-#
-#
+#### ACTION
+#### ------
+# from ~/Working, this is not technically required, but assists with org
+echo "cd'ing to working dir ${WORKING_CWD}"
+cd "${WORKING_CWD}" || return
+
+
+
+#### INIT
+#### ----
+# NOTE: the required input data is not required for this step, and neither is the CWD/editable info above, it's just convenience scaffolding
+FREMOR_INIT_OUTDIR=${WORKING_CWD}/fremor_init_outdir
+USER_CONFIG=${FREMOR_INIT_OUTDIR}/CMIP6plus_user_input.json
+CMIP6PLUS_TABLE_DIR=${FREMOR_INIT_OUTDIR}/table_checkout
+if [[ "${CHECK_INIT}" -eq 1 ]]; then
+    echo "not checking fremor init"
+else
+    # fremor init - works, check!
+    echo "setting up fremor init check, clobbering any prev made output"
+    rm -rf "${FREMOR_INIT_OUTDIR}" || echo "no init output to remove, OK!" && mkdir "${FREMOR_INIT_OUTDIR}" && mkdir "${CMIP6PLUS_TABLE_DIR}"
+
+    echo "running fremor init"
+    echo "fremor init --mip_era cmip6plus --exp_config ${USER_CONFIG} -t ${FREMOR_INIT_OUTDIR} --fast"
+    fremor -vv init \
+           --mip_era cmip6plus \
+           --exp_config "${USER_CONFIG}" \
+           -t "${CMIP6PLUS_TABLE_DIR}"
+
+    echo "checking that fremor init's output exists, return if not"
+    ls -l "${USER_CONFIG}" && echo "found user config!" || return
+    ls -l "${CMIP6PLUS_TABLE_DIR}" && echo "found a tabledir with contents!" || return
+fi
+
+
 ##### VARLIST
 ##### -------
 #FREMOR_VARLIST_OUTDIR=${WORKING_CWD}/fremor_varlist_outdir #DIRECTORY
@@ -229,11 +228,11 @@ echo "test component(s) for fremor variable listing will be : ${TEST_COMPONENT_D
 #    #echo "checking that fremor run's output exists"
 #    #ls -l
 #fi
-#
-#
-#
-#
-#
-## end where we began
-#cd "${WORKING_CWD}" || return
-#
+
+
+
+
+
+# end where we began
+cd "${WORKING_CWD}" || return
+
