@@ -51,7 +51,7 @@ ESM4_DEV_PP_DIR = (
 # CMIP7 output dir structure
 # (activity_id/source_id/experiment_id/member_id/variable_id/branding_suffix/grid_label)
 CMOR_CREATES_DIR_BASE_CMIP7 = (
-    'CMIP/DUMMY-MODEL/historical/r3i1p1f3'
+    'CMIP/GFDL-ESM4p5/historical/r3i1p1f3'
 )
 
 
