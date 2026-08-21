@@ -353,7 +353,7 @@ def rewrite_netcdf_file_var( mip_var_cfgs: dict = None,
         fre_logger.info('assigning cmor_z')
 
         if vert_dim.lower() in NON_HYBRID_SIGMA_COORDS:
-            fre_logger.info('non-hybrid sigma coordinate case')
+            fre_logger.info('vert_dim is NON_HYBRID_SIGMA_COORDS')
             if vert_dim.lower() != 'landuse':
                 cmor_vert_dim_name = vert_dim
                 cmor_z = cmor.axis(cmor_vert_dim_name,
@@ -368,7 +368,8 @@ def rewrite_netcdf_file_var( mip_var_cfgs: dict = None,
                                    ),
                                    units=lev_units)
 
-        elif vert_dim in DEPTH_COORDS:
+        elif vert_dim.lower() in DEPTH_COORDS:
+            fre_logger.info('vert_dim is DEPTH_COORDS')
             try:
                 lev_bnds = create_lev_bnds(bound_these=lev, with_these=ds['z_i'])
                 fre_logger.info('created lev_bnds...')
@@ -383,6 +384,7 @@ def rewrite_netcdf_file_var( mip_var_cfgs: dict = None,
                                cell_bounds=lev_bnds)
 
         elif vert_dim in ALT_HYBRID_SIGMA_COORDS:
+            fre_logger.info('vert_dim is ALT_HYBRID_SIGMA_COORDS')
             # find the ps file nearby
             ps_file = netcdf_file.replace(f'.{local_var}.nc', '.ps.nc')
             ds_ps = nc.Dataset(ps_file)
