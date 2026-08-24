@@ -5,7 +5,7 @@ coverage:
   status:
     project:
       default:
-        target: auto
+        target: 96%          # project is not allowed to fall below this overall
         if_ci_failed: error
 
     patch:
