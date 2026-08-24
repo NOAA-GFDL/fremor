@@ -16,7 +16,7 @@ from fremor.cmor_helpers import ( find_statics_file, print_data_minmax,
                                     create_lev_bnds, get_iso_datetime_ranges, iso_to_bronx_chunk,
                                     create_tmp_dir, get_json_file_data,
                                     update_grid_and_label, get_bronx_freq_from_mip_table, #update_outpath,
-                                    filter_brands, get_vertical_dimension 
+                                    filter_brands, get_vertical_dimension,
                                     from_ds_get_this )
 
 def test_iso_to_bronx_chunk():
