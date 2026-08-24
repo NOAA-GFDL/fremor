@@ -76,6 +76,7 @@ bnds
 booleaness
 capfd
 caplog
+ceresmip
 cfgs
 chdir
 chunkstr
@@ -96,6 +97,7 @@ dedup
 difmxybo
 docstrings
 filenotfound
+forcmip
 fremake
 fremor
 fullvar
@@ -144,6 +146,7 @@ mymodule
 mypackage
 mypy
 mylog
+nbhome
 ncattrs
 ncgen
 ncrc

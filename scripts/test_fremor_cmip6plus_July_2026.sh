@@ -22,7 +22,7 @@ CHECK_RESOLVE=1 #
 
 ## FYI which fremor i'm using, not strictly used nor necessary.
 FREMOR_INSTALL_E=/home/inl/Working/fremor
-echo "fremor editably installed in ${FREMOR_INSTALL_E}"
+echo "fremor pip installed (with -e) in ${FREMOR_INSTALL_E}"
 
 ## starting directory
 WORKING_CWD=/home/inl/Working/fremor_testing_forcmip6plus_July6_2026/

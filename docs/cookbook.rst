@@ -317,7 +317,7 @@ To skip components where none of the found variables match any MIP entry (i.e., 
        --strict_varlist
 
 Components that produce no MIP-matching variables are silently omitted from the generated YAML,
-keeping the output focused on components that actually have CMORizable data.
+keeping the output focused on components that actually have data that can be cmorized.
 
 Common Issues and Solutions
 ---------------------------
