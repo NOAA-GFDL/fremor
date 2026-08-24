@@ -151,6 +151,7 @@ def test_cli_fremor_yaml_case1(mock_subtool, tmp_path):
     assert result.exit_code == 0
     mock_subtool.assert_called_once_with(
         yamlfile=str(dummy_yaml),
+        run_strict_mode=False,
         run_one_mode=False,
         dry_run_mode=True,
         start=None,
@@ -254,7 +255,7 @@ def test_cli_fremor_run_case1(cli_sos_nc_file, tmp_path):
     assert Path(cli_sos_nc_file).exists(), 'input file should still exist'
 
 
-def test_cli_fremor_run_case2(cli_sosv2_nc_file, tmp_path):
+def test_cli_fremor_run_case2(tmp_path):
     """
     fremor run, test error case: filename variable != file variable (CMIP6).
     The sosV2 file has variable 'sos' inside, but the varlist expects 'sosV2' as the
@@ -526,7 +527,7 @@ def test_cli_fremor_varlist_opt_dne():
     assert result.exit_code == 2
 
 
-def test_cli_fremor_varlist_no_table_filter(cli_sos_nc_file, cli_sosv2_nc_file, cli_mapped_nc_file, tmp_path):
+def test_cli_fremor_varlist_no_table_filter(cli_sos_nc_file, cli_sosv2_nc_file, tmp_path):
     """
     fremor varlist — no MIP table filter.
     Creates a variable list from the ocean_sos_var_file test data without a MIP table,
@@ -553,7 +554,7 @@ def test_cli_fremor_varlist_no_table_filter(cli_sos_nc_file, cli_sosv2_nc_file, 
     assert len(var_list) == 3
 
 
-def test_cli_fremor_varlist_cmip6_table_filter(cli_sos_nc_file, cli_sosv2_nc_file, cli_mapped_nc_file, tmp_path):
+def test_cli_fremor_varlist_cmip6_table_filter(cli_sos_nc_file, cli_sosv2_nc_file, tmp_path):
     """
     fremor varlist — with CMIP6 Omon MIP table filter.
     sos is a MIP variable and gets self-mapped; sosV2 and sea_sfc_salinity are
@@ -582,7 +583,7 @@ def test_cli_fremor_varlist_cmip6_table_filter(cli_sos_nc_file, cli_sosv2_nc_fil
     assert var_list['sea_sfc_salinity'] == '', 'sea_sfc_salinity should have empty string value'
 
 
-def test_cli_fremor_varlist_cmip7_table_filter(cli_sos_nc_file, cli_sosv2_nc_file, cli_mapped_nc_file, tmp_path):
+def test_cli_fremor_varlist_cmip7_table_filter(cli_sos_nc_file, cli_sosv2_nc_file, tmp_path):
     """
     fremor varlist — with CMIP7 ocean MIP table filter.
     sos is a MIP variable (sos_tavg-u-hxy-sea splits to sos) and gets self-mapped;
@@ -676,7 +677,31 @@ def test_cli_fremor_init_cmip7_exp_config(tmp_path):
     assert 'output_path_template' in config
 
 
-def test_cli_fremor_init_default_name(tmp_path):
+def test_cli_fremor_init_cmip6plus_exp_config(tmp_path):
+    """
+    fremor init -- generate a CMIP6Plus experiment config template.
+    """
+    output_path = tmp_path / 'test_cmip6plus_init_template.json'
+
+    result = runner.invoke(fremor, args=[
+        'init',
+        '--mip_era', 'cmip6plus',
+        '--exp_config', str(output_path)
+    ])
+    assert result.exit_code == 0, f'init failed: {result.output}'
+    assert output_path.exists(), 'output config was not created'
+
+    with open(output_path, 'r', encoding='utf-8') as f:
+        config = json.load(f)
+
+    # CMIP6Plus shares the CMIP6 experiment config structure
+    assert config['mip_era'] == 'CMIP6Plus'
+    assert config['_cmip6_option'] == 'CMIP6'
+    assert 'experiment_id' in config
+    assert 'output_path_template' in config
+
+
+def test_cli_fremor_init_cmip6_default_name(tmp_path):
     """
     fremor init -- when no --exp_config is given and no --tables_dir,
     a default-named file should be created in the current directory.
@@ -695,6 +720,49 @@ def test_cli_fremor_init_default_name(tmp_path):
         with open(default_path, 'r', encoding='utf-8') as f:
             config = json.load(f)
         assert config['mip_era'] == 'CMIP6'
+
+def test_cli_fremor_init_cmip6plus_default_name(tmp_path):
+    """
+    fremor init -- when no --exp_config is given and no --tables_dir,
+    a default-named file should be created in the current directory.
+    """
+    # Use CliRunner's isolated_filesystem to avoid polluting the actual working directory
+    with runner.isolated_filesystem(temp_dir=tmp_path):
+        result = runner.invoke(fremor, args=[
+            'init',
+            '--mip_era', 'cmip6plus'
+        ])
+        assert result.exit_code == 0, f'init failed: {result.output}'
+
+        default_path = Path('CMOR_cmip6plus_template.json')
+        assert default_path.exists(), 'default output config was not created'
+
+        with open(default_path, 'r', encoding='utf-8') as f:
+            config = json.load(f)
+        assert config['mip_era'] == 'CMIP6Plus'
+
+
+
+def test_cli_fremor_init_cmip7_default_name(tmp_path):
+    """
+    fremor init -- when no --exp_config is given and no --tables_dir,
+    a default-named file should be created in the current directory.
+    """
+    # Use CliRunner's isolated_filesystem to avoid polluting the actual working directory
+    with runner.isolated_filesystem(temp_dir=tmp_path):
+        result = runner.invoke(fremor, args=[
+            'init',
+            '--mip_era', 'cmip7'
+        ])
+        assert result.exit_code == 0, f'init failed: {result.output}'
+
+        default_path = Path('CMOR_cmip7_template.json')
+        assert default_path.exists(), 'default output config was not created'
+
+        with open(default_path, 'r', encoding='utf-8') as f:
+            config = json.load(f)
+        assert config['mip_era'] == 'CMIP7'
+
 
 
 # ── fremor run: logfile + omission tracking ───────────────────────────────

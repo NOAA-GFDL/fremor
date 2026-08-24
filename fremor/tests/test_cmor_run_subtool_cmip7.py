@@ -49,11 +49,11 @@ YYYYMMDD = date.today().strftime('%Y%m%d')
 # CMIP7 output path follows output_path_template:
 # <activity_id><source_id><experiment_id><member_id><variable_id><branding_suffix><grid_label>
 CMOR_CREATES_DIR = \
-    f'CMIP/DUMMY-MODEL/historical/r3i1p1f3/sos/tavg-u-hxy-sea/{GRID_LABEL}'
+    f'CMIP/GFDL-ESM4p5/historical/r3i1p1f3/sos/tavg-u-hxy-sea/{GRID_LABEL}'
 FULL_OUTPUTDIR = \
     f'{OUTDIR}/{CMOR_CREATES_DIR}'
 FULL_OUTPUTFILE = \
-    f'{FULL_OUTPUTDIR}/sos_tavg-u-hxy-sea_mon_glb_{GRID_LABEL}_DUMMY-MODEL_historical_r3i1p1f3_{DATETIMES_INPUTFILE}.nc'
+    f'{FULL_OUTPUTDIR}/sos_tavg-u-hxy-sea_mon_glb_{GRID_LABEL}_GFDL-ESM4p5_historical_r3i1p1f3_{DATETIMES_INPUTFILE}.nc'
 
 # CMIP7-required global attributes that must be present in CMOR output
 # note: CMIP7 uses 'table_info' instead of 'table_id'
@@ -61,6 +61,19 @@ CMIP7_REQUIRED_GLOBAL_ATTRS = [
     'variable_id', 'mip_era', 'table_info',
     'experiment_id', 'institution_id', 'source_id'
 ]
+
+
+def _assert_dtypes_match(ds_in, ds_out, in_var_name, out_var_name):
+    """
+    helper: assert that the science variable dtype is preserved between
+    the input netCDF file and the CMORized output file.
+    """
+    in_dtype = ds_in.variables[in_var_name][:].dtype
+    out_dtype = ds_out.variables[out_var_name][:].dtype
+    assert in_dtype == out_dtype, (
+        f'{in_var_name} input dtype {in_dtype} differs from '
+        f'{out_var_name} CMOR output dtype {out_dtype}'
+    )
 
 
 def _assert_data_matches(ds_in, ds_out, in_var_name='sos'):
@@ -83,6 +96,9 @@ def _assert_data_matches(ds_in, ds_out, in_var_name='sos'):
     # variable shapes must be preserved
     assert ds_in.variables[in_var_name][:].shape == ds_out.variables['sos'][:].shape, \
         'sos data shape differs between input and CMOR output'
+
+    # dtype must be preserved through CMORization
+    _assert_dtypes_match(ds_in, ds_out, in_var_name, 'sos')
 
 
 def _assert_metadata_matches(ds_in, ds_out, in_var_name='sos'):

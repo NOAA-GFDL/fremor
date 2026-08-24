@@ -19,6 +19,7 @@ import glob
 from pathlib import Path
 
 import pytest
+from netCDF4 import Dataset
 
 from fremor import cmor_run_subtool
 from fremor.tests.conftest import ncgen
@@ -50,7 +51,7 @@ ESM4_DEV_PP_DIR = (
 # CMIP7 output dir structure
 # (activity_id/source_id/experiment_id/member_id/variable_id/branding_suffix/grid_label)
 CMOR_CREATES_DIR_BASE_CMIP7 = (
-    'CMIP/DUMMY-MODEL/historical/r3i1p1f3'
+    'CMIP/GFDL-ESM4p5/historical/r3i1p1f3'
 )
 
 
@@ -143,7 +144,7 @@ def _ncgen_for_case(testfile_dir, opt_var_name):
 )
 def test_case_cmip7(  # pylint: disable=too-many-arguments,too-many-positional-arguments
     testfile_dir, table, opt_var_name, grid_label, start, calendar,
-    tmp_path, monkeypatch,
+    tmp_path,
 ):
     """
     Run cmor_run_subtool for a single CMIP7 variable and assert output exists.
@@ -156,7 +157,7 @@ def test_case_cmip7(  # pylint: disable=too-many-arguments,too-many-positional-a
             'needs new mock data or a different variable mapping'
         )
 
-    _ncgen_for_case(testfile_dir, opt_var_name)
+    input_nc = _ncgen_for_case(testfile_dir, opt_var_name)
 
     table_file = f'{CMIP7_TABLE_REPO_PATH}/tables/{table}.json'
     outdir = str(tmp_path / 'outdir')
@@ -187,3 +188,10 @@ def test_case_cmip7(  # pylint: disable=too-many-arguments,too-many-positional-a
     )
     assert Path(cmor_output_files[0]).exists()
 
+    # dtype must be preserved between input and CMOR output
+    with Dataset(input_nc) as ds_in, Dataset(cmor_output_files[0]) as ds_out:
+        in_dtype = ds_in.variables[opt_var_name][:].dtype
+        out_dtype = ds_out.variables[opt_var_name][:].dtype
+        assert in_dtype == out_dtype, (
+            f'{opt_var_name} input dtype {in_dtype} differs from CMOR output dtype {out_dtype}'
+        )

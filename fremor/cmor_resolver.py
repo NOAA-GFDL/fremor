@@ -100,8 +100,6 @@ def resolve_fremor_yaml(yamlfile: str,
         combined_yaml_text += '\n'
 
     combined_yaml = yaml.safe_load(combined_yaml_text)
-    if combined_yaml is None:
-        combined_yaml = {}
 
     resolved_yaml = {
         key: combined_yaml[key]

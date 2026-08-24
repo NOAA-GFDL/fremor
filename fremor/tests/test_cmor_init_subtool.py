@@ -24,13 +24,13 @@ def test_cmor_init_invalid_mip_era():
     """
     Test that invalid mip_era raises ValueError
     """
-    with pytest.raises(ValueError, match='mip_era must be cmip6 or cmip7'):
+    with pytest.raises(ValueError, match='mip_era must be cmip6, cmip6plus, or cmip7, got cmip5'):
         cmor_init_subtool(mip_era='cmip5')
 
-    with pytest.raises(ValueError, match='mip_era must be cmip6 or cmip7'):
+    with pytest.raises(ValueError, match='mip_era must be cmip6, cmip6plus, or cmip7, got invalid'):
         cmor_init_subtool(mip_era='invalid')
 
-    with pytest.raises(ValueError, match='mip_era must be cmip6 or cmip7'):
+    with pytest.raises(ValueError, match='mip_era must be cmip6, cmip6plus, or cmip7, got CMIP8'):
         cmor_init_subtool(mip_era='CMIP8')
 
 
@@ -182,6 +182,36 @@ def test_cmor_init_tables_dir_and_exp_config(tmp_path):
     with open(exp_config, encoding='utf-8') as f:
         config = json.load(f)
     assert config['mip_era'] == 'CMIP6'
+
+    # Verify tables were fetched
+    assert tables_dir.exists()
+
+
+def test_cmor_init_cmip6plus_tables_dir_and_exp_config(tmp_path):
+    """
+    Test that both exp_config and tables_dir can be provided together.
+    CMIP6Plus case
+    """
+    tables_dir = tmp_path / 'tables'
+    exp_config = tmp_path / 'experiment.json'
+
+    result = cmor_init_subtool(
+        mip_era='cmip6plus',
+        exp_config=str(exp_config),
+        tables_dir=str(tables_dir),
+        tag=None,
+        fast=True
+    )
+
+    # Both should be created
+    assert result['exp_config'] == str(exp_config)
+    assert result['tables_dir'] == str(tables_dir)
+
+    # Verify exp_config was created
+    assert exp_config.exists()
+    with open(exp_config, encoding='utf-8') as f:
+        config = json.load(f)
+    assert config['mip_era'] == 'CMIP6Plus'
 
     # Verify tables were fetched
     assert tables_dir.exists()

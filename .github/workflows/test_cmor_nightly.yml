@@ -1,0 +1,88 @@
+name: test_cmor_nightly
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+on:
+  push:
+    branches:
+      - main
+  schedule:
+    - cron: '0 6 * * *'  # daily at 06:00 UTC
+  workflow_dispatch:
+
+# cancel running jobs if theres a newer push
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  cmor-nightly-test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash -l {0}
+    steps:
+      - name: Checkout Files
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set up Miniforge
+        uses: conda-incubator/setup-miniconda@v3
+        with:
+          miniforge-version: latest
+          channels: pcmdi/label/nightly,conda-forge,noaa-gfdl
+          conda-remove-defaults: true
+          activate-environment: fremor-nightly
+          python-version: '3.11'
+
+      - name: Configure Conda
+        run: |
+          echo "removing main and r channels from defaults"
+          conda config --remove channels defaults || true
+          conda config --remove channels main || true
+          conda config --remove channels r || true
+
+          echo "setting strict channel priority"
+          conda config --set channel_priority strict
+
+          echo "printing conda config just in case"
+          conda config --show
+
+      - name: Install cmor from nightly channel
+        run: |
+          echo "installing cmor from pcmdi/label/nightly channel"
+          conda install -y -c pcmdi/label/nightly -c conda-forge cmor
+
+          echo "installed cmor version:"
+          conda list cmor
+
+      - name: Install remaining fremor dependencies
+        run: |
+          conda install -y -c conda-forge \
+            "click>=8.2" \
+            "netcdf4>=1.7" \
+            "numpy>=2" \
+            pyyaml \
+            pytest \
+            pytest-cov
+
+      - name: Show installed packages
+        run: |
+          echo "conda info is:"
+          conda info
+
+          echo "printing installed packages"
+          conda list
+
+      - name: Install fremor
+        run: |
+          pip install --no-deps .
+
+      - name: Run pytest against cmor nightly
+        run: |
+          pytest --durations=5 --log-level DEBUG --ignore fremor/tests/test_files/mip-cmor-tables/ fremor/tests/ -v

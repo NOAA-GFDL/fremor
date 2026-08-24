@@ -67,6 +67,19 @@ CMIP6_REQUIRED_GLOBAL_ATTRS = [
 ]
 
 
+def _assert_dtypes_match(ds_in, ds_out, in_var_name, out_var_name):
+    """
+    helper: assert that the science variable dtype is preserved between
+    the input netCDF file and the CMORized output file.
+    """
+    in_dtype = ds_in.variables[in_var_name][:].dtype
+    out_dtype = ds_out.variables[out_var_name][:].dtype
+    assert in_dtype == out_dtype, (
+        f'{in_var_name} input dtype {in_dtype} differs from '
+        f'{out_var_name} CMOR output dtype {out_dtype}'
+    )
+
+
 def _assert_data_matches(ds_in, ds_out):
     """
     helper: assert that science variable data, coordinate data, and shapes
@@ -87,6 +100,9 @@ def _assert_data_matches(ds_in, ds_out):
     # variable shapes must be preserved
     assert ds_in.variables['sos'][:].shape == ds_out.variables['sos'][:].shape, \
         'sos data shape differs between input and CMOR output'
+
+    # dtype must be preserved through CMORization
+    _assert_dtypes_match(ds_in, ds_out, 'sos', 'sos')
 
 
 def _assert_metadata_matches(ds_in, ds_out):
@@ -423,6 +439,9 @@ def _assert_mapped_data_matches(ds_in, ds_out):
     assert ds_in.variables['sea_sfc_salinity'][:].shape == ds_out.variables['sos'][:].shape, \
         'sea_sfc_salinity data shape differs from sos in CMOR output'
 
+    # dtype must be preserved through CMORization
+    _assert_dtypes_match(ds_in, ds_out, 'sea_sfc_salinity', 'sos')
+
 
 def _assert_mapped_metadata_matches(ds_in, ds_out):
     """
@@ -440,7 +459,7 @@ def _assert_mapped_metadata_matches(ds_in, ds_out):
         'long_name differs between input sea_sfc_salinity and CMOR output sos'
 
     assert ds_in.variables['sea_sfc_salinity']._FillValue == ds_out.variables['sos']._FillValue, \
-        '_FillValue differs between input sea_sfc_salinity and CMOR output sos'
+        '_FillValue differs between input sea_sfc_salinity and CMOR output sos' # pylint: disable=protected-access
     assert ds_in.variables['sea_sfc_salinity'].missing_value == ds_out.variables['sos'].missing_value, \
         'missing_value differs between input sea_sfc_salinity and CMOR output sos'
 
@@ -578,7 +597,7 @@ def test_fre_cmor_run_subtool_unsupported_mip_era(tmp_path):
     exp_data['mip_era'] = 'CMIP99'
     bad_exp.write_text(json.dumps(exp_data))
 
-    with pytest.raises(ValueError, match='only supports CMIP6 and CMIP7'):
+    with pytest.raises(ValueError, match='only supports CMIP6, CMIP6 Plus, and CMIP7'):
         cmor_run_subtool(
             indir = INDIR,
             json_var_list = VARLIST,

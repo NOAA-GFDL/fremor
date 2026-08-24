@@ -1,35 +1,22 @@
 # `fremor`
-`fremor` CMORizes FRE output with `CMOR`. It is both a `conda` and `pip` package.
+`fremor` CMORizes FRE output with `CMOR`. It is both a `conda` and `pip` package. 
 
-![zenodo DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.20186257.svg)
+Documentation is on [`readthedocs`](https://fremor.readthedocs.io/en/latest/).
 
 [![Anaconda-Server Badge](https://anaconda.org/conda-forge/fremor/badges/version.svg)](https://anaconda.org/conda-forge/fremor)
 [![Anaconda-Server Badge](https://anaconda.org/conda-forge/fremor/badges/latest_release_date.svg)](https://anaconda.org/conda-forge/fremor)
 [![Anaconda-Server Badge](https://anaconda.org/conda-forge/fremor/badges/latest_release_relative_date.svg)](https://anaconda.org/conda-forge/fremor)
 
-[![pylint](https://github.com/NOAA-GFDL/fremor/actions/workflows/pylint.yml/badge.svg?branch=main)](https://github.com/NOAA-GFDL/fremor/actions/workflows/pylint.yml)
-[![pylint](https://img.shields.io/badge/pylint-%E2%89%A59.7-brightgreen)](https://github.com/NOAA-GFDL/fremor/actions/workflows/pylint.yml)
-[![codecov](https://codecov.io/gh/NOAA-GFDL/fremor/branch/main/graph/badge.svg)](https://codecov.io/gh/NOAA-GFDL/fremor)
-
-[![readthedocs](https://app.readthedocs.org/projects/fremor/badge/?version=latest&style=flat)](https://fremor.readthedocs.io/en/latest/)
-
-[![publish_pip](https://github.com/NOAA-GFDL/fremor/actions/workflows/publish_pip.yml/badge.svg)](https://github.com/NOAA-GFDL/fremor/actions/workflows/publish_pip.yml)
-
-[![Build conda package](https://github.com/conda-forge/fremor-feedstock/actions/workflows/conda-build.yml/badge.svg?branch=main)](https://github.com/conda-forge/fremor-feedstock/actions/workflows/conda-build.yml)
-
-`python3.11`:[![3.11](https://github.com/NOAA-GFDL/fremor/actions/workflows/create_test_conda_env.yml/badge.svg)](https://github.com/NOAA-GFDL/fremor/actions/workflows/create_test_conda_env.yml?query=branch%3Amain+python-version%3A3.11)
-
-`python3.12`:[![3.12](https://github.com/NOAA-GFDL/fremor/actions/workflows/create_test_conda_env.yml/badge.svg)](https://github.com/NOAA-GFDL/fremor/actions/workflows/create_test_conda_env.yml?query=branch%3Amain+python-version%3A3.12)
-
-`python3.13`:[![3.13](https://github.com/NOAA-GFDL/fremor/actions/workflows/create_test_conda_env.yml/badge.svg)](https://github.com/NOAA-GFDL/fremor/actions/workflows/create_test_conda_env.yml?query=branch%3Amain+python-version%3A3.13)
-
-`python3.14`:[![3.14](https://github.com/NOAA-GFDL/fremor/actions/workflows/create_test_conda_env.yml/badge.svg)](https://github.com/NOAA-GFDL/fremor/actions/workflows/create_test_conda_env.yml?query=branch%3Amain+python-version%3A3.14)
-
-#### Documentation
-See [`readthedocs`](https://fremor.readthedocs.io/en/latest/)
-
-#### License
+### License
 Apache License 2.0 — see [LICENSE.md](LICENSE.md)
+
+### DOI/Citation
+![zenodo DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.20186257.svg)
+
+Under construction! Sometimes the badge doesn't render, try refreshing.
+
+### Contributors
+[![Contributors](https://contrib.rocks/image?repo=NOAA-GFDL/fremor)](https://github.com/NOAA-GFDL/fremor/graphs/contributors)
 
 
 ## Background and Purpose
@@ -43,13 +30,6 @@ using the [`CMOR`](https://cmor.llnl.gov/) library.
 on the shoulders of it's contributors, retaining it's general structure and lessons learned from it. Future re-integrations 
 back into `fre-cli`, as a formal package dependency, are being assessed.
 
-
-
-
-
-### Contributors
-[![Contributors](https://contrib.rocks/image?repo=NOAA-GFDL/fremor)](https://github.com/NOAA-GFDL/fremor/graphs/contributors)
-
 #### AI Disclaimer
 AI was heavily used in the creation of this repository, primarily `github`'s `copilot` with `Claude` (`opus4.6`, `sonnet4.6`, 
 and `haiku`), and `Gemini` and `Chat-GPT` models to a lesser extent, in agent mode. `Claude` and `Codex` agents have also 
@@ -59,6 +39,12 @@ contributed.
 
 
 ## Quickstart
+
+```bash
+# Initialize CMIP6Plus resources (config template + MIP tables)
+fremor init -m cmip6plus -e exp_config.json -t mip-cmor-tables --fast
+```
+
 For an overview of required inputs and sample commands, see the [CMOR Quickstart](docs/quickstart.rst).
 
 
@@ -188,14 +174,40 @@ Each CLI subcommand (`run`, `yaml`, etc.) maps to an API under under `fremor`, s
 is equivalently available via `import` in scripts as a proper `python` module
 
 
+## Versioning and tags
+`fremor` uses a post-release scheme to identify development beyond the latest tagged version. To avoid confusion 
+with `fre-workflows` and `fre-cli`, which often demand that the version tags match, `fremor`'s version format is 
+`X.Y.Z[.post]`. 
 
+
+## New Release Procedure 
+see `.github/PULL_REQUEST_TEMPLATE/new_release.md`
 
 ## CI/CD Workflows and QA
 
+#### `codecov` [![codecov](https://codecov.io/gh/NOAA-GFDL/fremor/branch/main/graph/badge.svg)](https://codecov.io/gh/NOAA-GFDL/fremor)
 
-### WCRP Compliance Checking (under development)
+#### `pylint` [![pylint](https://github.com/NOAA-GFDL/fremor/actions/workflows/pylint.yml/badge.svg?branch=main)](https://github.com/NOAA-GFDL/fremor/actions/workflows/pylint.yml) [![pylint](https://img.shields.io/badge/failunder-%E2%89%A59.7-brightgreen)](https://github.com/NOAA-GFDL/fremor/actions/workflows/pylint.yml)
 
-[![wcrp_compliance_check](https://github.com/NOAA-GFDL/fremor/actions/workflows/wcrp_compliance_check.yml/badge.svg?branch=main)](https://github.com/NOAA-GFDL/fremor/actions/workflows/wcrp_compliance_check.yml)
+#### `conda env create -f environment.yaml`
+`python==3.11`:[![3.11](https://github.com/NOAA-GFDL/fremor/actions/workflows/create_test_conda_env.yml/badge.svg)](https://github.com/NOAA-GFDL/fremor/actions/workflows/create_test_conda_env.yml?query=branch%3Amain+python-version%3A3.11)
+
+`python==3.12`:[![3.12](https://github.com/NOAA-GFDL/fremor/actions/workflows/create_test_conda_env.yml/badge.svg)](https://github.com/NOAA-GFDL/fremor/actions/workflows/create_test_conda_env.yml?query=branch%3Amain+python-version%3A3.12)
+
+`python==3.13`:[![3.13](https://github.com/NOAA-GFDL/fremor/actions/workflows/create_test_conda_env.yml/badge.svg)](https://github.com/NOAA-GFDL/fremor/actions/workflows/create_test_conda_env.yml?query=branch%3Amain+python-version%3A3.13)
+
+`python==3.14`:[![3.14](https://github.com/NOAA-GFDL/fremor/actions/workflows/create_test_conda_env.yml/badge.svg)](https://github.com/NOAA-GFDL/fremor/actions/workflows/create_test_conda_env.yml?query=branch%3Amain+python-version%3A3.14)
+
+`cmor==nightly`:[![cmor nightly](https://github.com/NOAA-GFDL/fremor/actions/workflows/test_cmor_nightly.yml/badge.svg)](https://github.com/NOAA-GFDL/fremor/actions/workflows/test_cmor_nightly.yml)
+
+#### `conda build .` [![build_and_publish_pip](https://github.com/NOAA-GFDL/fremor/actions/workflows/build_and_publish_pip.yml/badge.svg)](https://github.com/NOAA-GFDL/fremor/actions/workflows/build_and_publish_pip.yml)
+
+#### `conda-forge/fremor-feedstock` [![conda build conda-forge feedstock](https://github.com/conda-forge/fremor-feedstock/actions/workflows/conda-build.yml/badge.svg?branch=main)](https://github.com/conda-forge/fremor-feedstock/actions/workflows/conda-build.yml)
+
+#### `readthedocs` and `sphinx` [![readthedocs](https://app.readthedocs.org/projects/fremor/badge/?version=latest&style=flat)](https://fremor.readthedocs.io/en/latest/)
+
+#### WCRP Compliance Checking [![wcrp_compliance_check](https://github.com/NOAA-GFDL/fremor/actions/workflows/wcrp_compliance_check.yml/badge.svg?branch=main)](https://github.com/NOAA-GFDL/fremor/actions/workflows/wcrp_compliance_check.yml)
+Under development
 
 The `wcrp_compliance_check` workflow validates CMORized NetCDF outputs against WCRP project
 specifications using [cc-plugin-wcrp](https://github.com/ESGF/cc-plugin-wcrp), a plugin for
@@ -216,13 +228,4 @@ To view compliance results from a workflow/CI run:
 
 
 
-## Versioning and tags
-`fremor` uses a post-release scheme to identify development beyond the latest tagged version. To avoid confusion 
-with `fre-workflows` and `fre-cli`, which often demand that the version tags match, `fremor`'s version format is 
-`X.Y.Z[.post]`. 
 
-
-
-
-## New Release Procedure 
-see `.github/PULL_REQUEST_TEMPLATE/new_release.md`

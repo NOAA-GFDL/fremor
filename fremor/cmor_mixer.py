@@ -35,7 +35,7 @@ import cmor
 import numpy as np
 import netCDF4 as nc
 
-from .cmor_helpers import ( from_dis_gimme_dis, create_lev_bnds,
+from .cmor_helpers import ( from_ds_get_this, create_lev_bnds,
                             get_iso_datetime_ranges, check_dataset_for_ocean_grid, get_vertical_dimension,
                             create_tmp_dir, get_json_file_data, update_grid_and_label,
                             update_calendar_type, filter_brands,
@@ -91,7 +91,7 @@ def rewrite_netcdf_file_var( mip_var_cfgs: dict = None,
 
     # read the input variable data using the modeler's variable name (local_var)
     fre_logger.info('attempting to read variable data, %s', local_var)
-    var = from_dis_gimme_dis(from_dis=ds, gimme_dis=local_var)
+    var = from_ds_get_this(from_ds=ds, var_name=local_var)
 
     ## var type
     #var_dtype = var.dtype
@@ -170,17 +170,17 @@ def rewrite_netcdf_file_var( mip_var_cfgs: dict = None,
 
     # Attempt to read lat/lon coordinates and bnds. will check for none later
     fre_logger.info('attempting to read coordinate, lat')
-    lat = from_dis_gimme_dis(from_dis=ds, gimme_dis='lat')
+    lat = from_ds_get_this(from_ds=ds, var_name='lat')
     fre_logger.info('attempting to read coordinate BNDS, lat_bnds')
-    lat_bnds = from_dis_gimme_dis(from_dis=ds, gimme_dis='lat_bnds')
+    lat_bnds = from_ds_get_this(from_ds=ds, var_name='lat_bnds')
     fre_logger.info('attempting to read coordinate, lon')
-    lon = from_dis_gimme_dis(from_dis=ds, gimme_dis='lon')
+    lon = from_ds_get_this(from_ds=ds, var_name='lon')
     fre_logger.info('attempting to read coordinate BNDS, lon_bnds')
-    lon_bnds = from_dis_gimme_dis(from_dis=ds, gimme_dis='lon_bnds')
+    lon_bnds = from_ds_get_this(from_ds=ds, var_name='lon_bnds')
 
     # read in time_coords + units
     fre_logger.info('attempting to read coordinate time, and units...')
-    time_coords = from_dis_gimme_dis(from_dis=ds, gimme_dis='time')
+    time_coords = from_ds_get_this(from_ds=ds, var_name='time')
     time_coord_units = ds['time'].units
     fre_logger.info('    time_coord_units = %s', time_coord_units)
 
@@ -206,7 +206,7 @@ def rewrite_netcdf_file_var( mip_var_cfgs: dict = None,
 
     # read in time_bnds, if present
     fre_logger.info('attempting to read coordinate BNDS, time_bnds')
-    time_bnds = from_dis_gimme_dis(from_dis=ds, gimme_dis='time_bnds')
+    time_bnds = from_ds_get_this(from_ds=ds, var_name='time_bnds')
 
     # determine the vertical dimension by looping over netcdf variables
     vert_dim = get_vertical_dimension(ds, local_var)  # returns int(0) if not present
@@ -354,14 +354,14 @@ def rewrite_netcdf_file_var( mip_var_cfgs: dict = None,
         fre_logger.info('assigning cmor_z')
 
         if vert_dim.lower() in NON_HYBRID_SIGMA_COORDS:
-            fre_logger.info('non-hybrid sigma coordinate case')
+            fre_logger.info('vert_dim is NON_HYBRID_SIGMA_COORDS')
             if vert_dim.lower() != 'landuse':
                 cmor_vert_dim_name = vert_dim
                 cmor_z = cmor.axis(cmor_vert_dim_name,
                                    coord_vals=lev[:], units=lev_units)
             else:
                 landuse_str_list = ['primary_and_secondary_land', 'pastures', 'crops', 'urban']
-                cmor_vert_dim_name = 'landUse' if exp_cfg_mip_era == 'CMIP6' else 'landuse'
+                cmor_vert_dim_name = 'landUse' if exp_cfg_mip_era in ['CMIP6', 'CMIP6PLUS'] else 'landuse'
                 cmor_z = cmor.axis(cmor_vert_dim_name,
                                    coord_vals=np.array(
                                        landuse_str_list,
@@ -369,7 +369,8 @@ def rewrite_netcdf_file_var( mip_var_cfgs: dict = None,
                                    ),
                                    units=lev_units)
 
-        elif vert_dim in DEPTH_COORDS:
+        elif vert_dim.lower() in DEPTH_COORDS:
+            fre_logger.info('vert_dim is DEPTH_COORDS')
             try:
                 lev_bnds = create_lev_bnds(bound_these=lev, with_these=ds['z_i'])
                 fre_logger.info('created lev_bnds...')
@@ -384,10 +385,11 @@ def rewrite_netcdf_file_var( mip_var_cfgs: dict = None,
                                cell_bounds=lev_bnds)
 
         elif vert_dim in ALT_HYBRID_SIGMA_COORDS:
+            fre_logger.info('vert_dim is ALT_HYBRID_SIGMA_COORDS')
             # find the ps file nearby
             ps_file = netcdf_file.replace(f'.{local_var}.nc', '.ps.nc')
             ds_ps = nc.Dataset(ps_file)
-            ps = from_dis_gimme_dis(ds_ps, 'ps')
+            ps = from_ds_get_this(ds_ps, 'ps')
 
             # assign lev_half specifics
             if vert_dim == 'levhalf':
@@ -489,10 +491,26 @@ def rewrite_netcdf_file_var( mip_var_cfgs: dict = None,
 
     if exp_cfg_mip_era == 'CMIP7':
         fre_logger.info('cmor.variable call: for cmip7_target_var = %s ', f'{target_var}_{var_brand}')
+
         cmor_var = cmor.variable(f'{target_var}_{var_brand}', units, axes,
                                  missing_value = var_missing_val,
                                  positive = positive)
         fre_logger.info('DONE cmor.variable call: for cmip7_target_var = %s ',f'{target_var}_{var_brand}')
+
+        # need to add this kind of file opening
+        fre_logger.info('NOW trying to add the cell_measures field from CMIP7_cell_measures.json')
+        with open(f'{Path(json_table_config).parent}/CMIP7_cell_measures.json', 'r', encoding='utf-8') as handle:
+            cell_measures = json.load(handle)['cell_measures']
+
+            # need to add this kind of line
+            fre_logger.debug('setting cell_measures attribute for cmor variable: %s', cmor_var)
+            cmor.set_variable_attribute(
+                cmor_var,
+                'cell_measures',
+                'c',
+                cell_measures.get(f'{target_var}_{var_brand}', ''),
+            )
+
 
     else:
         fre_logger.info('cmor.variable call: for target_var = %s ',target_var)
@@ -669,7 +687,7 @@ def cmorize_target_var_files(indir: str = None,
         filename_no_nc = filename[:filename.rfind('.nc')]
         chunk_str = filename_no_nc[-6:]
         if not chunk_str.isdigit():
-            fre_logger.warning('chunk_str is not a digit: chunk_str = %s', chunk_str) #uncovered
+            fre_logger.warning('chunk_str is not a digit: chunk_str = %s', chunk_str)
             filename_corr = f'{filename[:filename.rfind(".nc")]}_{iso_datetime}.nc'
             mv_cmd = f'mv {filename} {filename_corr}'
             fre_logger.warning('moving files, strange chunkstr logic...\n%s', mv_cmd)
@@ -844,11 +862,14 @@ def cmor_run_subtool(indir: str = None,
         raise KeyError('no mip_era entry in experimental metadata configuration, the file is noncompliant!') from exc
 
     fre_logger.debug('exp_cfg_mip_era = %s', exp_cfg_mip_era)
-    if exp_cfg_mip_era not in ['CMIP6', 'CMIP7']:
-        raise ValueError('cmor_mixer only supports CMIP6 and CMIP7 cases')
+    if exp_cfg_mip_era not in ['CMIP6', 'CMIP6PLUS', 'CMIP7']:
+        raise ValueError('cmor_mixer only supports CMIP6, CMIP6 Plus, and CMIP7 cases')
 
     if exp_cfg_mip_era == 'CMIP7':
-        fre_logger.warning('CMIP7 configuration detected, will be expecting and enforcing variable brands.')
+        fre_logger.warning('CMIP7 config detected, will be expecting and enforcing variable brands.')
+
+    if exp_cfg_mip_era == 'CMIP6PLUS':
+        fre_logger.warning('CMIP6Plus config detected, capability under development, treating as a CMIP6 case for now')
 
     # CHECK optional grid/grid_label/nom_res inputs from exp config, the function raises the potential error conditions
     if any( [ grid_label is not None,
@@ -871,8 +892,11 @@ def cmor_run_subtool(indir: str = None,
     table_mip_era = mip_var_cfgs.get('Header', {}).get('mip_era')
     if isinstance(table_mip_era, str):
         table_mip_era = table_mip_era.upper()
-    elif Path(json_table_config).stem.split('_', maxsplit=1)[0].upper() in ['CMIP6', 'CMIP7']:
+    elif Path(json_table_config).stem.split('_', maxsplit=1)[0].upper() in ['CMIP6', 'CMIP6PLUS', 'CMIP7']:
         table_mip_era = Path(json_table_config).stem.split('_', maxsplit=1)[0].upper()
+        if table_mip_era == 'MIP':
+            table_mip_era = 'CMIP6PLUS'
+
     if table_mip_era is not None and table_mip_era != exp_cfg_mip_era:
         raise ValueError(
             'mip_era mismatch between experiment config and MIP table.\n'
@@ -891,7 +915,7 @@ def cmor_run_subtool(indir: str = None,
         mip_var_brand_list = [ var.split('_')[1] for var in mip_fullvar_list ]
         if len(mip_var_list) != len(mip_var_brand_list):
             raise ValueError('the number of brands is not one-to-one with the number of variables. check config.')
-    elif exp_cfg_mip_era == 'CMIP6':
+    elif exp_cfg_mip_era in ['CMIP6', 'CMIP6PLUS']:
         mip_var_list = mip_fullvar_list
 
     fre_logger.debug('list of table variables we will process = \n %s', mip_var_list)
@@ -911,7 +935,7 @@ def cmor_run_subtool(indir: str = None,
     # if opt_var_name is specified, the routine is short-circuited to care only about opt_var_name
     vars_to_run = {}
     for local_var in var_list:
-        if opt_var_name is not None and opt_var_name in mip_var_list:
+        if all( [ opt_var_name is not None, opt_var_name != '', opt_var_name in mip_var_list ] ):
             vars_to_run[opt_var_name] = opt_var_name
             break
         if var_list[local_var] not in mip_var_list: #mip_var_cfgs['variable_entry']:
@@ -929,7 +953,7 @@ def cmor_run_subtool(indir: str = None,
         raise ValueError('runnable variable list is of length 0 '
                          'this means no variables in input variable list are in '
                          'the mip table configuration, so there\'s nothing to process!')
-    if all([opt_var_name is not None, opt_var_name not in list(vars_to_run)]):
+    if all([opt_var_name is not None, opt_var_name != '', opt_var_name not in list(vars_to_run)]):
         raise ValueError(f'opt_var_name is not None! (== {opt_var_name})'
                           '... but the variable is not contained in the target mip table'
                           '... there\'s nothing to process, exit')

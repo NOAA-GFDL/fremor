@@ -25,7 +25,7 @@ Background
 ``cmor`` is an acronym for "climate model output rewriter". The process of rewriting model-specific output
 files for model intercomparisons (MIPs) using the ``cmor`` module is referred to as "CMORizing".
 
-The ``fremor`` tools are designed to work with any MIP project (CMIP6, CMIP7, etc.) by simply changing
+The ``fremor`` tools are designed to work with any MIP project (CMIP6, CMIP6Plus, CMIP7, etc.) by simply changing
 the table configuration files and controlled vocabulary as appropriate for the target MIP.
 
 Getting Started
@@ -62,6 +62,8 @@ Additional Resources
 --------------------
 
 * `CMIP6 Tables <https://github.com/pcmdi/cmip6-cmor-tables>`_
+* `CMIP6Plus / MIP Tables <https://github.com/PCMDI/mip-cmor-tables>`_
+* `CMIP7 Tables <https://github.com/WCRP-CMIP/cmip7-cmor-tables>`_
 * `CMIP6 Controlled Vocabulary <https://github.com/WCRP-CMIP/CMIP6_CVs>`_
 * `PCMDI CMOR User Guide <http://cmor.llnl.gov/>`_
 * `fremor on GitHub <https://github.com/NOAA-GFDL/fremor>`_

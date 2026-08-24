@@ -16,8 +16,9 @@ import fremor
 # ── path constants ──────────────────────────────────────────────────────────
 ROOTDIR = Path(fremor.__file__).parent / 'tests' / 'test_files'
 
-CMIP6_TABLE_CONFIG = ROOTDIR / 'cmip6-cmor-tables' / 'Tables' / 'CMIP6_Omon.json'
-CMIP7_TABLE_CONFIG = ROOTDIR / 'cmip7-cmor-tables' / 'tables' / 'CMIP7_ocean.json'
+CMIP6_TABLE_CONFIG     = ROOTDIR / 'cmip6-cmor-tables' / 'Tables' / 'CMIP6_Omon.json'
+CMIP6PLUS_TABLE_CONFIG = ROOTDIR / 'mip-cmor-tables'   / 'Tables' / 'MIP_OPmon.json'
+CMIP7_TABLE_CONFIG     = ROOTDIR / 'cmip7-cmor-tables' / 'tables' / 'CMIP7_ocean.json'
 
 INDIR = ROOTDIR / 'ocean_sos_var_file'
 VARLIST = ROOTDIR / 'varlist'
@@ -89,7 +90,7 @@ _CMIP7_EXP_CONFIG_DATA = {
     'comment': 'additional important information not fitting into other fields can be placed here',
     'license_id': 'CC-BY-4.0',
     'license_url': 'https://creativecommons.org/licenses/by/4.0',
-    'license': 'CC-BY-4.0; CMIP7 data produced by CCCma is licensed under a Creative Commons Attribution 4.0 International License (https://creativecommons.org/licenses/by/4.0). Consult https://wcrp-cmip.github.io/cmip7-guidance/docs/CMIP7/Guidance_for_users/#2-terms-of-use-and-citations-requirements for terms of use governing CMIP7 output, including citation requirements and proper acknowledgment. The data producers and data providers make no warranty, either express or implied, including, but not limited to, warranties of merchantability and fitness for a particular purpose. All liabilities arising from the supply of the information (including any liability arising in negligence) are excluded to the fullest extent permitted by law.',
+    'license': 'CC-BY-4.0; CMIP7 data produced by NOAA-GFDL is licensed under a Creative Commons Attribution 4.0 International License (https://creativecommons.org/licenses/by/4.0). Consult https://wcrp-cmip.github.io/cmip7-guidance/docs/CMIP7/Guidance_for_users/#2-terms-of-use-and-citations-requirements for terms of use governing CMIP7 output, including citation requirements and proper acknowledgment. The data producers and data providers make no warranty, either express or implied, including, but not limited to, warranties of merchantability and fitness for a particular purpose. All liabilities arising from the supply of the information (including any liability arising in negligence) are excluded to the fullest extent permitted by law.',
     '#_TRACKING': '***** anything to do with citing this data, accreditation, licensing, and references go here *****',
     'references': 'Model described by Koder and Tolkien (J. Geophys. Res., 2001, 576-591).  Also see http://www.GICC.su/giccm/doc/index.html.  The ssp245 simulation is described in Dorkey et al. \'(Clim. Dyn., 2003, 323-357.)\'',
     'drs_specs': 'MIP-DRS7',
@@ -102,11 +103,10 @@ _CMIP7_EXP_CONFIG_DATA = {
     'activity_id': 'CMIP',
     'parent_activity_id': 'CMIP',
     '#_SOURCE_SECTION': '***** anything to do with identifying this experiment, it\'s relationships to other experiments, the producers, and their institution *****',
-    'institution': '',
-    'institution_id': 'CCCma',
-    'source': 'DUMMY-MODEL: aerosol: Dummy Aerosol; atmosphere: Dummy Atmosphere; atmospheric_chemistry: Dummy Atmospheric Chemistry; land_surface: Dummy Land Surface; ocean: Dummy Ocean; ocean_biogeochemistry: Dummy Ocean Biogeochemistry; sea_ice: Dummy Sea Ice',
-    'parent_source_id': 'DUMMY-MODEL',
-    'source_id': 'DUMMY-MODEL',
+    'institution_id': 'NOAA-GFDL',
+    'source': 'GFDL-ESM4p5: aerosol: gfdl-am4p5-aerosol; atmosphere: gfdl-am4p5; land-surface: gfdl-lm4p5; ocean-biogeochemistry: cobaltv3p1; ocean: gfdl-om4p5; sea-ice: sis2',
+    'parent_source_id': 'GFDL-ESM4p5',
+    'source_id': 'GFDL-ESM4p5',
     'source_type': 'AOGCM ISM AER',
     'parent_experiment_id': 'piControl',
     'experiment_id': 'historical',
