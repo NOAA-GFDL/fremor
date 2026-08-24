@@ -85,6 +85,7 @@ cmip
 cmor
 cmorize
 cmorized
+cobaltv
 contextlib
 contextmanager
 customcalendar
