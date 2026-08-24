@@ -92,9 +92,19 @@ Required user inputs
   example lives in the repository at
   ``fremor/tests/test_files/CMORbite_var_list.json``.
 * **Experiment configuration** (JSON) supplying metadata such as ``calendar``,
-  ``grid``, and the desired output directory structure. See
-  ``fremor/tests/test_files/CMOR_input_example.json`` for CMIP6 or
-  ``fremor/tests/test_files/CMOR_CMIP7_input_example.json`` for CMIP7.
+  ``grid``, and the desired output directory structure. The required fields are
+  determined by the target MIP's controlled vocabularies — see
+  `CMIP7 required global attributes <https://github.com/WCRP-CMIP/cmip7-cmor-tables/blob/main/tables-cvs/split-view/required_global_attributes.json>`_
+  for an example of how a MIP specifies its required metadata. Reference
+  example experiment configuration files for each MIP era:
+
+  * **CMIP6**: `CMIP6_input_example.json <https://github.com/PCMDI/cmip6-cmor-tables/blob/main/Tables/CMIP6_input_example.json>`_
+  * **CMIP6Plus**: `CMOR_input_example.json <https://github.com/PCMDI/mip-cmor-tables/blob/main/src/exploration/old/CMOR_input_example.json>`_
+  * **CMIP7**: `cmor_test.py (lines 9–41) <https://github.com/WCRP-CMIP/cmip7-cmor-tables/blob/main/scripts/cmor_test.py#L9-L41>`_
+    and `CMOR_input_example.json (PCMDI/cmor) <https://github.com/PCMDI/cmor/blob/9d82dfb7c091cd0e0366fffd8a50f4d17f85f4a6/Test/CMOR_input_example.json>`_
+
+  Use ``fremor init -m <mip_era> -e exp_config.json`` to generate a template
+  pre-populated with the correct fields for your target MIP era.
 * **Optional CMOR YAML** if you want to batch multiple ``run`` calls via
   ``fremor yaml``. These YAML files are part of the larger FRE workflow and are
   not shipped here; point ``-y/--yamlfile`` at your project-specific YAMLs.
@@ -140,7 +150,7 @@ configuration.
        -d /path/to/input/netcdf/dir \
        -l fremor/tests/test_files/CMORbite_var_list.json \
        -r fremor/tests/test_files/cmip6-cmor-tables/Tables/CMIP6_Omon.json \
-       -p fremor/tests/test_files/CMOR_input_example.json \
+       -p /path/to/CMOR_input_example.json \
        -o /tmp/cmorized_output
 
 ``yaml``
