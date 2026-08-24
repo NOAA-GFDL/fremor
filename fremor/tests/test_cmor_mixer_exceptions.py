@@ -21,9 +21,9 @@ def test_cmorize_target_var_files_chdir_exception(monkeypatch, tmp_path):
     monkeypatch.setattr(cmor_mixer, 'create_tmp_dir', lambda *args: str(tmp_path)+'/mock/tmp' )
     monkeypatch.setattr('pathlib.Path.exists', lambda self: True)
 
-    Path(str(tmp_path)+'/set.20000101.tas.nc').touch() # avoid error condition not trying to test
-    Path(str(tmp_path)+'/set.20000101.ps.nc').touch() # avoid error condition not trying to test
-    Path(str(tmp_path)+'/mock/tmp/').mkdir(parents=True,exist_ok=True) # avoid a copy error to an area where we can't copy to
+    Path(f'{str(tmp_path)}/set.20000101.tas.nc').touch() # avoid error condition not trying to test
+    Path(f'{str(tmp_path)}/set.20000101.ps.nc').touch() # avoid error condition not trying to test
+    Path(f'{str(tmp_path)}/mock/tmp/').mkdir(parents=True,exist_ok=True) # set up own mock tmp dir to avoid perms issue
 
     # Call the function and assert it catches the PermissionError and raises the OSError
     with pytest.raises(OSError, match='could not chdir to '+str(tmp_path)+'/mock/tmp/'):

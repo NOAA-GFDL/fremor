@@ -179,7 +179,7 @@ def _cmip7_exp_config_template():
         'parent_mip_era': 'CMIP7',
         'parent_activity_id': 'CMIP',
         'institution_id': 'NOAA-GFDL',
-        'source': 'GFDL-ESM4p5: aerosol: gfdl-am4p5-aerosol; atmosphere: gfdl-am4p5; land-surface: gfdl-lm4p5; ocean-biogeochemistry: cobaltv3p1; ocean: gfdl-om4p5; sea-ice: sis2',
+        'source': 'GFDL-ESM4p5: aerosol: gfdl-am4p5-aerosol; atmosphere: gfdl-am4p5; land-surface: gfdl-lm4p5; ocean-biogeochemistry: cobaltv3p1; ocean: gfdl-om4p5; sea-ice: sis2', # pylint disable=line-too-long
         'source_id': 'GFDL-ESM4p5',
         'source_type': '',
         'experiment_id': '',

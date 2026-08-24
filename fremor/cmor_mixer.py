@@ -495,19 +495,19 @@ def rewrite_netcdf_file_var( mip_var_cfgs: dict = None,
                                  missing_value = var_missing_val,
                                  positive = positive)
         fre_logger.info('DONE cmor.variable call: for cmip7_target_var = %s ',f'{target_var}_{var_brand}')
-        
+
         # need to add this kind of file opening
         fre_logger.info('NOW trying to add the cell_measures field from CMIP7_cell_measures.json')
         with open(f'{Path(json_table_config).parent}/CMIP7_cell_measures.json', 'r', encoding='utf-8') as handle:
-            cell_measures = json.load(handle)["cell_measures"]
-            
+            cell_measures = json.load(handle)['cell_measures']
+
             # need to add this kind of line
             fre_logger.debug('setting cell_measures attribute for cmor variable: %s', cmor_var)
             cmor.set_variable_attribute(
                 cmor_var,
-                "cell_measures",
-                "c",
-                cell_measures.get(f'{target_var}_{var_brand}', ""),
+                'cell_measures',
+                'c',
+                cell_measures.get(f'{target_var}_{var_brand}', ''),
             )
 
 
@@ -686,7 +686,7 @@ def cmorize_target_var_files(indir: str = None,
         filename_no_nc = filename[:filename.rfind('.nc')]
         chunk_str = filename_no_nc[-6:]
         if not chunk_str.isdigit():
-            fre_logger.warning('chunk_str is not a digit: chunk_str = %s', chunk_str) #uncovered
+            fre_logger.warning('chunk_str is not a digit: chunk_str = %s', chunk_str)
             filename_corr = f'{filename[:filename.rfind(".nc")]}_{iso_datetime}.nc'
             mv_cmd = f'mv {filename} {filename_corr}'
             fre_logger.warning('moving files, strange chunkstr logic...\n%s', mv_cmd)
@@ -865,10 +865,10 @@ def cmor_run_subtool(indir: str = None,
         raise ValueError('cmor_mixer only supports CMIP6, CMIP6 Plus, and CMIP7 cases')
 
     if exp_cfg_mip_era == 'CMIP7':
-        fre_logger.warning('CMIP7 configuration detected, will be expecting and enforcing variable brands.')
+        fre_logger.warning('CMIP7 config detected, will be expecting and enforcing variable brands.')
 
     if exp_cfg_mip_era == 'CMIP6PLUS':
-        fre_logger.warning('CMIP6Plus configuration detected, capability under development, treating as a CMIP6 case for now')
+        fre_logger.warning('CMIP6Plus config detected, capability under development, treating as a CMIP6 case for now')
 
     # CHECK optional grid/grid_label/nom_res inputs from exp config, the function raises the potential error conditions
     if any( [ grid_label is not None,

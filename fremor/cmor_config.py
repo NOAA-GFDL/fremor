@@ -53,7 +53,7 @@ def _filter_mip_tables(mip_tables_dir: str, mip_era: str):
     :rtype: list[str]
     """
     era_upper = mip_era.upper()
-    if era_upper != "CMIP6PLUS":
+    if era_upper != 'CMIP6PLUS':
         all_tables = glob.glob(f'{mip_tables_dir}/{era_upper}_*.json')
     else:
         all_tables = glob.glob(f'{mip_tables_dir}/MIP_*.json')
@@ -124,6 +124,7 @@ def cmor_config_subtool(
     :return: Path to the written output YAML file.
     :rtype: str
     """
+
     # ---- validate inputs ----
     if not Path(pp_dir).is_dir():
         raise FileNotFoundError(f'pp_dir does not exist: {pp_dir}')

@@ -151,7 +151,12 @@ def test_cmor_config_subtool_writes_self_contained_yaml(temp_dir): # pylint: dis
     output_dir = temp_root / 'cmor_out'
     varlist_dir = temp_root / 'varlists'
 
-    def _fake_make_simple_varlist(dir_targ, output_variable_list, json_mip_table, return_none_if_no_mip_vars):
+    def _fake_make_simple_varlist(
+            dir_targ,
+            output_variable_list,
+            json_mip_table,
+            #return_none_if_no_mip_vars,
+    ):
         del dir_targ, json_mip_table
         Path(output_variable_list).write_text('{}', encoding='utf-8')
 

@@ -242,9 +242,8 @@ def test_make_simple_varlist_dedup_across_datetimes(tmp_path):
 # ---- mip table filtering: no variables match ----
 def test_make_simple_varlist_mip_table_no_match(tmp_path):
     """
-    When a MIP table is provided but none of the file variables are in it,
-    the result should be an empty dict (quick_vlist stays empty → 'no
-    variables in target mip table found' warning, var_list stays {}).
+    When a MIP table is provided but none of the file variables are in it, the result should be an empty dict, i.e.,
+    no variables match, quick_vlist stays empty → 'no variables in target mip table found' warning, var_list stays {}.
     """
     (tmp_path / 'model.19900101.fake_var.nc').touch()
 
@@ -261,10 +260,10 @@ def test_make_simple_varlist_mip_table_no_match(tmp_path):
     assert result is not None
     assert result == {'fake_var': ''}
 
-# ---- mip table filtering: no variables match ----
 def test_make_simple_varlist_mip_table_no_match_on_strict(tmp_path, caplog):
     """
-
+    mip table filtering: no variables match with strict setting on, yielding a warning message in addition
+    to the output result being effectively empty
     """
     (tmp_path / 'model.19900101.fake_var.nc').touch() # no variable name in filename
 
