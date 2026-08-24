@@ -56,7 +56,9 @@ def print_var_content(table_config_file: IO[str],
     table_name, table_file_name, mip_era = None, None, None
     try:
         table_mip_era = proj_table_vars['Header'].get('mip_era')
-        mip_era = 'cmip7' if table_mip_era is None else 'cmip6'
+        mip_era = table_mip_era.lower() if table_mip_era is not None else None
+        if mip_era is None:
+            mip_era = 'cmip6plus' if 'CMIP-6.5' in str(proj_table_vars['Header'].get('Conventions')) else 'cmip7'
         table_name_split = proj_table_vars['Header'].get('table_id').split(' ')
         table_name = table_name_split[0] if len(table_name_split) < 2 else table_name_split[1]
         table_file_name = Path(table_config_file.name).name # something not fun happening here...

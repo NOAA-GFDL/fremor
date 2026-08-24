@@ -261,7 +261,8 @@ def test_get_json_file_data_success(tmp_path):
 
 def test_get_json_file_data_nonexistent():
     """ should raise FileNotFoundError for a missing file """
-    with pytest.raises(FileNotFoundError, match=re.escape("[Errno 2] No such file or directory: '/nonexistent/path/file.json'")):
+    with pytest.raises(FileNotFoundError,
+                       match=re.escape("[Errno 2] No such file or directory: '/nonexistent/path/file.json'")):
         get_json_file_data('/nonexistent/path/file.json')
 
 

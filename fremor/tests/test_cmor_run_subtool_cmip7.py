@@ -49,11 +49,11 @@ YYYYMMDD = date.today().strftime('%Y%m%d')
 # CMIP7 output path follows output_path_template:
 # <activity_id><source_id><experiment_id><member_id><variable_id><branding_suffix><grid_label>
 CMOR_CREATES_DIR = \
-    f'CMIP/DUMMY-MODEL/historical/r3i1p1f3/sos/tavg-u-hxy-sea/{GRID_LABEL}'
+    f'CMIP/GFDL-ESM4p5/historical/r3i1p1f3/sos/tavg-u-hxy-sea/{GRID_LABEL}'
 FULL_OUTPUTDIR = \
     f'{OUTDIR}/{CMOR_CREATES_DIR}'
 FULL_OUTPUTFILE = \
-    f'{FULL_OUTPUTDIR}/sos_tavg-u-hxy-sea_mon_glb_{GRID_LABEL}_DUMMY-MODEL_historical_r3i1p1f3_{DATETIMES_INPUTFILE}.nc'
+    f'{FULL_OUTPUTDIR}/sos_tavg-u-hxy-sea_mon_glb_{GRID_LABEL}_GFDL-ESM4p5_historical_r3i1p1f3_{DATETIMES_INPUTFILE}.nc'
 
 # CMIP7-required global attributes that must be present in CMOR output
 # note: CMIP7 uses 'table_info' instead of 'table_id'

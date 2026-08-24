@@ -47,13 +47,16 @@ def _filter_mip_tables(mip_tables_dir: str, mip_era: str):
 
     :param mip_tables_dir: Path to directory containing MIP table JSON files.
     :type mip_tables_dir: str
-    :param mip_era: MIP era string, e.g. 'cmip6' or 'cmip7'.
+    :param mip_era: MIP era string, e.g. 'cmip6', 'cmip6plus', or 'cmip7'.
     :type mip_era: str
     :return: List of paths to MIP table JSON files.
     :rtype: list[str]
     """
     era_upper = mip_era.upper()
-    all_tables = glob.glob(f'{mip_tables_dir}/{era_upper}_*.json')
+    if era_upper != 'CMIP6PLUS':
+        all_tables = glob.glob(f'{mip_tables_dir}/{era_upper}_*.json')
+    else:
+        all_tables = glob.glob(f'{mip_tables_dir}/MIP_*.json')
 
     filtered = []
     for table_path in all_tables:
@@ -96,7 +99,7 @@ def cmor_config_subtool(
     :type pp_comp_glob: str
     :param mip_tables_dir: Directory containing MIP table JSON files.
     :type mip_tables_dir: str
-    :param mip_era: MIP era identifier, e.g. 'cmip6' or 'cmip7'.
+    :param mip_era: MIP era identifier, e.g. 'cmip6', 'cmip6plus' or 'cmip7'.
     :type mip_era: str
     :param exp_config: Path to JSON experiment/input configuration file expected by CMOR.
     :type exp_config: str
@@ -121,6 +124,7 @@ def cmor_config_subtool(
     :return: Path to the written output YAML file.
     :rtype: str
     """
+
     # ---- validate inputs ----
     if not Path(pp_dir).is_dir():
         raise FileNotFoundError(f'pp_dir does not exist: {pp_dir}')
@@ -223,10 +227,10 @@ def cmor_config_subtool(
                     json_mip_table=mip_table
                 )
 
-            except Exception:
+            except Exception as exc:
                 fre_logger.warning(
-                    'variable list creation failed for %s %s %s',
-                    dir_targ, variable_list, mip_table
+                    'variable list creation failed for %s %s %s \nWith exception: %s',
+                    dir_targ, variable_list, mip_table, exc
                 )
                 continue
 

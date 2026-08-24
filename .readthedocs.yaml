@@ -3,6 +3,12 @@
 # Required
 version: 2
 
+# this makes the doc available to download as a PDF, or htmlzip
+formats:
+  - pdf
+  - epub
+  - htmlzip
+
 # Build documentation using lightweight Python environment
 # Heavy dependencies (netCDF4, cmor, xarray, etc.) are mocked in docs/conf.py
 # This significantly speeds up builds and reduces complexity

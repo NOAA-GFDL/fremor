@@ -1,8 +1,5 @@
 name: create_test_conda_env
 
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-
 on:
   push:
     branches:
@@ -31,7 +28,7 @@ jobs:
         shell: bash -l {0}
     steps:
       - name: Checkout Files
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           submodules: recursive
 
