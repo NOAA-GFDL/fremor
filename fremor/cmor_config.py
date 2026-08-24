@@ -227,10 +227,10 @@ def cmor_config_subtool(
                     json_mip_table=mip_table
                 )
 
-            except Exception:
+            except Exception as exc:
                 fre_logger.warning(
-                    'variable list creation failed for %s %s %s',
-                    dir_targ, variable_list, mip_table
+                    'variable list creation failed for %s %s %s \nWith exception: %s',
+                    dir_targ, variable_list, mip_table, exc
                 )
                 continue
 
