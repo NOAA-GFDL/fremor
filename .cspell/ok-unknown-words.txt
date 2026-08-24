@@ -11,6 +11,7 @@ Clim
 Docstrings
 Dorkey
 Emon
+FREBRONX
 GFDL
 GFDL's
 Geophys
@@ -26,12 +27,14 @@ NOAA
 Nikonov
 OUTPUTDIR
 OUTPUTFILE
+OUTYAML
 Obogus
 Omon
 PCMDI
 PCMDI's
 PLACEHOLD
 PPAN
+PPDIR
 PYTHONPATH
 Pylint
 ROOTDIR
@@ -72,6 +75,7 @@ automethod
 automodule
 badyaml
 basetemp
+bgrp
 bnds
 booleaness
 capfd
@@ -177,6 +181,9 @@ parseable
 pathing
 pathlib
 pcmdi
+pfull
+phalf
+picontrol
 plev
 ppan
 ppcompdirs
