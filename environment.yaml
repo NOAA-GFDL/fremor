@@ -3,7 +3,7 @@ channels:
   - conda-forge
   - noaa-gfdl
 dependencies:
-  - python>=3.11
+  - python>=3.14.7
   - pip
   - conda-forge::click>=8.2
   - conda-forge::cmor>=3.15.3
