@@ -140,6 +140,12 @@ def _ncgen_for_case(testfile_dir, opt_var_name):
             'CMIP7_land', 'lai', 'g999', '0001', 'noleap',
             id='land_lai_g999',
         ),
+        pytest.param(
+            f'{MOCK_ARCHIVE_ROOT}/{ESM4_DEV_PP_DIR}'
+            '/atmos_cmip/ts/monthly/5yr/',
+            'CMIP7_atmos', 'tas', 'g999', '0001', 'noleap',
+            id='atmos_tas_g999',
+        ),
     ],
 )
 def test_case_cmip7(  # pylint: disable=too-many-arguments,too-many-positional-arguments

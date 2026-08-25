@@ -739,7 +739,8 @@ def filter_brands( brands: list,
                    target_var: str,
                    mip_var_cfgs: dict,
                    has_time_bnds: bool,
-                   input_vert_dim: Union[str, int] ) -> str:
+                   input_vert_dim: Union[str, int],
+                   cell_methods: Optional[str] = None ) -> str:
     """
     Disambiguate multiple CMIP7 variable brands by comparing input data
     properties against each candidate brand's MIP dimension list.
@@ -796,6 +797,26 @@ def filter_brands( brands: list,
             fre_logger.debug('filtering out brand %s: expected MIP vert dim %s '
                              'not found in %s', brand, expected_mip_vert, mip_dims)
             continue
+
+        # cell_methods temporal filter: match brand temporal prefix to input cell_methods
+        if cell_methods is not None:
+            time_method = None
+            if 'time: mean' in cell_methods:
+                time_method = 'tavg'
+            elif 'time: maximum' in cell_methods:
+                time_method = 'tmax'
+            elif 'time: minimum' in cell_methods:
+                time_method = 'tmin'
+            elif 'time: point' in cell_methods:
+                time_method = 'tpt'
+
+            if time_method is not None:
+                brand_temporal = brand.split('-')[0]
+                if brand_temporal != time_method:
+                    fre_logger.debug('filtering out brand %s: temporal prefix %s '
+                                     'does not match cell_methods %s',
+                                     brand, brand_temporal, cell_methods)
+                    continue
 
         filtered_brands.append(brand)
 

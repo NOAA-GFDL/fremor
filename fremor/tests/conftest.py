@@ -26,6 +26,7 @@ VARLIST_DIFF = ROOTDIR / 'varlist_local_target_vars_differ'
 VARLIST_MAPPED = ROOTDIR / 'varlist_mapped'
 EXP_CONFIG = ROOTDIR / 'CMOR_input_example.json'
 EXP_CONFIG_CMIP7 = ROOTDIR / 'CMOR_CMIP7_input_example.json'
+EXP_CONFIG_CMIP6PLUS = ROOTDIR / 'CMOR_CMIP6PLUS_input_example.json'
 
 SOS_NC_FILENAME = 'reduced_ocean_monthly_1x1deg.199301-199302.sos.nc'
 SOSV2_NC_FILENAME = 'reduced_ocean_monthly_1x1deg.199301-199302.sosV2.nc'
@@ -76,6 +77,54 @@ _CMIP6_EXP_CONFIG_DATA = {
     '_FORMULA_VAR_FILE': 'CMIP6_formula_terms.json',
     '_cmip6_option': 'CMIP6',
     'mip_era': 'CMIP6',
+    'parent_mip_era': 'no parent',
+    'tracking_prefix': 'hdl:21.14100',
+    '_history_template': '%s ;rewrote data to be consistent with <activity_id> for variable <variable_id> found in table <table_id>.',
+    '#output_path_template': 'Template for output path directory using tables keys or global attributes, these should follow the relevant data reference syntax',
+    'output_path_template': '<mip_era><activity_id><institution_id><source_id><experiment_id><_member_id><table><variable_id><grid_label><version>',
+    'output_file_template': '<variable_id><table><source_id><experiment_id><_member_id><grid_label>'
+}
+
+_CMIP6PLUS_EXP_CONFIG_DATA = {
+    '#note': ' **** CMIP6Plus experiment config for testing ****',
+    'source_type': 'AOGCM ISM AER',
+    'experiment_id': 'piControl-withism',
+    'activity_id': 'ISMIP6',
+    'sub_experiment_id': 'none',
+    'realization_index': '3',
+    'initialization_index': '1',
+    'physics_index': '1',
+    'forcing_index': '1',
+    'run_variant': '3rd realization',
+    'parent_experiment_id': 'no parent',
+    'parent_activity_id': 'no parent',
+    'parent_source_id': 'no parent',
+    'parent_variant_label': 'no parent',
+    'parent_time_units': 'no parent',
+    'branch_method': 'no parent',
+    'branch_time_in_child': 59400.0,
+    'branch_time_in_parent': 0.0,
+    'institution_id': 'PCMDI',
+    'source_id': 'PCMDI-test-1-0',
+    'calendar': 'julian',
+    'grid': 'FOO_BAR_PLACEHOLD',
+    'grid_label': 'gr',
+    'nominal_resolution': '10000 km',
+    'license': 'CMIP6 model data produced by Lawrence Livermore PCMDI is licensed under a Creative Commons Attribution 4.0 International License (https://creativecommons.org/licenses/by/4.0/). Consult https://pcmdi.llnl.gov/CMIP6/TermsOfUse for terms of use governing CMIP6 output, including citation requirements and proper acknowledgment. Further information about this data, including some limitations, can be found via the further_info_url (recorded as a global attribute in this file) and at https:///pcmdi.llnl.gov/. The data producers and data providers make no warranty, either express or implied, including, but not limited to, warranties of merchantability and fitness for a particular purpose. All liabilities arising from the supply of the information (including any liability arising in negligence) are excluded to the fullest extent permitted by law.',
+    '#output': 'Root directory for output (can be either a relative or full path)',
+    'outpath': 'CMIP6',
+    'contact ': 'Python Coder (coder@a.b.c.com)',
+    'history': 'Output from archivcl_A1.nce/giccm_03_std_2xCO2_2256.',
+    'comment': '',
+    'references': 'Model described by Koder and Tolkien (J. Geophys. Res., 2001, 576-591).  Also see http://www.GICC.su/giccm/doc/index.html.  The ssp245 simulation is described in Dorkey et al. \'(Clim. Dyn., 2003, 323-357.)\'',
+    'sub_experiment': 'none',
+    'institution': '',
+    'source': 'PCMDI-test 1.0 (1989)',
+    '_controlled_vocabulary_file': 'CMIP6_CV.json',
+    '_AXIS_ENTRY_FILE': 'CMIP6PLUS_coordinate.json',
+    '_FORMULA_VAR_FILE': 'CMIP6PLUS_formula_terms.json',
+    '_cmip6_option': 'CMIP6',
+    'mip_era': 'CMIP6Plus',
     'parent_mip_era': 'no parent',
     'tracking_prefix': 'hdl:21.14100',
     '_history_template': '%s ;rewrote data to be consistent with <activity_id> for variable <variable_id> found in table <table_id>.',
@@ -162,10 +211,12 @@ def _write_exp_configs():
     """
     EXP_CONFIG.write_text(json.dumps(_CMIP6_EXP_CONFIG_DATA, indent=4))
     EXP_CONFIG_CMIP7.write_text(json.dumps(_CMIP7_EXP_CONFIG_DATA, indent=4))
+    EXP_CONFIG_CMIP6PLUS.write_text(json.dumps(_CMIP6PLUS_EXP_CONFIG_DATA, indent=4))
     yield
     # restore pristine copies so later sessions (or re-runs) start clean
     EXP_CONFIG.write_text(json.dumps(_CMIP6_EXP_CONFIG_DATA, indent=4))
     EXP_CONFIG_CMIP7.write_text(json.dumps(_CMIP7_EXP_CONFIG_DATA, indent=4))
+    EXP_CONFIG_CMIP6PLUS.write_text(json.dumps(_CMIP6PLUS_EXP_CONFIG_DATA, indent=4))
 
 
 @pytest.fixture

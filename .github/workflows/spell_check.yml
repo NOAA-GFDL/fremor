@@ -1,8 +1,5 @@
 name: 'Check spelling'
 
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-
 on:
   pull_request:
     branches:
@@ -18,8 +15,8 @@ jobs:
   spellcheck:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: streetsidesoftware/cspell-action@v7
+      - uses: actions/checkout@v7
+      - uses: streetsidesoftware/cspell-action@v8
         continue-on-error: true
         with:
           # Define glob patterns to filter the files to be checked.
