@@ -19,6 +19,7 @@ from datetime import date
 import glob
 import json
 from pathlib import Path
+import shutil
 import subprocess
 
 import pytest
@@ -43,22 +44,20 @@ INDIR = f'{ROOTDIR}/cmip6plus_tas_var_file'
 
 
 # ── helper: convert CDL to NC ──────────────────────────────────────────────
-def _ncgen_tas(testfile_dir):
-    """Convert the tas CDL file to NetCDF-4 inside *testfile_dir*."""
+def _ncgen_tas(testfile_dir, tmp_dir):
+    """Convert the tas CDL file to NetCDF-4 inside *tmp_dir*."""
     cdl_files = glob.glob(f'{testfile_dir}/*.tas.cdl')
     assert len(cdl_files) >= 1, (
         f'no CDL file found for variable tas in {testfile_dir}'
     )
     cdl_file = cdl_files[0]
-    nc_file = cdl_file.replace('.cdl', '.nc')
-    nc_path = Path(nc_file)
-    if nc_path.exists():
-        nc_path.unlink()
+    nc_name = Path(cdl_file).name.replace('.cdl', '.nc')
+    nc_file = str(tmp_dir / nc_name)
     subprocess.run(
         ['ncgen3', '-k', 'netCDF-4', '-o', nc_file, cdl_file],
         check=True,
     )
-    assert nc_path.exists(), f'ncgen3 failed to create {nc_file}'
+    assert Path(nc_file).exists(), f'ncgen3 failed to create {nc_file}'
     return nc_file
 
 
@@ -78,11 +77,16 @@ def test_case_cmip6plus_tas(tmp_path):
     exp_cfg['calendar'] = 'julian'
     exp_cfg_path.write_text(json.dumps(exp_cfg, indent=4))
 
-    input_nc = _ncgen_tas(INDIR)
+    input_nc = _ncgen_tas(INDIR, tmp_path)
     outdir = str(tmp_path / 'outdir')
 
+    # copy input NC to indir so cmor_run_subtool can find it
+    indir = str(tmp_path / 'indir')
+    Path(indir).mkdir()
+    shutil.copy2(input_nc, indir)
+
     cmor_run_subtool(
-        indir=INDIR,
+        indir=indir,
         json_var_list=VARLIST_TAS,
         json_table_config=CMIP6_TABLE_CONFIG,
         json_exp_config=str(exp_cfg_path),

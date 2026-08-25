@@ -20,8 +20,6 @@ CMIP6_TABLE_CONFIG     = ROOTDIR / 'cmip6-cmor-tables' / 'Tables' / 'CMIP6_Omon.
 CMIP6PLUS_TABLE_CONFIG = ROOTDIR / 'mip-cmor-tables'   / 'Tables' / 'MIP_OPmon.json'
 CMIP7_TABLE_CONFIG     = ROOTDIR / 'cmip7-cmor-tables' / 'tables' / 'CMIP7_ocean.json'
 
-CMIP6PLUS_TABLE_CONFIG = ROOTDIR / 'CMIP6PLUS_Amon.json'
-
 INDIR = ROOTDIR / 'ocean_sos_var_file'
 VARLIST = ROOTDIR / 'varlist'
 VARLIST_DIFF = ROOTDIR / 'varlist_local_target_vars_differ'
