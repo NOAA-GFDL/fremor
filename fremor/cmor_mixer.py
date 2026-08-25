@@ -103,6 +103,23 @@ def rewrite_netcdf_file_var( mip_var_cfgs: dict = None,
     var_dim = len(var.shape)
     fre_logger.info('var_dim = %d, local_var = %s', var_dim, local_var)
 
+    # detect scalar coordinate variables (0-dimensional) with axis='Z'
+    # these are auxiliary coordinates like "height" referenced via the coordinates attribute
+    # and must be accounted for before brand matching, as MIP tables count them as dimensions
+    scalar_z_coords = {}
+    try:
+        coord_attr = ds.variables[local_var].coordinates
+        for coord_name in coord_attr.split():
+            if coord_name in ds.variables:
+                coord_var = ds.variables[coord_name]
+                if len(coord_var.dimensions) == 0:  # scalar (0-dim)
+                    if hasattr(coord_var, 'axis') and coord_var.axis == 'Z':
+                        scalar_z_coords[coord_name] = coord_var
+                        fre_logger.info('detected scalar Z-coordinate: %s', coord_name)
+    except AttributeError:
+        pass
+    var_dim_with_scalars = var_dim + len(scalar_z_coords)
+
     # CMORizing ocean grids are implemented only for scalar quantities valued at the central T/h-point of the grid cell.
     # https://en.wikipedia.org/wiki/Arakawa_grids heavily consulted for this work.
     # we also need to do:
@@ -124,7 +141,7 @@ def rewrite_netcdf_file_var( mip_var_cfgs: dict = None,
         brands = []
         for mip_var in mip_var_cfgs['variable_entry'].keys():
             if all([ target_var == mip_var.split('_')[0],
-                     var_dim == len(mip_var_cfgs['variable_entry'][mip_var]['dimensions']) ]):
+                     var_dim_with_scalars == len(mip_var_cfgs['variable_entry'][mip_var]['dimensions']) ]):
                 brands.append(mip_var.split('_')[1])
 
         if len(brands)>0:
@@ -137,7 +154,8 @@ def rewrite_netcdf_file_var( mip_var_cfgs: dict = None,
                 var_brand = filter_brands(
                     brands, target_var, mip_var_cfgs,
                     has_time_bnds = 'time_bnds' in ds.variables,
-                    input_vert_dim = get_vertical_dimension(ds, local_var)
+                    input_vert_dim = get_vertical_dimension(ds, local_var),
+                    cell_methods = getattr(ds.variables[local_var], 'cell_methods', None)
                 )
 
         else:
@@ -221,6 +239,22 @@ def rewrite_netcdf_file_var( mip_var_cfgs: dict = None,
         lev = ds[vert_dim]
         if vert_dim.lower() != 'landuse':
             lev_units = ds[vert_dim].units
+
+    # if no vertical dimension found in data but scalar Z-coordinates exist,
+    # identify the corresponding MIP axis name from expected dimensions
+    if vert_dim == 0 and scalar_z_coords and expected_mip_coord_dims is not None:
+        dims_to_check = (expected_mip_coord_dims.split()
+                         if isinstance(expected_mip_coord_dims, str)
+                         else expected_mip_coord_dims)
+        for dim_name in dims_to_check:
+            if dim_name.lower() in [d.lower() for d in ACCEPTED_VERT_DIMS]:
+                scalar_coord_name = list(scalar_z_coords.keys())[0]
+                vert_dim = dim_name
+                lev = ds.variables[scalar_coord_name]
+                lev_units = ds.variables[scalar_coord_name].units
+                fre_logger.info('scalar Z-coordinate %s mapped to MIP axis %s',
+                                scalar_coord_name, dim_name)
+                break
 
     process_tripolar_data = all([uses_ocean_grid, lat is None, lon is None])
     xh, yh = None, None
@@ -357,8 +391,9 @@ def rewrite_netcdf_file_var( mip_var_cfgs: dict = None,
             fre_logger.info('vert_dim is NON_HYBRID_SIGMA_COORDS')
             if vert_dim.lower() != 'landuse':
                 cmor_vert_dim_name = vert_dim
+                lev_vals = np.atleast_1d(np.array(lev[:]))
                 cmor_z = cmor.axis(cmor_vert_dim_name,
-                                   coord_vals=lev[:], units=lev_units)
+                                   coord_vals=lev_vals, units=lev_units)
             else:
                 landuse_str_list = ['primary_and_secondary_land', 'pastures', 'crops', 'urban']
                 cmor_vert_dim_name = 'landUse' if exp_cfg_mip_era in ['CMIP6', 'CMIP6PLUS'] else 'landuse'
