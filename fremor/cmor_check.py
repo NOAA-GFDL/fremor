@@ -1,6 +1,6 @@
 """
-``fremor check``: Variable Mapping Coverage Check
-==================================================
+``fremor check``: Variable Mapping Coverage + Input File Sanity Checks
+========================================================================
 
 This module powers the ``fremor check`` command. It reads a self-contained CMOR YAML file
 (as written by ``fremor config``) to derive pp_dir, the MIP tables directory, the MIP era,
@@ -25,6 +25,21 @@ more glob-style table-name patterns (e.g. ``Amon``, ``AER*``) to restrict
 the check to a subset. Pass show_mapped=True to also report variables that
 are cleanly mapped from exactly one component/diagnostic (one-to-one).
 
+Two additional, opt-in checks look past the varlist JSON and at the actual
+pp_dir input files for every cleanly (one-to-one) mapped variable:
+
+- ``check_staging=True``: do the expected FRE time-series files exist under
+  pp_dir at all, and (best-effort) are they staged/disk-resident rather than
+  still sitting offline in the archive -- plus a filename-only scan for gaps
+  between chunk date ranges. No file content is ever read for this check.
+- ``check_dims=True``: does the input file's vertical dimension (if any)
+  actually match what the MIP table declares for that variable -- e.g.
+  catching a variable mapped from raw model-level (``alevel``) output when
+  the table wants fixed pressure levels (``plevNN``), or vice versa -- plus
+  a check that hybrid-sigma variables have their companion ``.ps.nc`` file
+  alongside. Only one representative file's header is opened per variable
+  (via netCDF4, metadata only, no array data is read).
+
 Functions
 ---------
 - ``cmor_check_subtool(...)``
@@ -34,16 +49,27 @@ import fnmatch
 import json
 import logging
 import os
+import re
+import shutil
+import subprocess
 from collections import defaultdict
 from pathlib import Path
-from typing import Optional, Sequence
+from typing import Optional, Sequence, Union
 
 import click
+from netCDF4 import Dataset
 
 from .cmor_config import _load_config_yaml
-from .cmor_helpers import get_json_file_data
+from .cmor_constants import ACCEPTED_VERT_DIMS, INPUT_TO_MIP_VERT_DIM
+from .cmor_helpers import get_json_file_data, get_vertical_dimension, iso_to_bronx_chunk
 
 fre_logger = logging.getLogger(__name__)
+
+# vertical-coordinate tokens recognized on the MIP-table side of the dims check. Reuses
+# ACCEPTED_VERT_DIMS (cmor_mixer's accepted *input* vertical dim names, several of which --
+# plevNN, height2m, landuse -- pass straight through as MIP-table names too) plus the
+# canonical MIP-table-only hybrid-sigma names that INPUT_TO_MIP_VERT_DIM maps input dims onto.
+KNOWN_MIP_VERTICAL_TOKENS = set(ACCEPTED_VERT_DIMS) | {'alevel', 'alevhalf', 'olevel', 'olevhalf'}
 
 
 def _reference_vars_for_table(table_path: str, mip_era: str) -> set:
@@ -123,8 +149,250 @@ def _varlists_by_table_from_yaml(table_targets: Sequence[dict]) -> dict:
     return grouped
 
 
+def _component_input_dir(pp_dir: str, table_target: dict, component: dict) -> Optional[Path]:
+    """Resolve the FRE ts directory a component's files live in, mirroring the
+    <pp_dir>/<component>/<data_series_type>/<freq>/<chunk> convention ``fremor config`` and
+    ``fremor stage`` both use. Returns None if the table_target has no freq (nothing to check
+    against, e.g. a hand-edited yaml predating ``fremor config``)."""
+    freq = table_target.get('freq')
+    if not freq:
+        return None
+    chunk_bronx = iso_to_bronx_chunk(component['chunk'])
+    return Path(pp_dir) / component['component_name'] / component['data_series_type'] / freq / chunk_bronx
+
+
+def _matching_input_files(input_dir: Optional[Path], local_var: str) -> list:
+    """Files in input_dir matching the <something>.<daterange>.<local_var>.nc convention
+    (same convention make_simple_varlist/cmor_stage assume), sorted by filename."""
+    if input_dir is None or not input_dir.is_dir():
+        return []
+    return sorted(
+        path for path in input_dir.glob('*.*.nc')
+        if path.name.split('.')[-2] == local_var
+    )
+
+
+# ---------------------------------------------------------------------------
+# staging check: are a variable's input files present under pp_dir, and are
+# they staged (disk-resident) rather than still sitting offline in the
+# archive? Filename-only date-range gap scan piggybacks on the same file list.
+# ---------------------------------------------------------------------------
+
+def _find_dmls_bin(dmls_bin: Optional[str] = None) -> Optional[str]:
+    """Resolve the dmls binary: explicit path if given, else look it up on PATH."""
+    if dmls_bin:
+        return dmls_bin
+    return shutil.which('dmls')
+
+
+def _dmls_offline_files(paths: Sequence[Path], dmls_bin: Optional[str] = None) -> Optional[set]:
+    """Best-effort, single batched ``dmls -l`` query (like ``fremor stage``'s one-shot dmget)
+    for which of the given paths are offline (archived, not yet staged). Returns None --
+    meaning "fall back to the stat-based heuristic" -- if dmls isn't available or its output
+    can't be parsed, so a missing/misbehaving dmls never breaks this check."""
+    binary = _find_dmls_bin(dmls_bin)
+    if binary is None or not paths:
+        return None
+    try:
+        result = subprocess.run(
+            [binary, '-l', *(str(path) for path in paths)],
+            capture_output=True, text=True, timeout=60, check=True
+        )
+    except (subprocess.SubprocessError, OSError):
+        return None
+
+    offline = set()
+    for line in result.stdout.splitlines():
+        match = re.search(r'\((\w+)\)\s+(\S+)\s*$', line.strip())
+        if not match:
+            continue
+        state, filename = match.group(1).upper(), match.group(2)
+        if state == 'OFL':
+            offline.add(filename)
+    return offline
+
+
+def _is_file_staged(path: Path) -> bool:
+    """Stat-only disk-residency heuristic: an offline archive stub reports fewer allocated
+    disk blocks than its logical size implies. Never opens/reads the file's contents."""
+    try:
+        stat_result = path.stat()
+    except OSError:
+        return False
+    if stat_result.st_size == 0:
+        return True
+    return stat_result.st_blocks * 512 >= stat_result.st_size
+
+
+def _date_range_from_filename(path: Path) -> Optional[tuple]:
+    """Parse the (first_year, last_year) chunk range out of a FRE ts filename, purely from
+    its name -- no file I/O."""
+    parts = path.name.split('.')
+    if len(parts) < 4 or '-' not in parts[-3]:
+        return None
+    first_date, last_date = parts[-3].split('-', maxsplit=1)
+    if not (first_date[:4].isdigit() and last_date[:4].isdigit()):
+        return None
+    return int(first_date[:4]), int(last_date[:4])
+
+
+def _date_range_gaps(files: list) -> list:
+    """Filename-only scan for gaps between consecutive chunks' year ranges (e.g. missing
+    postprocessing years that would stall a run partway through)."""
+    ranges = sorted(r for r in (_date_range_from_filename(f) for f in files) if r is not None)
+    gaps = []
+    for (_, prev_end), (next_start, _) in zip(ranges, ranges[1:]):
+        if next_start > prev_end + 1:
+            gaps.append(f'{prev_end}-{next_start}')
+    return gaps
+
+
+def _staging_status(files: list, dmls_bin: Optional[str] = None) -> dict:
+    """Build the staging report entry for one variable's input files."""
+    if not files:
+        return {'status': 'missing', 'unstaged_files': [], 'gaps': []}
+
+    offline = _dmls_offline_files(files, dmls_bin)
+    if offline is not None:
+        unstaged = [str(f) for f in files if str(f) in offline]
+    else:
+        unstaged = [str(f) for f in files if not _is_file_staged(f)]
+
+    if not unstaged:
+        status = 'staged'
+    elif len(unstaged) == len(files):
+        status = 'unstaged'
+    else:
+        status = 'partially_staged'
+
+    return {'status': status, 'unstaged_files': unstaged, 'gaps': _date_range_gaps(files)}
+
+
+# ---------------------------------------------------------------------------
+# dims check: does the input file's actual vertical dimension match what the
+# MIP table declares (differentiating e.g. plevNN from alevel), and -- for
+# hybrid-sigma variables -- is the companion .ps.nc file present?
+# ---------------------------------------------------------------------------
+
+def _mip_table_vertical_token(mip_dims: str) -> Optional[str]:
+    """Pick the vertical-coordinate token out of a MIP table variable's space-delimited
+    'dimensions' string (e.g. 'longitude latitude alevel time' -> 'alevel'), or None if the
+    variable has no vertical dimension."""
+    for token in (mip_dims or '').split():
+        if token in KNOWN_MIP_VERTICAL_TOKENS or token.startswith('plev'):
+            return token
+    return None
+
+
+def _mip_variable_vertical_tokens(table_data: dict, var: str, mip_era: str) -> list:
+    """All distinct vertical-dimension tokens declared for `var` in this MIP table. For
+    CMIP6/CMIP6Plus there's exactly one entry; for CMIP7 a bare variable name can have
+    multiple brands, each potentially expecting a different vertical coordinate -- so every
+    brand's token is a valid match (mirrors how filter_brands disambiguates at run time)."""
+    variable_entry = table_data.get('variable_entry', {})
+    if mip_era.lower() == 'cmip7':
+        keys = [key for key in variable_entry if key.split('_')[0] == var]
+    else:
+        keys = [var] if var in variable_entry else []
+
+    tokens = []
+    for key in keys:
+        token = _mip_table_vertical_token(variable_entry[key].get('dimensions', ''))
+        if token not in tokens:
+            tokens.append(token)
+    return tokens
+
+
+def _input_vertical_token(nc_path: str, local_var: str) -> Union[str, int]:
+    """Best-effort read of the input file's vertical dimension name, mapped to its MIP-table
+    equivalent (the same INPUT_TO_MIP_VERT_DIM lookup cmor_helpers.filter_brands uses for
+    CMIP7 brand disambiguation). Only header metadata is inspected, never variable data.
+    Returns 0 if no vertical dimension is found or the file can't be opened."""
+    try:
+        with Dataset(nc_path, 'r') as dataset:
+            vert_dim = get_vertical_dimension(dataset, local_var)
+    except Exception:  # pylint: disable=broad-except
+        fre_logger.debug('could not inspect %s in %s for vertical dim', local_var, nc_path,
+                         exc_info=True)
+        return 0
+    if vert_dim == 0:
+        return 0
+    return INPUT_TO_MIP_VERT_DIM.get(vert_dim.lower(), vert_dim.lower())
+
+
+def _vertical_dim_finding(mip_vert_tokens: list, files: list) -> dict:
+    """Build the dims report entry for one variable, comparing its MIP-table-declared
+    vertical dim(s) against the actual vertical dim found in a representative input file."""
+    if not files:
+        return {'status': 'unknown', 'reason': 'no input files found to inspect'}
+
+    representative = files[0]
+    local_var = representative.name.split('.')[-2]
+    input_vert = _input_vertical_token(str(representative), local_var)
+    expects_vertical = any(token is not None for token in mip_vert_tokens)
+
+    finding = {
+        'file': str(representative),
+        'mip_table_vertical_dims': [t for t in mip_vert_tokens if t is not None] or None,
+        'input_vertical_dim': input_vert if input_vert != 0 else None,
+    }
+
+    if input_vert == 0:
+        finding['status'] = 'missing_vertical_dim' if expects_vertical else 'ok'
+    elif not expects_vertical:
+        finding['status'] = 'unexpected_vertical_dim'
+    elif input_vert in mip_vert_tokens:
+        finding['status'] = 'ok'
+    else:
+        finding['status'] = 'vertical_dim_mismatch'
+
+    if input_vert in ('alevel', 'alevhalf'):
+        ps_path = representative.with_name(
+            '.'.join((*representative.name.split('.')[:-2], 'ps', 'nc'))
+        )
+        if not ps_path.is_file():
+            finding['missing_ps_file'] = str(ps_path)
+
+    return finding
+
+
+def _build_files_report(table_path: str, table_data: Optional[dict], mip_era: str,
+                        table_target: dict, pp_dir: str, one_to_one_mapped: dict,
+                        check_staging: bool, check_dims: bool,
+                        dmls_bin: Optional[str] = None) -> dict:
+    """Per one-to-one-mapped variable: staging status and/or vertical-dim consistency,
+    resolved straight from pp_dir. Only variables mapped from exactly one component are
+    checked -- unmapped variables have no files to look at, and multiply-mapped ones are
+    already flagged as a mapping-hygiene issue by the coverage check above."""
+    components_by_name = {
+        comp['component_name']: comp for comp in table_target.get('target_components') or []
+    }
+
+    files_report = {}
+    for var, (component_name, gfdl_key) in sorted(one_to_one_mapped.items()):
+        component = components_by_name.get(component_name)
+        if component is None:
+            continue  # uncovered -- one_to_one_mapped is derived from these same components
+
+        input_dir = _component_input_dir(pp_dir, table_target, component)
+        files = _matching_input_files(input_dir, gfdl_key)
+
+        var_entry = {}
+        if check_staging:
+            var_entry['staging'] = _staging_status(files, dmls_bin)
+        if check_dims:
+            mip_vert_tokens = _mip_variable_vertical_tokens(table_data or {}, var, mip_era)
+            var_entry['dims'] = _vertical_dim_finding(mip_vert_tokens, files)
+        files_report[var] = var_entry
+
+    return files_report
+
+
 def _build_table_report(table_path: str, mip_era: str, varlists_by_table: dict,
-                        show_mapped: bool = False) -> dict:
+                        show_mapped: bool = False,
+                        pp_dir: Optional[str] = None, table_target: Optional[dict] = None,
+                        check_staging: bool = False, check_dims: bool = False,
+                        dmls_bin: Optional[str] = None) -> dict:
     """Build the unmapped / multiply-mapped / unknown-mapped report for one MIP table."""
     table_name = Path(table_path).stem.split('.')[0].split('_')[1]
     reference_vars = _reference_vars_for_table(table_path, mip_era)
@@ -140,6 +408,10 @@ def _build_table_report(table_path: str, mip_era: str, varlists_by_table: dict,
         var: sorted(entries) for var, entries in mapped.items() if len(entries) > 1
     }
     unknown_mapped = sorted(set(mapped) - reference_vars)
+    one_to_one_mapped = {
+        var: entries[0] for var, entries in mapped.items()
+        if len(entries) == 1 and var in reference_vars
+    }
 
     report_entry = {
         'table_name': table_name,
@@ -150,10 +422,14 @@ def _build_table_report(table_path: str, mip_era: str, varlists_by_table: dict,
     }
 
     if show_mapped:
-        report_entry['one_to_one_mapped'] = {
-            var: entries[0] for var, entries in mapped.items()
-            if len(entries) == 1 and var in reference_vars
-        }
+        report_entry['one_to_one_mapped'] = one_to_one_mapped
+
+    if (check_staging or check_dims) and pp_dir is not None and table_target is not None:
+        table_data = get_json_file_data(table_path) if check_dims else None
+        report_entry['files'] = _build_files_report(
+            table_path, table_data, mip_era, table_target, pp_dir, one_to_one_mapped,
+            check_staging, check_dims, dmls_bin
+        )
 
     return report_entry
 
@@ -197,13 +473,40 @@ def _print_report(report: dict, show_mapped: bool = False) -> None:
             else:
                 click.echo('  MAPPED: none')
 
+        files = entry.get('files')
+        if files is not None:
+            if not files:
+                click.echo('  FILES: no one-to-one-mapped variables to check')
+            for var in sorted(files):
+                var_entry = files[var]
+                staging = var_entry.get('staging')
+                if staging is not None:
+                    line = f'  FILES  {var}: staging={staging["status"]}'
+                    if staging['unstaged_files']:
+                        line += f' ({len(staging["unstaged_files"])} file(s) not yet staged)'
+                    click.echo(line)
+                    if staging['gaps']:
+                        click.echo(f'           date-range gaps: {", ".join(staging["gaps"])}')
+                dims = var_entry.get('dims')
+                if dims is not None:
+                    line = f'  FILES  {var}: dims={dims["status"]}'
+                    if dims['status'] not in ('ok', 'unknown'):
+                        line += (f' (table wants {dims.get("mip_table_vertical_dims")}, '
+                                 f'input has {dims.get("input_vertical_dim")})')
+                    click.echo(line)
+                    if dims.get('missing_ps_file'):
+                        click.echo(f'           missing companion ps file: {dims["missing_ps_file"]}')
+
 
 def cmor_check_subtool(
         yamlfile: str,
         table_patterns: Sequence[str] = (),
         show_mapped: bool = False,
         json_output: bool = False,
-        output_report: Optional[str] = None
+        output_report: Optional[str] = None,
+        check_staging: bool = False,
+        check_dims: bool = False,
+        dmls_bin: Optional[str] = None
 ) -> dict:
     """
     Cross-reference per-component varlist files against MIP table JSON files
@@ -225,16 +528,31 @@ def cmor_check_subtool(
     :type json_output: bool
     :param output_report: optional path to also write the JSON report to.
     :type output_report: str or None
+    :param check_staging: if True, for every one-to-one-mapped variable also check whether its
+        input files exist under pp_dir and whether they're staged/disk-resident (best-effort,
+        via ``dmls`` if available else a stat-only heuristic), plus a filename-only scan for
+        gaps between chunk date ranges.
+    :type check_staging: bool
+    :param check_dims: if True, for every one-to-one-mapped variable also check whether a
+        representative input file's vertical dimension matches what the MIP table declares
+        (e.g. distinguishing ``alevel`` model-level output from ``plevNN`` pressure levels),
+        and whether hybrid-sigma variables have their companion ``.ps.nc`` file present.
+    :type check_dims: bool
+    :param dmls_bin: path to the dmls binary for the staging check. If omitted, looks for
+        'dmls' on PATH; if not found either, falls back to a stat-only residency heuristic.
+    :type dmls_bin: str or None
     :raises FileNotFoundError: if yamlfile, its pp_dir, or its table_dir do not exist, or a
         table_target's MIP table JSON file is missing.
     :raises ValueError: if yamlfile has no table_targets, or none of the given table_patterns
         match any table_target.
     :return: table_name -> report dict, with keys 'reference_var_count', 'unmapped',
-             'multiply_mapped', 'unknown_mapped', and (if show_mapped) 'one_to_one_mapped'.
+             'multiply_mapped', 'unknown_mapped', (if show_mapped) 'one_to_one_mapped', and
+             (if check_staging or check_dims) 'files'.
     :rtype: dict
     """
     cmor_yaml_ctx = _load_config_yaml(yamlfile)
     mip_era = cmor_yaml_ctx['mip_era']
+    pp_dir = cmor_yaml_ctx['pp_dir']
     mip_tables_dir = cmor_yaml_ctx['mip_tables_dir']
     table_targets = cmor_yaml_ctx['table_targets']
 
@@ -249,11 +567,17 @@ def cmor_check_subtool(
 
     table_paths = _mip_table_paths(mip_tables_dir, mip_era, table_names)
     varlists_by_table = _varlists_by_table_from_yaml(table_targets)
+    table_targets_by_name = {
+        table_target['table_name']: table_target for table_target in table_targets
+    }
 
     report = {}
     for table_name in table_names:
-        table_entry = _build_table_report(table_paths[table_name], mip_era, varlists_by_table,
-                                          show_mapped=show_mapped)
+        table_entry = _build_table_report(
+            table_paths[table_name], mip_era, varlists_by_table, show_mapped=show_mapped,
+            pp_dir=pp_dir, table_target=table_targets_by_name.get(table_name),
+            check_staging=check_staging, check_dims=check_dims, dmls_bin=dmls_bin
+        )
         report[table_entry.pop('table_name')] = table_entry
 
     if json_output:

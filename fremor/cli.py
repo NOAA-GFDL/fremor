@@ -368,18 +368,39 @@ def config(pp_dir, mip_tables_dir, mip_era, exp_config, output_yaml,
                    'path are all derived from it.')
 @click.option('--show_mapped', is_flag=True, default=False,
               help='Also report variables mapped from exactly one component/diagnostic (one-to-one).')
+@click.option('--staging', 'check_staging', is_flag=True, default=False,
+              help='For every one-to-one-mapped variable, also check whether its input files '
+                   'exist under pp_dir and whether they are staged/disk-resident (best-effort, '
+                   'via dmls if available, else a stat-only heuristic -- never reads file '
+                   'content), plus a filename-only scan for gaps between chunk date ranges.')
+@click.option('--dims', 'check_dims', is_flag=True, default=False,
+              help='For every one-to-one-mapped variable, also check whether a representative '
+                   'input file\'s vertical dimension matches what the MIP table declares (e.g. '
+                   'distinguishing model-level "alevel" output from fixed "plevNN" pressure '
+                   'levels), and whether hybrid-sigma variables have their companion .ps.nc '
+                   'file present. Only inspects one file\'s header per variable.')
+@click.option('--dmls_bin', type=str, default=None,
+              help='Path to the dmls binary for the --staging check. If omitted, looks for '
+                   '\'dmls\' on PATH; if not found either, falls back to a stat-only residency '
+                   'heuristic.')
 @click.option('--json', 'json_output', is_flag=True, default=False,
               help='Print the report as JSON instead of a text summary.')
 @click.option('-o', '--output_report', type=str, default=None,
               help='Optional path to also write the JSON report to.')
-def check(tables, yamlfile, show_mapped, json_output, output_report):
+def check(tables, yamlfile, show_mapped, check_staging, check_dims, dmls_bin,
+          json_output, output_report):
     """
-    Check variable-mapping coverage of varlist files against MIP tables.
+    Check variable-mapping coverage of varlist files against MIP tables, and optionally
+    the actual pp_dir input files those mappings resolve to.
 
     For each MIP table in yamlfile's table_targets, reports CMIP variables required
     by the table but not mapped from any component, variables mapped from more than
     one component/diagnostic, and mapped values that don't correspond to any variable
     actually defined in that table.
+
+    Pass --staging and/or --dims to additionally check, for every one-to-one-mapped
+    variable, whether its pp_dir input files are present and staged, and whether their
+    vertical dimension matches what the MIP table expects.
 
     TABLES is an optional list of MIP table names to check, e.g. 'Amon' or
     'Lmon'. Shell-style wildcards are supported, e.g. 'AER*'. If omitted,
@@ -390,7 +411,10 @@ def check(tables, yamlfile, show_mapped, json_output, output_report):
         table_patterns=tables,
         show_mapped=show_mapped,
         json_output=json_output,
-        output_report=output_report
+        output_report=output_report,
+        check_staging=check_staging,
+        check_dims=check_dims,
+        dmls_bin=dmls_bin
     )
 
 

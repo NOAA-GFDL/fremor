@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 import yaml
+from netCDF4 import Dataset
 
 from fremor.cmor_check import cmor_check_subtool
 
@@ -277,3 +278,323 @@ def test_cmor_check_subtool_table_patterns_no_match_err(temp_dir): # pylint: dis
 
     with pytest.raises(ValueError, match='no table_targets .* matched table_patterns'):
         cmor_check_subtool(yamlfile=yamlfile, table_patterns=['Omon'])
+
+
+# ---------------------------------------------------------------------------
+# check_staging / check_dims: file-level checks against real pp_dir contents
+# ---------------------------------------------------------------------------
+
+def _write_table_with_dims(tables_dir, table_name, var_dims):
+    ''' like _write_table, but each value is a MIP-style space-delimited dimensions string '''
+    variable_entry = {
+        name: {'standard_name': name, 'dimensions': dims} for name, dims in var_dims.items()
+    }
+    (Path(tables_dir) / f'CMIP6_{table_name}.json').write_text(
+        json.dumps({'Header': {'table_id': f'Table {table_name}'}, 'variable_entry': variable_entry}),
+        encoding='utf-8'
+    )
+
+
+def _write_input_nc(nc_path, local_var, vertical_dim=None):
+    ''' write a minimal real netCDF file with a time dim, optional vertical dim (axis='Z'),
+    and a data variable named local_var over those dims '''
+    with Dataset(str(nc_path), 'w') as ds:
+        ds.createDimension('time', 2)
+        ds.createVariable('time', 'f4', ('time',))
+        dims = ['time']
+        if vertical_dim is not None:
+            ds.createDimension(vertical_dim, 3)
+            vert_var = ds.createVariable(vertical_dim, 'f4', (vertical_dim,))
+            vert_var.axis = 'Z'
+            dims.append(vertical_dim)
+        ds.createVariable(local_var, 'f4', tuple(dims))
+
+
+def _input_dir(pp_dir, component_name, freq='monthly', chunk_bronx='5yr'):
+    input_dir = Path(pp_dir) / component_name / 'ts' / freq / chunk_bronx
+    input_dir.mkdir(parents=True, exist_ok=True)
+    return input_dir
+
+
+def test_cmor_check_subtool_staging_missing_files(temp_dir): # pylint: disable=redefined-outer-name
+    ''' check_staging: one-to-one-mapped variable with no input files under pp_dir at all '''
+    temp_root = Path(temp_dir)
+    tables_dir = temp_root / 'tables'
+    tables_dir.mkdir()
+    _write_amon_table(tables_dir, ['tas'])
+
+    varlist_dir = temp_root / 'varlists'
+    varlist_dir.mkdir()
+    atmos_list = varlist_dir / 'CMIP6_Amon_atmos.list'
+    atmos_list.write_text(json.dumps({'tas': 'tas'}), encoding='utf-8')
+
+    pp_dir = temp_root / 'pp'
+    yamlfile = _write_yaml(temp_dir, [
+        _table_target('Amon', [_component_entry('atmos', atmos_list)])
+    ], table_dir=tables_dir, pp_dir=pp_dir)
+
+    report = cmor_check_subtool(yamlfile=yamlfile, check_staging=True)
+    assert report['Amon']['files']['tas']['staging']['status'] == 'missing'
+
+
+def test_cmor_check_subtool_staging_ok(temp_dir): # pylint: disable=redefined-outer-name
+    ''' check_staging: files present on a regular filesystem are reported as staged '''
+    temp_root = Path(temp_dir)
+    tables_dir = temp_root / 'tables'
+    tables_dir.mkdir()
+    _write_amon_table(tables_dir, ['tas'])
+
+    varlist_dir = temp_root / 'varlists'
+    varlist_dir.mkdir()
+    atmos_list = varlist_dir / 'CMIP6_Amon_atmos.list'
+    atmos_list.write_text(json.dumps({'tas': 'tas'}), encoding='utf-8')
+
+    pp_dir = temp_root / 'pp'
+    yamlfile = _write_yaml(temp_dir, [
+        _table_target('Amon', [_component_entry('atmos', atmos_list)])
+    ], table_dir=tables_dir, pp_dir=pp_dir)
+
+    comp_dir = _input_dir(pp_dir, 'atmos')
+    _write_input_nc(comp_dir / 'atmos.197901-198312.tas.nc', 'tas')
+
+    report = cmor_check_subtool(yamlfile=yamlfile, check_staging=True)
+    staging = report['Amon']['files']['tas']['staging']
+    assert staging['status'] == 'staged'
+    assert staging['unstaged_files'] == []
+    assert staging['gaps'] == []
+
+
+def test_cmor_check_subtool_staging_gap_detection(temp_dir): # pylint: disable=redefined-outer-name
+    ''' check_staging: a filename-only scan should catch a missing chunk between two others '''
+    temp_root = Path(temp_dir)
+    tables_dir = temp_root / 'tables'
+    tables_dir.mkdir()
+    _write_amon_table(tables_dir, ['tas'])
+
+    varlist_dir = temp_root / 'varlists'
+    varlist_dir.mkdir()
+    atmos_list = varlist_dir / 'CMIP6_Amon_atmos.list'
+    atmos_list.write_text(json.dumps({'tas': 'tas'}), encoding='utf-8')
+
+    pp_dir = temp_root / 'pp'
+    yamlfile = _write_yaml(temp_dir, [
+        _table_target('Amon', [_component_entry('atmos', atmos_list)])
+    ], table_dir=tables_dir, pp_dir=pp_dir)
+
+    comp_dir = _input_dir(pp_dir, 'atmos')
+    _write_input_nc(comp_dir / 'atmos.197901-198312.tas.nc', 'tas')
+    _write_input_nc(comp_dir / 'atmos.199001-199412.tas.nc', 'tas')  # gap: 1984-1989 missing
+
+    report = cmor_check_subtool(yamlfile=yamlfile, check_staging=True)
+    assert report['Amon']['files']['tas']['staging']['gaps'] == ['1983-1990']
+
+
+def test_cmor_check_subtool_staging_dmls_offline(temp_dir, monkeypatch): # pylint: disable=redefined-outer-name
+    ''' check_staging: when a dmls binary is available, its (OFL) tag marks a file unstaged '''
+    temp_root = Path(temp_dir)
+    tables_dir = temp_root / 'tables'
+    tables_dir.mkdir()
+    _write_amon_table(tables_dir, ['tas'])
+
+    varlist_dir = temp_root / 'varlists'
+    varlist_dir.mkdir()
+    atmos_list = varlist_dir / 'CMIP6_Amon_atmos.list'
+    atmos_list.write_text(json.dumps({'tas': 'tas'}), encoding='utf-8')
+
+    pp_dir = temp_root / 'pp'
+    yamlfile = _write_yaml(temp_dir, [
+        _table_target('Amon', [_component_entry('atmos', atmos_list)])
+    ], table_dir=tables_dir, pp_dir=pp_dir)
+
+    comp_dir = _input_dir(pp_dir, 'atmos')
+    nc_path = comp_dir / 'atmos.197901-198312.tas.nc'
+    _write_input_nc(nc_path, 'tas')
+
+    import subprocess as subprocess_mod # pylint: disable=import-outside-toplevel
+
+    class _FakeResult:
+        stdout = f'-rw-r--r-- 1 user group 123 Jan 1 12:00 (OFL) {nc_path}\n'
+
+    def _fake_run(cmd, **kwargs): # pylint: disable=unused-argument
+        assert cmd[0] == 'dmls'
+        return _FakeResult()
+
+    monkeypatch.setattr(subprocess_mod, 'run', _fake_run)
+
+    report = cmor_check_subtool(yamlfile=yamlfile, check_staging=True, dmls_bin='dmls')
+    staging = report['Amon']['files']['tas']['staging']
+    assert staging['status'] == 'unstaged'
+    assert staging['unstaged_files'] == [str(nc_path)]
+
+
+def test_cmor_check_subtool_dims_ok(temp_dir): # pylint: disable=redefined-outer-name
+    ''' check_dims: input file's model-level dim ('lev') matches the table's 'alevel' '''
+    temp_root = Path(temp_dir)
+    tables_dir = temp_root / 'tables'
+    tables_dir.mkdir()
+    _write_table_with_dims(tables_dir, 'Amon', {'ta': 'longitude latitude alevel time'})
+
+    varlist_dir = temp_root / 'varlists'
+    varlist_dir.mkdir()
+    atmos_list = varlist_dir / 'CMIP6_Amon_atmos.list'
+    atmos_list.write_text(json.dumps({'ta': 'ta'}), encoding='utf-8')
+
+    pp_dir = temp_root / 'pp'
+    yamlfile = _write_yaml(temp_dir, [
+        _table_target('Amon', [_component_entry('atmos', atmos_list)])
+    ], table_dir=tables_dir, pp_dir=pp_dir)
+
+    comp_dir = _input_dir(pp_dir, 'atmos')
+    _write_input_nc(comp_dir / 'atmos.197901-198312.ta.nc', 'ta', vertical_dim='lev')
+
+    report = cmor_check_subtool(yamlfile=yamlfile, check_dims=True)
+    dims = report['Amon']['files']['ta']['dims']
+    assert dims['status'] == 'ok'
+    assert dims['input_vertical_dim'] == 'alevel'
+    assert dims['mip_table_vertical_dims'] == ['alevel']
+
+
+def test_cmor_check_subtool_dims_mismatch_plev_vs_alevel(temp_dir): # pylint: disable=redefined-outer-name
+    ''' check_dims: table wants fixed pressure levels but input is only on native model levels '''
+    temp_root = Path(temp_dir)
+    tables_dir = temp_root / 'tables'
+    tables_dir.mkdir()
+    _write_table_with_dims(tables_dir, 'Amon', {'ta': 'longitude latitude plev19 time'})
+
+    varlist_dir = temp_root / 'varlists'
+    varlist_dir.mkdir()
+    atmos_list = varlist_dir / 'CMIP6_Amon_atmos.list'
+    atmos_list.write_text(json.dumps({'ta': 'ta'}), encoding='utf-8')
+
+    pp_dir = temp_root / 'pp'
+    yamlfile = _write_yaml(temp_dir, [
+        _table_target('Amon', [_component_entry('atmos', atmos_list)])
+    ], table_dir=tables_dir, pp_dir=pp_dir)
+
+    comp_dir = _input_dir(pp_dir, 'atmos')
+    _write_input_nc(comp_dir / 'atmos.197901-198312.ta.nc', 'ta', vertical_dim='lev')
+
+    report = cmor_check_subtool(yamlfile=yamlfile, check_dims=True)
+    dims = report['Amon']['files']['ta']['dims']
+    assert dims['status'] == 'vertical_dim_mismatch'
+    assert dims['input_vertical_dim'] == 'alevel'
+    assert dims['mip_table_vertical_dims'] == ['plev19']
+
+
+def test_cmor_check_subtool_dims_missing_vertical(temp_dir): # pylint: disable=redefined-outer-name
+    ''' check_dims: table wants a vertical dim but the mapped input file is purely 2D '''
+    temp_root = Path(temp_dir)
+    tables_dir = temp_root / 'tables'
+    tables_dir.mkdir()
+    _write_table_with_dims(tables_dir, 'Amon', {'ta': 'longitude latitude alevel time'})
+
+    varlist_dir = temp_root / 'varlists'
+    varlist_dir.mkdir()
+    atmos_list = varlist_dir / 'CMIP6_Amon_atmos.list'
+    atmos_list.write_text(json.dumps({'ta': 'ta'}), encoding='utf-8')
+
+    pp_dir = temp_root / 'pp'
+    yamlfile = _write_yaml(temp_dir, [
+        _table_target('Amon', [_component_entry('atmos', atmos_list)])
+    ], table_dir=tables_dir, pp_dir=pp_dir)
+
+    comp_dir = _input_dir(pp_dir, 'atmos')
+    _write_input_nc(comp_dir / 'atmos.197901-198312.ta.nc', 'ta', vertical_dim=None)
+
+    report = cmor_check_subtool(yamlfile=yamlfile, check_dims=True)
+    dims = report['Amon']['files']['ta']['dims']
+    assert dims['status'] == 'missing_vertical_dim'
+    assert dims['input_vertical_dim'] is None
+
+
+def test_cmor_check_subtool_dims_unexpected_vertical(temp_dir): # pylint: disable=redefined-outer-name
+    ''' check_dims: table expects no vertical dim but the input file has one '''
+    temp_root = Path(temp_dir)
+    tables_dir = temp_root / 'tables'
+    tables_dir.mkdir()
+    _write_table_with_dims(tables_dir, 'Amon', {'tas': 'longitude latitude time'})
+
+    varlist_dir = temp_root / 'varlists'
+    varlist_dir.mkdir()
+    atmos_list = varlist_dir / 'CMIP6_Amon_atmos.list'
+    atmos_list.write_text(json.dumps({'tas': 'tas'}), encoding='utf-8')
+
+    pp_dir = temp_root / 'pp'
+    yamlfile = _write_yaml(temp_dir, [
+        _table_target('Amon', [_component_entry('atmos', atmos_list)])
+    ], table_dir=tables_dir, pp_dir=pp_dir)
+
+    comp_dir = _input_dir(pp_dir, 'atmos')
+    _write_input_nc(comp_dir / 'atmos.197901-198312.tas.nc', 'tas', vertical_dim='lev')
+
+    report = cmor_check_subtool(yamlfile=yamlfile, check_dims=True)
+    dims = report['Amon']['files']['tas']['dims']
+    assert dims['status'] == 'unexpected_vertical_dim'
+
+
+def test_cmor_check_subtool_dims_missing_ps_file(temp_dir): # pylint: disable=redefined-outer-name
+    ''' check_dims: a hybrid-sigma ('alevel') variable is missing its companion .ps.nc file '''
+    temp_root = Path(temp_dir)
+    tables_dir = temp_root / 'tables'
+    tables_dir.mkdir()
+    _write_table_with_dims(tables_dir, 'Amon', {'ta': 'longitude latitude alevel time'})
+
+    varlist_dir = temp_root / 'varlists'
+    varlist_dir.mkdir()
+    atmos_list = varlist_dir / 'CMIP6_Amon_atmos.list'
+    atmos_list.write_text(json.dumps({'ta': 'ta'}), encoding='utf-8')
+
+    pp_dir = temp_root / 'pp'
+    yamlfile = _write_yaml(temp_dir, [
+        _table_target('Amon', [_component_entry('atmos', atmos_list)])
+    ], table_dir=tables_dir, pp_dir=pp_dir)
+
+    comp_dir = _input_dir(pp_dir, 'atmos')
+    _write_input_nc(comp_dir / 'atmos.197901-198312.ta.nc', 'ta', vertical_dim='lev')
+    # no atmos.197901-198312.ps.nc written
+
+    report = cmor_check_subtool(yamlfile=yamlfile, check_dims=True)
+    dims = report['Amon']['files']['ta']['dims']
+    assert dims['status'] == 'ok'
+    assert dims['missing_ps_file'] == str(comp_dir / 'atmos.197901-198312.ps.nc')
+
+
+def test_cmor_check_subtool_dims_unknown_when_no_files(temp_dir): # pylint: disable=redefined-outer-name
+    ''' check_dims: nothing to inspect when there are no input files for a mapped variable '''
+    temp_root = Path(temp_dir)
+    tables_dir = temp_root / 'tables'
+    tables_dir.mkdir()
+    _write_table_with_dims(tables_dir, 'Amon', {'ta': 'longitude latitude alevel time'})
+
+    varlist_dir = temp_root / 'varlists'
+    varlist_dir.mkdir()
+    atmos_list = varlist_dir / 'CMIP6_Amon_atmos.list'
+    atmos_list.write_text(json.dumps({'ta': 'ta'}), encoding='utf-8')
+
+    pp_dir = temp_root / 'pp'
+    yamlfile = _write_yaml(temp_dir, [
+        _table_target('Amon', [_component_entry('atmos', atmos_list)])
+    ], table_dir=tables_dir, pp_dir=pp_dir)
+
+    report = cmor_check_subtool(yamlfile=yamlfile, check_dims=True)
+    assert report['Amon']['files']['ta']['dims']['status'] == 'unknown'
+
+
+def test_cmor_check_subtool_no_files_key_by_default(temp_dir): # pylint: disable=redefined-outer-name
+    ''' neither check_staging nor check_dims given: no 'files' key at all (backward compatible) '''
+    temp_root = Path(temp_dir)
+    tables_dir = temp_root / 'tables'
+    tables_dir.mkdir()
+    _write_amon_table(tables_dir, ['tas'])
+
+    varlist_dir = temp_root / 'varlists'
+    varlist_dir.mkdir()
+    atmos_list = varlist_dir / 'CMIP6_Amon_atmos.list'
+    atmos_list.write_text(json.dumps({'tas': 'tas'}), encoding='utf-8')
+
+    yamlfile = _write_yaml(temp_dir, [
+        _table_target('Amon', [_component_entry('atmos', atmos_list)])
+    ], table_dir=tables_dir)
+
+    report = cmor_check_subtool(yamlfile=yamlfile)
+    assert 'files' not in report['Amon']
