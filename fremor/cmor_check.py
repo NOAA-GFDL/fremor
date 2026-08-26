@@ -284,16 +284,23 @@ def _mip_table_vertical_token(mip_dims: str) -> Optional[str]:
     return None
 
 
+def _matching_variable_keys(variable_entry: dict, var: str, mip_era: str) -> list:
+    """``variable_entry`` keys that correspond to bare variable name `var`. For
+    CMIP6/CMIP6Plus this is just ``[var]`` (if present); for CMIP7 a bare variable name can
+    have multiple brands, each keyed as ``{var}_{brand}``, so every matching brand key is
+    returned."""
+    if mip_era.lower() == 'cmip7':
+        return [key for key in variable_entry if key.split('_')[0] == var]
+    return [var] if var in variable_entry else []
+
+
 def _mip_variable_vertical_tokens(table_data: dict, var: str, mip_era: str) -> list:
     """All distinct vertical-dimension tokens declared for `var` in this MIP table. For
     CMIP6/CMIP6Plus there's exactly one entry; for CMIP7 a bare variable name can have
     multiple brands, each potentially expecting a different vertical coordinate -- so every
     brand's token is a valid match (mirrors how filter_brands disambiguates at run time)."""
     variable_entry = table_data.get('variable_entry', {})
-    if mip_era.lower() == 'cmip7':
-        keys = [key for key in variable_entry if key.split('_')[0] == var]
-    else:
-        keys = [var] if var in variable_entry else []
+    keys = _matching_variable_keys(variable_entry, var, mip_era)
 
     tokens = []
     for key in keys:

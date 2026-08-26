@@ -20,6 +20,7 @@ from fremor.cmor_map import (
     _discover_nc_files,
     _discover_pp_components,
     _find_ncinfo_bin,
+    _format_variable_detail,
     _inspect_nc_variable,
     _local_var_name_from_nc_path,
     _ncinfo_preview,
@@ -1022,3 +1023,144 @@ async def test_map_app_quit_requires_confirmation_with_pending_changes(temp_dir)
     assert not app.is_running
     # quitting without saving discards the staged change -- nothing was written to disk
     assert not (Path(varlist_dir) / 'CMIP6_Amon_atmos.list').exists()
+
+
+# ── cmip-tree detail box: MIP table variable_entry definitions ─────────────
+
+def test_format_variable_detail_single_entry():
+    ''' a plain CMIP6-style single entry is rendered attr: value, one per line, in the
+    fixed display order, skipping absent/empty attrs and any attr not in that allowlist '''
+    text = _format_variable_detail('tas', {'tas': {
+        'long_name': 'Near-Surface Air Temperature',
+        'units': 'K',
+        'standard_name': 'air_temperature',
+        'comment': '',
+        'some_other_field': 'ignored',
+    }})
+    assert text == (
+        'long_name: Near-Surface Air Temperature\n'
+        'standard_name: air_temperature\n'
+        'units: K'
+    )
+
+
+def test_format_variable_detail_no_definitions():
+    ''' an empty definitions dict (var not found in the table) shows a clear message
+    instead of a blank box '''
+    assert _format_variable_detail('nope', {}) == 'no MIP table definition found for "nope"'
+
+
+def test_format_variable_detail_multiple_brands():
+    ''' a CMIP7 variable with more than one matching variable_entry key (brand) gets each
+    brand rendered as its own labeled section '''
+    text = _format_variable_detail('pr', {
+        'pr_tavg-h2m-hxy-u': {'long_name': 'Precipitation', 'units': 'kg m-2 s-1'},
+        'pr_tpt': {'long_name': 'Precipitation (instantaneous)', 'units': 'kg m-2 s-1'},
+    })
+    assert text == (
+        '[pr_tavg-h2m-hxy-u]\n'
+        'long_name: Precipitation\n'
+        'units: kg m-2 s-1\n'
+        '\n'
+        '[pr_tpt]\n'
+        'long_name: Precipitation (instantaneous)\n'
+        'units: kg m-2 s-1'
+    )
+
+
+def test_mapsession_variable_definitions_cmip6(temp_dir): # pylint: disable=redefined-outer-name
+    ''' variable_definitions reads straight from the MIP table JSON, independent of mapping
+    status -- works for an unmapped variable too '''
+    pp_dir, varlist_dir, tables_dir = _make_session_fixture(temp_dir)
+    (Path(tables_dir) / 'CMIP6_Amon.json').write_text(
+        json.dumps({'variable_entry': {
+            'tas': {'long_name': 'Near-Surface Air Temperature', 'units': 'K'},
+            'pr': {'long_name': 'Precipitation', 'units': 'kg m-2 s-1'},
+        }}),
+        encoding='utf-8'
+    )
+    yamlfile = _amon_yaml(temp_dir, pp_dir, varlist_dir, tables_dir)
+    session = MapSession(yamlfile)
+
+    assert session.variable_definitions('Amon', 'tas') == {
+        'tas': {'long_name': 'Near-Surface Air Temperature', 'units': 'K'}
+    }
+    assert session.variable_definitions('Amon', 'not_a_real_var') == {}
+
+
+def test_mapsession_variable_definitions_cmip7_multi_brand(temp_dir): # pylint: disable=redefined-outer-name
+    ''' for a CMIP7 table, every branded variable_entry key matching the bare var name comes
+    back, not just the first '''
+    pp_dir, varlist_dir, tables_dir = _make_session_fixture(temp_dir)
+    (Path(tables_dir) / 'CMIP7_Amon.json').write_text(
+        json.dumps({'variable_entry': {
+            'pr_tavg-h2m-hxy-u': {'long_name': 'Precipitation'},
+            'pr_tpt': {'long_name': 'Precipitation (instantaneous)'},
+            'tas_tavg-h2m-hxy-u': {'long_name': 'Near-Surface Air Temperature'},
+        }}),
+        encoding='utf-8'
+    )
+    yamlfile = _amon_yaml(temp_dir, pp_dir, varlist_dir, tables_dir, component_names=['atmos'])
+    doc = yaml.safe_load(Path(yamlfile).read_text(encoding='utf-8'))
+    doc['cmor']['mip_era'] = 'cmip7'
+    Path(yamlfile).write_text(yaml.safe_dump(doc), encoding='utf-8')
+
+    session = MapSession(yamlfile)
+    definitions = session.variable_definitions('Amon', 'pr')
+    assert set(definitions) == {'pr_tavg-h2m-hxy-u', 'pr_tpt'}
+    assert definitions['pr_tpt'] == {'long_name': 'Precipitation (instantaneous)'}
+
+
+@pytest.mark.asyncio
+async def test_map_app_cmip_tree_selection_shows_detail_box(temp_dir): # pylint: disable=redefined-outer-name
+    ''' selecting a CMIP variable node populates the detail box with its MIP table
+    definition, independent of whether it's mapped '''
+    pp_dir, varlist_dir, tables_dir = _make_session_fixture(temp_dir)
+    (Path(tables_dir) / 'CMIP6_Amon.json').write_text(
+        json.dumps({'variable_entry': {
+            'tas': {'long_name': 'Near-Surface Air Temperature', 'units': 'K'},
+            'pr': {'long_name': 'Precipitation', 'units': 'kg m-2 s-1'},
+            'ps': {'long_name': 'Surface Air Pressure', 'units': 'Pa'},
+        }}),
+        encoding='utf-8'
+    )
+    yamlfile = _amon_yaml(temp_dir, pp_dir, varlist_dir, tables_dir)
+    app = MapApp(MapSession(yamlfile))
+
+    async with app.run_test():
+        cmip_tree = app.query_one('#cmip_tree')
+        table_node = cmip_tree.root.children[0]
+        unmapped_node = table_node.children[0]
+        pr_node = next(n for n in unmapped_node.children if n.data['var'] == 'pr')
+
+        app.on_tree_node_selected(_FakeTreeEvent(pr_node, 'cmip_tree'))
+        detail_box = app.query_one('#cmip_detail')
+        assert 'Precipitation' in detail_box.content
+        assert 'kg m-2 s-1' in detail_box.content
+
+
+@pytest.mark.asyncio
+async def test_map_app_clear_mapping_resets_detail_box(temp_dir): # pylint: disable=redefined-outer-name
+    ''' clearing a mapping drops the cmip-tree selection, so the detail box goes back to its
+    placeholder text rather than showing a stale definition '''
+    pp_dir, varlist_dir, tables_dir = _make_session_fixture(temp_dir)
+    (Path(varlist_dir) / 'CMIP6_Amon_atmos.list').write_text(
+        json.dumps({'t_ref': 'tas'}), encoding='utf-8'
+    )
+    yamlfile = _amon_yaml(temp_dir, pp_dir, varlist_dir, tables_dir, component_names=['atmos'])
+    app = MapApp(MapSession(yamlfile))
+
+    async with app.run_test() as pilot:
+        cmip_tree = app.query_one('#cmip_tree')
+        table_node = cmip_tree.root.children[0]
+        mapped_node = table_node.children[1]
+        source_node = mapped_node.children[0]
+
+        app.on_tree_node_selected(_FakeTreeEvent(source_node, 'cmip_tree'))
+        detail_box = app.query_one('#cmip_detail')
+        assert detail_box.content != app.NO_CMIP_DETAIL
+
+        await pilot.press('d')
+        await pilot.pause()
+
+        assert detail_box.content == app.NO_CMIP_DETAIL

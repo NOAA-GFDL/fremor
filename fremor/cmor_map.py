@@ -13,7 +13,10 @@ variable list path -- no separate pp_dir/varlist_dir/mip_tables_dir/mip_era flag
 needed. It reuses the coverage analysis from ``fremor check`` (``cmor_check.py``) to show
 each selected MIP table as a tree of variables grouped by mapping status (unmapped / mapped
 / multiply-mapped / unknown), lets the user select a variable, browse time-series NetCDF
-files under pp_dir to find the right one, and stage a mapping edit.
+files under pp_dir to find the right one, and stage a mapping edit. Selecting a variable also
+fills a detail box under the tree with that variable's own MIP table definition (long_name,
+units, cell_methods, etc.), straight from the table JSON and independent of its mapping
+status.
 
 Mapping/clearing a variable only stages the change in memory -- nothing is written to disk
 until the user explicitly saves, so the tree doesn't collapse/re-categorize after every
@@ -55,8 +58,8 @@ from textual.app import App, ComposeResult
 from textual.containers import Horizontal, Vertical
 from textual.widgets import Footer, Static, Tree
 
-from .cmor_check import _build_table_report, _mip_table_paths, _select_table_names, \
-    _varlists_by_table_from_yaml
+from .cmor_check import _build_table_report, _matching_variable_keys, _mip_table_paths, \
+    _select_table_names, _varlists_by_table_from_yaml
 from .cmor_config import _load_config_yaml
 from .cmor_helpers import get_json_file_data
 
@@ -187,6 +190,37 @@ def _format_preview_text(local_var_name: str, source: str, data: dict) -> str:
 
 
 # ---------------------------------------------------------------------------
+# MIP table variable_entry lookup, for the cmip-tree detail box
+# ---------------------------------------------------------------------------
+
+# variable_entry attributes shown in the detail box, in display order. Not every table
+# variable has every attribute -- absent ones are simply skipped.
+_VARIABLE_DETAIL_ATTRS = (
+    'long_name', 'standard_name', 'units', 'cell_methods', 'cell_measures', 'dimensions',
+    'out_name', 'type', 'positive', 'frequency', 'modeling_realm', 'comment',
+)
+
+
+def _format_variable_detail(var: str, definitions: dict) -> str:
+    """Render a MapSession.variable_definitions() result for the cmip-tree detail box. For a
+    CMIP7 variable with more than one brand, each brand's variable_entry key is shown as its
+    own labeled section since their attributes (e.g. cell_methods) can differ."""
+    if not definitions:
+        return f'no MIP table definition found for "{var}"'
+
+    multi = len(definitions) > 1
+    sections = []
+    for key, entry in definitions.items():
+        lines = [f'[{key}]'] if multi else []
+        for attr in _VARIABLE_DETAIL_ATTRS:
+            value = entry.get(attr)
+            if value not in (None, ''):
+                lines.append(f'{attr}: {value}')
+        sections.append('\n'.join(lines))
+    return '\n\n'.join(sections)
+
+
+# ---------------------------------------------------------------------------
 # mapping-source lookup (unknown-mapped values need their sources too, unlike
 # cmor_check's report which only keeps a flat list of the bad values)
 # ---------------------------------------------------------------------------
@@ -285,6 +319,16 @@ class MapSession:
             val: mapped_sources.get(val, []) for val in report['unknown_mapped']
         }
         return report
+
+    def variable_definitions(self, table_name: str, var: str) -> dict:
+        """This MIP table's own variable_entry key -> attributes dict for every entry
+        matching bare variable name `var` (more than one for a CMIP7 branded variable) --
+        e.g. long_name, units, cell_methods -- independent of mapping status. Used for the
+        cmip-tree detail box."""
+        table_data = get_json_file_data(self.table_paths[table_name])
+        variable_entry = table_data.get('variable_entry', {})
+        keys = _matching_variable_keys(variable_entry, var, self.mip_era)
+        return {key: variable_entry[key] for key in keys}
 
     def set_mapping(self, table_name: str, component_name: str, local_key: str,
                     cmip_var: str) -> None:
@@ -438,9 +482,17 @@ class MapApp(App):
     instead rebuild the tree, since they can affect many nodes at once."""
 
     CSS = """
-    #cmip_tree {
+    #cmip_pane {
         width: 1fr;
+    }
+    #cmip_tree {
+        height: 2fr;
         border: solid $accent;
+    }
+    #cmip_detail {
+        height: 1fr;
+        border: solid $accent;
+        padding: 1 2;
     }
     #pp_pane {
         width: 1fr;
@@ -478,6 +530,8 @@ class MapApp(App):
 
     NO_CMIP_SELECTION = 'no CMIP variable selected'
 
+    NO_CMIP_DETAIL = 'select a CMIP variable to see its MIP table definition'
+
     def __init__(self, session: MapSession):
         super().__init__()
         self.session = session
@@ -495,7 +549,9 @@ class MapApp(App):
 
     def compose(self) -> ComposeResult:
         with Horizontal():
-            yield Tree('MIP Tables', id='cmip_tree')
+            with Vertical(id='cmip_pane'):
+                yield Tree('MIP Tables', id='cmip_tree')
+                yield Static(self.NO_CMIP_DETAIL, id='cmip_detail')
             with Vertical(id='pp_pane'):
                 yield Static(self.NO_CMIP_SELECTION, id='selected_cmip')
                 yield Tree(self.session.pp_dir, id='pp_tree')
@@ -510,6 +566,13 @@ class MapApp(App):
         if data.get('kind') == 'source':
             label += f'\ncurrent source: {data["component"]}:{data["local_key"]}'
         return label
+
+    def _update_cmip_detail(self, data: dict) -> None:
+        """Refresh the detail box under the cmip tree with the selected variable's own MIP
+        table definition (long_name, units, etc.) -- independent of its mapping status."""
+        definitions = self.session.variable_definitions(data['table'], data['var'])
+        self.query_one('#cmip_detail', Static).update(
+            _format_variable_detail(data['var'], definitions))
 
     def on_mount(self) -> None:
         self._populate_cmip_tree()
@@ -646,6 +709,7 @@ class MapApp(App):
             self.selected_cmip = data
             self.selected_cmip_node = event.node
             self.query_one('#selected_cmip', Static).update(self._format_selected_cmip(data))
+            self._update_cmip_detail(data)
 
         elif event.control.id == 'pp_tree':
             if kind != 'file':
@@ -733,6 +797,7 @@ class MapApp(App):
         self.selected_cmip = None
         self.selected_cmip_node = None
         self.query_one('#selected_cmip', Static).update(self._format_selected_cmip(None))
+        self.query_one('#cmip_detail', Static).update(self.NO_CMIP_DETAIL)
         self._quit_confirmed = False
 
     def action_undo(self) -> None:
