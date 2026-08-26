@@ -333,6 +333,7 @@ def config(pp_dir, mip_tables_dir, mip_era, exp_config, output_yaml,
 
 
 @fremor.command()
+@click.argument('tables', nargs=-1)
 @click.option('-l', '--varlist_dir', type=str, required=True,
               help='Directory containing per-component variable list JSON files, '
                    'as written by \'fremor config\' / \'fremor varlist\'.')
@@ -342,11 +343,13 @@ def config(pp_dir, mip_tables_dir, mip_era, exp_config, output_yaml,
 @click.option('-m', '--mip_era', type=click.Choice(['cmip6', 'cmip7'], case_sensitive=False),
               required=True,
               help='MIP era to check: cmip6 or cmip7.')
+@click.option('--show_mapped', is_flag=True, default=False,
+              help='Also report variables mapped from exactly one component/diagnostic (one-to-one).')
 @click.option('--json', 'json_output', is_flag=True, default=False,
               help='Print the report as JSON instead of a text summary.')
 @click.option('-o', '--output_report', type=str, default=None,
               help='Optional path to also write the JSON report to.')
-def check(varlist_dir, mip_tables_dir, mip_era, json_output, output_report):
+def check(tables, varlist_dir, mip_tables_dir, mip_era, show_mapped, json_output, output_report):
     """
     Check variable-mapping coverage of varlist files against MIP tables.
 
@@ -354,11 +357,17 @@ def check(varlist_dir, mip_tables_dir, mip_era, json_output, output_report):
     by the table but not mapped from any component in varlist_dir, variables
     mapped from more than one component/diagnostic, and mapped values that
     don't correspond to any variable actually defined in that table.
+
+    TABLES is an optional list of MIP table names to check, e.g. 'Amon' or
+    'Lmon'. Shell-style wildcards are supported, e.g. 'AER*'. If omitted,
+    every MIP table found in mip_tables_dir is checked.
     """
     cmor_check_subtool(
         varlist_dir=varlist_dir,
         mip_tables_dir=mip_tables_dir,
         mip_era=mip_era,
+        table_patterns=tables,
+        show_mapped=show_mapped,
         json_output=json_output,
         output_report=output_report
     )

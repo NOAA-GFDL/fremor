@@ -18,12 +18,16 @@ def temp_dir():
         yield tmpdir
 
 
-def _write_amon_table(tables_dir, var_names):
+def _write_table(tables_dir, table_name, var_names):
     variable_entry = {name: {'standard_name': name} for name in var_names}
-    (Path(tables_dir) / 'CMIP6_Amon.json').write_text(
-        json.dumps({'Header': {'table_id': 'Table Amon'}, 'variable_entry': variable_entry}),
+    (Path(tables_dir) / f'CMIP6_{table_name}.json').write_text(
+        json.dumps({'Header': {'table_id': f'Table {table_name}'}, 'variable_entry': variable_entry}),
         encoding='utf-8'
     )
+
+
+def _write_amon_table(tables_dir, var_names):
+    _write_table(tables_dir, 'Amon', var_names)
 
 
 def test_cmor_check_subtool_novarlistdir_err(temp_dir): # pylint: disable=redefined-outer-name
@@ -104,3 +108,78 @@ def test_cmor_check_subtool_reports_fully_unmapped_table(temp_dir): # pylint: di
     assert report['Amon']['unmapped'] == ['pr', 'tas']
     assert report['Amon']['multiply_mapped'] == {}
     assert report['Amon']['unknown_mapped'] == []
+
+
+def test_cmor_check_subtool_show_mapped(temp_dir): # pylint: disable=redefined-outer-name
+    ''' show_mapped=True reports variables mapped from exactly one component/diagnostic '''
+    tables_dir = Path(temp_dir) / 'tables'
+    tables_dir.mkdir()
+    _write_amon_table(tables_dir, ['tas', 'pr', 'ps'])
+
+    varlist_dir = Path(temp_dir) / 'varlists'
+    varlist_dir.mkdir()
+    (varlist_dir / 'CMIP6_Amon_atmos.list').write_text(
+        json.dumps({'t_ref': 'tas', 'sfc_pres': 'ps'}),
+        encoding='utf-8'
+    )
+    (varlist_dir / 'CMIP6_Amon_atmos_scalar.list').write_text(
+        json.dumps({'sfc_pres_scalar': 'ps'}),
+        encoding='utf-8'
+    )
+
+    report_default = cmor_check_subtool(varlist_dir=str(varlist_dir),
+                                        mip_tables_dir=str(tables_dir),
+                                        mip_era='cmip6')
+    assert 'one_to_one_mapped' not in report_default['Amon']
+
+    report = cmor_check_subtool(varlist_dir=str(varlist_dir),
+                                mip_tables_dir=str(tables_dir),
+                                mip_era='cmip6',
+                                show_mapped=True)
+    # 'ps' is multiply-mapped so it should not appear as one-to-one, only 'tas' should.
+    assert report['Amon']['one_to_one_mapped'] == {'tas': ('atmos', 't_ref')}
+
+
+def test_cmor_check_subtool_table_patterns_filters_tables(temp_dir): # pylint: disable=redefined-outer-name
+    ''' positional table_patterns restrict which MIP tables are checked, wildcards included '''
+    tables_dir = Path(temp_dir) / 'tables'
+    tables_dir.mkdir()
+    _write_table(tables_dir, 'Amon', ['tas'])
+    _write_table(tables_dir, 'Lmon', ['mrso'])
+    _write_table(tables_dir, 'AERmon', ['o3'])
+
+    varlist_dir = Path(temp_dir) / 'varlists'
+    varlist_dir.mkdir()
+
+    report = cmor_check_subtool(varlist_dir=str(varlist_dir),
+                                mip_tables_dir=str(tables_dir),
+                                mip_era='cmip6',
+                                table_patterns=['Lmon'])
+    assert set(report) == {'Lmon'}
+
+    report_wild = cmor_check_subtool(varlist_dir=str(varlist_dir),
+                                     mip_tables_dir=str(tables_dir),
+                                     mip_era='cmip6',
+                                     table_patterns=['AER*'])
+    assert set(report_wild) == {'AERmon'}
+
+    report_all = cmor_check_subtool(varlist_dir=str(varlist_dir),
+                                    mip_tables_dir=str(tables_dir),
+                                    mip_era='cmip6')
+    assert set(report_all) == {'Amon', 'Lmon', 'AERmon'}
+
+
+def test_cmor_check_subtool_table_patterns_no_match_err(temp_dir): # pylint: disable=redefined-outer-name
+    ''' table_patterns matching nothing raises ValueError '''
+    tables_dir = Path(temp_dir) / 'tables'
+    tables_dir.mkdir()
+    _write_amon_table(tables_dir, ['tas'])
+
+    varlist_dir = Path(temp_dir) / 'varlists'
+    varlist_dir.mkdir()
+
+    with pytest.raises(ValueError, match='no MIP tables .* matched table_patterns'):
+        cmor_check_subtool(varlist_dir=str(varlist_dir),
+                           mip_tables_dir=str(tables_dir),
+                           mip_era='cmip6',
+                           table_patterns=['Omon'])

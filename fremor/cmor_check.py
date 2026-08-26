@@ -20,17 +20,23 @@ MIP table JSON, not from whatever happens to already be mapped somewhere in
 the varlist directory -- so this also catches variables GFDL has never
 mapped at all.
 
+By default every MIP table found in mip_tables_dir is checked; pass one or
+more glob-style table-name patterns (e.g. ``Amon``, ``AER*``) to restrict
+the check to a subset. Pass show_mapped=True to also report variables that
+are cleanly mapped from exactly one component/diagnostic (one-to-one).
+
 Functions
 ---------
 - ``cmor_check_subtool(...)``
 """
 
+import fnmatch
 import json
 import logging
 import re
 from collections import defaultdict
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Sequence
 
 import click
 
@@ -88,7 +94,24 @@ def _load_varlists_by_table(varlist_dir: str, era_upper: str) -> dict:
     return grouped
 
 
-def _build_table_report(table_path: str, mip_era: str, varlists_by_table: dict) -> dict:
+def _select_mip_tables(mip_tables: list, table_patterns: Sequence[str]) -> list:
+    """
+    Filter a list of MIP table JSON paths down to those whose table name
+    (e.g. 'Amon' from 'CMIP6_Amon.json') matches at least one of the given
+    glob-style patterns. If no patterns are given, all tables are kept.
+    """
+    if not table_patterns:
+        return mip_tables
+    selected = []
+    for table_path in mip_tables:
+        table_name = Path(table_path).stem.split('.')[0].split('_')[1]
+        if any(fnmatch.fnmatchcase(table_name, pattern) for pattern in table_patterns):
+            selected.append(table_path)
+    return selected
+
+
+def _build_table_report(table_path: str, mip_era: str, varlists_by_table: dict,
+                        show_mapped: bool = False) -> dict:
     """Build the unmapped / multiply-mapped / unknown-mapped report for one MIP table."""
     table_name = Path(table_path).stem.split('.')[0].split('_')[1]
     reference_vars = _reference_vars_for_table(table_path, mip_era)
@@ -105,7 +128,7 @@ def _build_table_report(table_path: str, mip_era: str, varlists_by_table: dict) 
     }
     unknown_mapped = sorted(set(mapped) - reference_vars)
 
-    return {
+    report_entry = {
         'table_name': table_name,
         'reference_var_count': len(reference_vars),
         'unmapped': unmapped,
@@ -113,8 +136,16 @@ def _build_table_report(table_path: str, mip_era: str, varlists_by_table: dict) 
         'unknown_mapped': unknown_mapped,
     }
 
+    if show_mapped:
+        report_entry['one_to_one_mapped'] = {
+            var: entries[0] for var, entries in mapped.items()
+            if len(entries) == 1 and var in reference_vars
+        }
 
-def _print_report(report: dict) -> None:
+    return report_entry
+
+
+def _print_report(report: dict, show_mapped: bool = False) -> None:
     for table_name in sorted(report):
         entry = report[table_name]
         click.echo(f'\n[{table_name}]  ({entry["reference_var_count"]} variables required by table)')
@@ -142,11 +173,24 @@ def _print_report(report: dict) -> None:
             for var in entry['unknown_mapped']:
                 click.echo(f'    - {var}')
 
+        if show_mapped:
+            one_to_one = entry.get('one_to_one_mapped', {})
+            if one_to_one:
+                click.echo(f'  MAPPED ({len(one_to_one)}): variables mapped from exactly one '
+                           'component/diagnostic')
+                for var in sorted(one_to_one):
+                    comp, key = one_to_one[var]
+                    click.echo(f'    - {var}: {comp}:{key}')
+            else:
+                click.echo('  MAPPED: none')
+
 
 def cmor_check_subtool(
         varlist_dir: str,
         mip_tables_dir: str,
         mip_era: str,
+        table_patterns: Sequence[str] = (),
+        show_mapped: bool = False,
         json_output: bool = False,
         output_report: Optional[str] = None
 ) -> dict:
@@ -161,14 +205,20 @@ def cmor_check_subtool(
     :type mip_tables_dir: str
     :param mip_era: MIP era identifier, e.g. 'cmip6' or 'cmip7'.
     :type mip_era: str
+    :param table_patterns: optional glob-style patterns (e.g. 'Amon', 'AER*') selecting which MIP
+        tables to check by name. If empty, every MIP table found in mip_tables_dir is checked.
+    :type table_patterns: Sequence[str]
+    :param show_mapped: if True, also report variables mapped from exactly one component/diagnostic.
+    :type show_mapped: bool
     :param json_output: if True, print the report as JSON instead of a text summary.
     :type json_output: bool
     :param output_report: optional path to also write the JSON report to.
     :type output_report: str or None
     :raises FileNotFoundError: if varlist_dir or mip_tables_dir do not exist.
-    :raises ValueError: if no MIP tables are found for the given era after filtering.
+    :raises ValueError: if no MIP tables are found for the given era after filtering, or if none
+        of the given table_patterns match any MIP table found.
     :return: table_name -> report dict, with keys 'reference_var_count', 'unmapped',
-             'multiply_mapped', 'unknown_mapped'.
+             'multiply_mapped', 'unknown_mapped', and (if show_mapped) 'one_to_one_mapped'.
     :rtype: dict
     """
     if not Path(varlist_dir).is_dir():
@@ -181,18 +231,24 @@ def cmor_check_subtool(
         raise ValueError(
             f'no MIP tables found in {mip_tables_dir} for era {mip_era} after filtering')
 
+    mip_tables = _select_mip_tables(mip_tables, table_patterns)
+    if not mip_tables:
+        raise ValueError(
+            f'no MIP tables in {mip_tables_dir} matched table_patterns {list(table_patterns)}')
+
     era_upper = mip_era.upper()
     varlists_by_table = _load_varlists_by_table(varlist_dir, era_upper)
 
     report = {}
     for table_path in sorted(mip_tables):
-        table_entry = _build_table_report(table_path, mip_era, varlists_by_table)
+        table_entry = _build_table_report(table_path, mip_era, varlists_by_table,
+                                          show_mapped=show_mapped)
         report[table_entry.pop('table_name')] = table_entry
 
     if json_output:
         click.echo(json.dumps(report, indent=2))
     else:
-        _print_report(report)
+        _print_report(report, show_mapped=show_mapped)
 
     if output_report is not None:
         with open(output_report, 'w', encoding='utf-8') as handle:
