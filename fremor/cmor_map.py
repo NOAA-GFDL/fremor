@@ -24,7 +24,11 @@ pointing at its new source, and a cleared mapping is struck through and labeled
 
 File previews in the pp-directory browser prefer the user's ``ncinfo`` tool (an external,
 non-Python CLI) when available on PATH or via ``--ncinfo_bin``, falling back to a plain
-``netCDF4``-based attribute dump otherwise.
+``netCDF4``-based attribute dump otherwise. Since either can be slow (a subprocess call, or
+reading a file over a network filesystem), previews run in a background thread -- selecting
+a file shows a loading message immediately and the UI stays responsive while it loads.
+Selecting another file before a preview finishes discards that in-flight result once it
+eventually arrives, so only the most recently selected file's preview is ever shown.
 
 Functions
 ---------
@@ -42,6 +46,7 @@ from pathlib import Path
 from typing import Optional, Sequence
 
 from netCDF4 import Dataset
+from textual import work
 from textual.app import App, ComposeResult
 from textual.containers import Horizontal, Vertical
 from textual.widgets import Footer, Static, Tree
@@ -380,6 +385,12 @@ class MapApp(App):
         self.selected_pp: Optional[dict] = None
         self.table_nodes = {}
         self._quit_confirmed = False
+        # bumped on every pp-file selection; a background preview worker's result is only
+        # applied if it still matches the generation current when it finishes -- since a
+        # thread already running ncinfo/netCDF4 I/O can't actually be killed, this is what
+        # makes a superseded (still in-flight) preview effectively "cancelled" from the
+        # user's point of view: its result is simply discarded once it arrives.
+        self._preview_generation = 0
 
     def compose(self) -> ComposeResult:
         with Horizontal():
@@ -531,10 +542,29 @@ class MapApp(App):
             if kind != 'file':
                 return
             self.selected_pp = data
-            source, preview_data = _preview_nc_file(
-                data['path'], data['local_key'], self.session.ncinfo_bin)
+            self._preview_generation += 1
             self.query_one('#preview', Static).update(
-                _format_preview_text(data['local_key'], source, preview_data))
+                f'loading preview for "{data["local_key"]}"...')
+            self._load_preview(data['path'], data['local_key'], self._preview_generation)
+
+    # ---- pp file preview (backgrounded so the TUI stays responsive) ----
+
+    @work(exclusive=True, thread=True, group='pp_preview')
+    def _load_preview(self, path: str, local_key: str, generation: int) -> None:
+        """Runs ncinfo/netCDF4 (both potentially slow, e.g. over a network filesystem) in a
+        background thread. exclusive=True cancels the *previous* worker in this group as soon
+        as a new selection starts one, but a Python thread already blocked in subprocess/file
+        I/O can't actually be interrupted -- so `generation` is what actually prevents a
+        stale, still-in-flight preview from clobbering a newer selection's result once it
+        eventually finishes."""
+        source, preview_data = _preview_nc_file(path, local_key, self.session.ncinfo_bin)
+        text = _format_preview_text(local_key, source, preview_data)
+        self.call_from_thread(self._apply_preview_result, generation, text)
+
+    def _apply_preview_result(self, generation: int, text: str) -> None:
+        if generation != self._preview_generation:
+            return  # superseded by a newer pp-file selection -- discard this stale result
+        self.query_one('#preview', Static).update(text)
 
     # ---- actions ----
 

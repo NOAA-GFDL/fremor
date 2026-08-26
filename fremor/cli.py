@@ -386,7 +386,9 @@ def map_(tables, yamlfile, ncinfo_bin):
     status (unmapped / mapped / multiply-mapped / unknown, as reported by 'fremor check'),
     and lets you browse time-series files under pp_dir to assign or fix a mapping. When
     selecting a file, a preview panel shows its variable's dimensions/attributes via ncinfo
-    (if available) or netCDF4 as a fallback.
+    (if available) or netCDF4 as a fallback; the preview loads in the background (showing a
+    loading message meanwhile) so the UI stays responsive, and switching to another file
+    before it finishes discards the outdated result.
 
     Pressing 'm'/'d' only stages a mapping/clear in memory, marking the affected node in
     place (a newly (re)mapped variable shows '<- component:local_key', a cleared mapping is

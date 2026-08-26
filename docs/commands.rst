@@ -157,7 +157,7 @@ workflows are supported. Available subcommands:
 * Press ``m`` to stage mapping the selected pp file to the selected CMIP variable, ``d`` to stage clearing a selected existing mapping, ``s`` to save all staged changes to disk, ``r`` to refresh the tree (re-categorizing it from current, possibly-unsaved, state), ``q`` to quit
 * Staged-but-unsaved edits are marked in place instead of triggering a full tree rebuild, so expanded branches stay expanded while you batch edits across many variables: a newly (re)mapped variable shows ``<- component:local_key`` pointing at its new source, and a cleared mapping is struck through and labeled ``(deleted)``; nothing is written to disk until you press ``s``
 * If there are unsaved staged changes, ``q`` warns first instead of quitting immediately; press ``q`` again to quit anyway and discard them, or ``s`` to save first
-* File previews use the ``ncinfo`` tool if it's found on PATH (or via ``--ncinfo_bin``), falling back to a plain netCDF4-based preview otherwise
+* File previews use the ``ncinfo`` tool if it's found on PATH (or via ``--ncinfo_bin``), falling back to a plain netCDF4-based preview otherwise; previews load in a background thread (showing a loading message while they do) so the UI stays responsive, and switching to another file before a preview finishes discards the outdated result once it arrives
 * pp_dir, the MIP tables directory, the MIP era, and each component's variable list path are all derived from ``yamlfile``, the self-contained CMOR YAML written by ``fremor config`` — mapping edits are saved straight back into the variable list files referenced there
 * Minimal Syntax: ``fremor map -y [yamlfile] [TABLES...]``
 * Required Options:

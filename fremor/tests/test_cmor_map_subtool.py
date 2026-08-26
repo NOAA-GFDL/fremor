@@ -10,6 +10,7 @@ from pathlib import Path
 import pytest
 import yaml
 from netCDF4 import Dataset
+from textual.worker import WorkerCancelled
 
 from fremor.cmor_map import (
     MapApp,
@@ -570,6 +571,106 @@ async def test_map_app_assign_mapping(temp_dir): # pylint: disable=redefined-out
     assert out_path.exists()
     assert json.loads(out_path.read_text(encoding='utf-8')) == {'pr': 'pr'}
     assert not session.has_pending_changes
+
+
+@pytest.mark.asyncio
+async def test_pp_preview_runs_in_background_with_loading_message(temp_dir, monkeypatch): # pylint: disable=redefined-outer-name
+    ''' selecting a pp file immediately shows a loading message (before the background
+    worker has had a chance to run), then the real preview once it finishes -- proves the
+    preview doesn't run synchronously on the UI thread '''
+    monkeypatch.setattr('shutil.which', lambda _: None)  # force the netCDF4 fallback path
+    pp_dir, varlist_dir, tables_dir = _make_session_fixture(temp_dir)
+
+    comp_ts_dir = Path(pp_dir) / 'atmos' / 'ts' / 'monthly' / '5yr'
+    comp_ts_dir.mkdir(parents=True)
+    _write_nc_file(comp_ts_dir / 'atmos.000101-000512.pr.nc', 'pr', units='kg m-2 s-1')
+
+    yamlfile = _amon_yaml(temp_dir, pp_dir, varlist_dir, tables_dir, component_names=['atmos'])
+    app = MapApp(MapSession(yamlfile))
+
+    async with app.run_test() as pilot:
+        pp_tree = app.query_one('#pp_tree')
+        component_node = pp_tree.root.children[0]
+        app.on_tree_node_expanded(_FakeTreeEvent(component_node, 'pp_tree'))
+        freq_node = component_node.children[0]
+        app.on_tree_node_expanded(_FakeTreeEvent(freq_node, 'pp_tree'))
+        chunk_node = freq_node.children[0]
+        app.on_tree_node_expanded(_FakeTreeEvent(chunk_node, 'pp_tree'))
+        file_node = chunk_node.children[0]
+
+        app.on_tree_node_selected(_FakeTreeEvent(file_node, 'pp_tree'))
+        preview_box = app.query_one('#preview')
+        # loading message is shown synchronously, before the background worker completes
+        assert 'loading' in preview_box.content
+
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+
+        assert 'loading' not in preview_box.content
+        assert preview_box.content.startswith('[netcdf4] pr')
+        assert 'kg m-2 s-1' in preview_box.content
+
+
+@pytest.mark.asyncio
+async def test_pp_preview_shows_latest_selection_after_rapid_switch(temp_dir, monkeypatch): # pylint: disable=redefined-outer-name
+    ''' selecting a second pp file before the first one's preview has finished loading still
+    ends up showing the second file's preview, never the first's -- the in-flight preview
+    for the first selection is effectively cancelled from the user's point of view '''
+    monkeypatch.setattr('shutil.which', lambda _: None)
+    pp_dir, varlist_dir, tables_dir = _make_session_fixture(temp_dir)
+
+    comp_ts_dir = Path(pp_dir) / 'atmos' / 'ts' / 'monthly' / '5yr'
+    comp_ts_dir.mkdir(parents=True)
+    _write_nc_file(comp_ts_dir / 'atmos.000101-000512.tas.nc', 'tas', units='K')
+    _write_nc_file(comp_ts_dir / 'atmos.000101-000512.pr.nc', 'pr', units='kg m-2 s-1')
+
+    yamlfile = _amon_yaml(temp_dir, pp_dir, varlist_dir, tables_dir, component_names=['atmos'])
+    app = MapApp(MapSession(yamlfile))
+
+    async with app.run_test() as pilot:
+        pp_tree = app.query_one('#pp_tree')
+        component_node = pp_tree.root.children[0]
+        app.on_tree_node_expanded(_FakeTreeEvent(component_node, 'pp_tree'))
+        freq_node = component_node.children[0]
+        app.on_tree_node_expanded(_FakeTreeEvent(freq_node, 'pp_tree'))
+        chunk_node = freq_node.children[0]
+        app.on_tree_node_expanded(_FakeTreeEvent(chunk_node, 'pp_tree'))
+        tas_node = next(n for n in chunk_node.children if n.data['local_key'] == 'tas')
+        pr_node = next(n for n in chunk_node.children if n.data['local_key'] == 'pr')
+
+        app.on_tree_node_selected(_FakeTreeEvent(tas_node, 'pp_tree'))
+        app.on_tree_node_selected(_FakeTreeEvent(pr_node, 'pp_tree'))
+
+        try:
+            # the superseded 'tas' worker is cancelled outright (exclusive=True) before it
+            # ever gets to run -- wait_for_complete() re-raises that as WorkerCancelled, but
+            # we only care that everything has settled before checking the final UI state
+            await app.workers.wait_for_complete()
+        except WorkerCancelled:
+            pass
+        await pilot.pause()
+
+        preview_box = app.query_one('#preview')
+        assert preview_box.content.startswith('[netcdf4] pr')
+
+
+@pytest.mark.asyncio
+async def test_pp_preview_stale_result_is_discarded(temp_dir): # pylint: disable=redefined-outer-name
+    ''' a preview result carrying an older generation than the current selection is dropped
+    -- this is the mechanism behind "cancelling" an in-flight (unkillable) preview thread '''
+    pp_dir, varlist_dir, tables_dir = _make_session_fixture(temp_dir)
+    yamlfile = _amon_yaml(temp_dir, pp_dir, varlist_dir, tables_dir)
+    app = MapApp(MapSession(yamlfile))
+
+    async with app.run_test():
+        preview_box = app.query_one('#preview')
+        app._preview_generation = 2 # pylint: disable=protected-access
+
+        app._apply_preview_result(1, 'stale result from a superseded selection') # pylint: disable=protected-access
+        assert preview_box.content != 'stale result from a superseded selection'
+
+        app._apply_preview_result(2, 'current result') # pylint: disable=protected-access
+        assert preview_box.content == 'current result'
 
 
 @pytest.mark.asyncio
