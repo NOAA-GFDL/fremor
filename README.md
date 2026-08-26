@@ -126,17 +126,51 @@ from PyPI.
 
 
 ### as a command line interface (CLI)
-The CLI entry point is `fremor`, currently a suite of seven routines for facilitating data preparation for
-CMIP7. 
+The CLI entry point is `fremor`, a set of routines for preparing and CMORizing
+model output for CMIP workflows.
 ```bash
 # The full list of subcommands
 fremor init      # Initialize CMOR configuration resources: generate template user config, fetch tables
 fremor find      # Find and print variables in MIP tables according to your variable lists or other input
 fremor varlist   # Create a simple variable list of netCDF files in a directory
 fremor config    # Generate a basic CMOR YAML configuration from a pp directory tree
+fremor check     # Audit mapping coverage, and optionally input staging and vertical dimensions
+fremor map       # Interactively review and edit mappings before writing them to variable-list files
+fremor stage     # Recall all mapped YAML-run inputs in one dmget batch
 fremor resolve   # Resolve a FRE model YAML + cmor/grids YAMLs into one combined document for inspection
 fremor yaml      # Bulk routine for processing data based on a CMOR YAML config, calls fremor run many times
 fremor run       # Lowest-level routine, no CMOR YAML needed, rewrites output files in a directory with CMOR
+```
+
+### Review mappings and stage archive data
+
+After `fremor config` produces a self-contained CMOR YAML file, use `check` to
+review which MIP variables are unmapped, mapped more than once, or mapped to an
+unknown table entry. `--staging` also checks that the selected input files are
+present and disk-resident; `--dims` compares a representative input file's
+vertical dimension with the MIP table.
+
+```bash
+fremor check -y cmor.yaml --staging --dims
+fremor check -y cmor.yaml Amon --show_mapped
+```
+
+Use `map` when the report identifies mappings that need human review. It opens
+a terminal UI: select a MIP variable to see its table definition, select a
+post-processing file to preview it, then press `m` to stage a mapping or `d` to
+stage its removal. Press `s` to save all staged edits; nothing is written before
+then.
+
+```bash
+fremor map -y cmor.yaml Amon
+```
+
+If the selected inputs are archived offline, inspect the planned recall first,
+then submit the complete deduplicated selection in one `dmget` batch.
+
+```bash
+fremor stage -y cmor.yaml --dry_run
+fremor stage -y cmor.yaml
 ```
 
 The CLI offers full logging and verbosity control independent of the command chosen:
@@ -226,7 +260,6 @@ To view compliance results from a workflow/CI run:
 1. Navigate to the Actions tab in GitHub
 2. Select the `wcrp_compliance_check` workflow run
 3. Download the `wcrp-compliance-reports` artifact
-
 
 
 

@@ -174,15 +174,21 @@ workflows are supported. Available subcommands:
 * Optional:
    - ``TABLES`` — MIP table names to check, e.g. ``Amon``; shell-style wildcards supported (e.g. ``AER*``); defaults to every table in yamlfile's table_targets
    - ``--show_mapped`` — Also report variables mapped from exactly one component/diagnostic (one-to-one)
+   - ``--staging`` — For each one-to-one mapping, check whether its selected input files exist, appear disk-resident, and have gaps between date chunks; uses ``dmls`` when available and otherwise a stat-only heuristic
+   - ``--dims`` — For each one-to-one mapping, compare a representative input file's vertical dimension with the MIP-table definition and check for required hybrid-sigma ``ps`` companion files
+   - ``--dmls_bin TEXT`` — Path to the ``dmls`` executable used by ``--staging``; defaults to searching ``PATH``
    - ``--json`` — Print the report as JSON instead of a text summary
    - ``-o, --output_report TEXT`` — Optional path to also write the JSON report to
-* Example: ``fremor check -y cmor.yaml --show_mapped``
+* Examples:
+   - ``fremor check -y cmor.yaml --show_mapped``
+   - ``fremor check -y cmor.yaml Amon --staging --dims``
 
 ``map``
 -------
 
 * Opens an interactive terminal UI to review and edit variable-mapping varlist files
 * Shows each selected MIP table as a tree of variables alongside their mapping status (unmapped / mapped / multiply-mapped / unknown), and lets you browse time-series files under ``pp_dir`` to assign or fix a mapping
+* Selecting a MIP variable shows its own MIP-table definition (such as long name, units, dimensions, and cell methods); CMIP7 variables with multiple brands show each matching definition
 * A box above the pp browser always shows the currently-selected CMIP variable (and its current source, if reassigning an existing mapping)
 * Press ``m`` to stage mapping the selected pp file to the selected CMIP variable, ``d`` to stage clearing a selected existing mapping, ``s`` to save all staged changes to disk, ``r`` to refresh the tree (re-categorizing it from current, possibly-unsaved, state), ``q`` to quit
 * Staged-but-unsaved edits are marked in place instead of triggering a full tree rebuild, so expanded branches stay expanded while you batch edits across many variables: a newly (re)mapped variable shows ``<- component:local_key`` pointing at its new source, and a cleared mapping is struck through and labeled ``(deleted)``; nothing is written to disk until you press ``s``
