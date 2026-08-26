@@ -22,6 +22,10 @@ place to show what's staged: a newly (re)mapped variable shows ``<- component:lo
 pointing at its new source, and a cleared mapping is struck through and labeled
 ``(deleted)``. Only the explicit save writes the affected varlist JSON files to disk.
 
+Staged edits can also be walked back: 'u' undoes the single most recent staged edit, and
+'R' discards every staged edit at once, restoring the whole session back to its state as of
+the last save (or the initial load, if nothing has been saved yet).
+
 File previews in the pp-directory browser prefer the user's ``ncinfo`` tool (an external,
 non-Python CLI) when available on PATH or via ``--ncinfo_bin``, falling back to a plain
 ``netCDF4``-based attribute dump otherwise. Since either can be slow (a subprocess call, or
@@ -41,7 +45,7 @@ import logging
 import os
 import shutil
 import subprocess
-from collections import defaultdict
+from collections import defaultdict, namedtuple
 from pathlib import Path
 from typing import Optional, Sequence
 
@@ -215,11 +219,27 @@ def _infer_varlist_dir(table_targets: Sequence[dict]) -> Optional[str]:
 # session: data model + mutation, no UI code
 # ---------------------------------------------------------------------------
 
+_UNSET = object()  # sentinel: local_key had no entry at all in a varlist's data dict
+
+_Edit = namedtuple('_Edit', ['table_name', 'component_name', 'local_key', 'old_value'])
+
+
+def _snapshot_varlists(varlists_by_table: dict) -> dict:
+    """Copy a varlists_by_table structure deeply enough (each component's data dict is
+    copied) that later in-place edits to the original can't leak into the snapshot."""
+    return {
+        table_name: [(component, path, dict(data)) for component, path, data in entries]
+        for table_name, entries in varlists_by_table.items()
+    }
+
+
 class MapSession:
     """Loads MIP tables + varlists for a `fremor map` session, computes per-table mapping
     status reports, and stages mapping edits in memory until ``save_pending`` is called --
     edits are visible immediately (e.g. in ``table_report``) but not written to disk until
-    then, so the caller can batch many edits into one explicit save."""
+    then, so the caller can batch many edits into one explicit save. Each staged edit is
+    also pushed onto an undo history (``undo()``), and the whole batch can be discarded at
+    once back to the last save (``restore_pending()``)."""
 
     def __init__(self, yamlfile: str, table_patterns: Sequence[str] = (),
                  ncinfo_bin: Optional[str] = None):
@@ -244,6 +264,8 @@ class MapSession:
         self.varlists_by_table = _varlists_by_table_from_yaml(table_targets)
         self.varlist_dir = _infer_varlist_dir(table_targets)
         self.dirty_keys = set()  # {(table_name, component_name, local_key), ...} -- unsaved
+        self._baseline = _snapshot_varlists(self.varlists_by_table)  # state as of last save
+        self._history = []  # [_Edit, ...] most-recent last -- undo() pops from the end
 
     @property
     def table_names(self) -> list:
@@ -274,6 +296,7 @@ class MapSession:
         entries = self.varlists_by_table.setdefault(table_name, [])
         for component, path, data in entries:
             if component == component_name:
+                old_value = data.get(local_key, _UNSET)
                 data[local_key] = cmip_var
                 break
         else:
@@ -285,10 +308,12 @@ class MapSession:
             fname = f'{self.era_upper}_{table_name}_{component_name}.list'
             path = f'{self.varlist_dir}/{fname}'
             data = get_json_file_data(path) if Path(path).is_file() else {}
+            old_value = data.get(local_key, _UNSET)
             data[local_key] = cmip_var
             entries.append((component_name, path, data))
 
         self.dirty_keys.add((table_name, component_name, local_key))
+        self._history.append(_Edit(table_name, component_name, local_key, old_value))
         fre_logger.info('staged mapping %s -> %s for %s/%s (not yet saved)',
                         local_key, cmip_var, table_name, component_name)
 
@@ -310,13 +335,54 @@ class MapSession:
                     count += 1
         return count
 
+    def _value_in(self, snapshot: dict, table_name: str, component_name: str, local_key: str):
+        """local_key's value for (table_name, component_name) in a varlists_by_table-shaped
+        snapshot (either the live self.varlists_by_table or self._baseline), or _UNSET if
+        that component/key has no entry there at all."""
+        for component, _path, data in snapshot.get(table_name, []):
+            if component == component_name:
+                return data.get(local_key, _UNSET)
+        return _UNSET
+
+    def undo(self) -> Optional[_Edit]:
+        """Revert the single most-recently staged mapping edit (an assign or a clear --
+        clear_mapping stages through set_mapping too, so both land in the same history),
+        restoring that (table, component, local_key)'s prior in-memory value, or removing
+        the key entirely if it had no entry before that edit. If an earlier staged edit to
+        the same key is still pending, the key remains marked dirty; otherwise it's dropped
+        from dirty_keys since it now matches the last-saved state again.
+
+        :return: the reverted _Edit, or None if there was nothing to undo.
+        :rtype: _Edit or None
+        """
+        if not self._history:
+            return None
+        edit = self._history.pop()
+        for component, _path, data in self.varlists_by_table.get(edit.table_name, []):
+            if component == edit.component_name:
+                if edit.old_value is _UNSET:
+                    data.pop(edit.local_key, None)
+                else:
+                    data[edit.local_key] = edit.old_value
+                break
+
+        key = (edit.table_name, edit.component_name, edit.local_key)
+        current = self._value_in(self.varlists_by_table, *key)
+        baseline = self._value_in(self._baseline, *key)
+        if current == baseline:
+            self.dirty_keys.discard(key)
+        fre_logger.info('undid staged edit for %s/%s:%s', edit.table_name, edit.component_name,
+                        edit.local_key)
+        return edit
+
     @property
     def has_pending_changes(self) -> bool:
         """True if any staged mapping edits haven't been written to disk yet."""
         return bool(self.dirty_keys)
 
     def save_pending(self) -> int:
-        """Write every varlist file with a staged change to disk, then clear dirty tracking.
+        """Write every varlist file with a staged change to disk, then clear dirty tracking
+        and undo history, and re-baseline for a future restore_pending().
 
         :return: number of (table, component, local_key) edits that were saved.
         :rtype: int
@@ -335,7 +401,25 @@ class MapSession:
             fre_logger.info('saved varlist %s', path)
 
         self.dirty_keys.clear()
+        self._history.clear()
+        self._baseline = _snapshot_varlists(self.varlists_by_table)
         return saved_count
+
+    def restore_pending(self) -> int:
+        """Discard every staged-but-unsaved edit at once, restoring in-memory state to the
+        last save_pending() call (or to the state at load time, if nothing has been saved
+        yet). Also clears the undo history, since those edits no longer apply once the whole
+        session has been rewound past them.
+
+        :return: number of (table, component, local_key) edits that were discarded.
+        :rtype: int
+        """
+        discarded = len(self.dirty_keys)
+        self.varlists_by_table = _snapshot_varlists(self._baseline)
+        self.dirty_keys.clear()
+        self._history.clear()
+        fre_logger.info('restored %d staged edit(s) to last save state', discarded)
+        return discarded
 
 
 # ---------------------------------------------------------------------------
@@ -345,11 +429,13 @@ class MapSession:
 class MapApp(App):
     """Two-pane TUI: MIP-table mapping-status tree on the left, pp-directory browser +
     NetCDF preview on the right. Press 'm' to stage assigning the selected pp file to the
-    selected CMIP variable, 'd' to stage clearing a selected existing mapping, 's' to save
-    all staged changes to disk, 'r' to refresh the tree, and 'q' to quit ('q' again to
-    confirm if there are unsaved staged changes). Staged-but-unsaved nodes are marked in
-    place (without rebuilding the tree, so expanded branches stay
-    expanded while batching edits) and are only cleared once 's' actually writes them out."""
+    selected CMIP variable, 'd' to stage clearing a selected existing mapping, 'u' to undo
+    the single most recent staged edit, 'R' to restore every staged edit back to the last
+    save, 's' to save all staged changes to disk, 'r' to refresh the tree, and 'q' to quit
+    ('q' again to confirm if there are unsaved staged changes). Staged-but-unsaved nodes are
+    marked in place (without rebuilding the tree, so expanded branches stay expanded while
+    batching edits) and are only cleared once 's' actually writes them out; 'u' and 'R'
+    instead rebuild the tree, since they can affect many nodes at once."""
 
     CSS = """
     #cmip_tree {
@@ -378,6 +464,8 @@ class MapApp(App):
     BINDINGS = [
         ('m', 'assign_mapping', 'Stage mapping'),
         ('d', 'clear_mapping', 'Stage clear'),
+        ('u', 'undo', 'Undo last edit'),
+        ('R', 'restore_pending', 'Restore to last save'),
         ('s', 'save_pending', 'Save staged changes'),
         ('r', 'refresh_tree', 'Refresh'),
         ('q', 'quit', 'Quit'),
@@ -645,6 +733,25 @@ class MapApp(App):
         self.selected_cmip = None
         self.selected_cmip_node = None
         self.query_one('#selected_cmip', Static).update(self._format_selected_cmip(None))
+        self._quit_confirmed = False
+
+    def action_undo(self) -> None:
+        edit = self.session.undo()
+        if edit is None:
+            self.notify('nothing to undo', severity='information')
+            return
+        self.notify(f'undid staged edit for {edit.local_key} ({edit.component_name}) in '
+                   f'{edit.table_name}')
+        self._populate_cmip_tree()
+        self._quit_confirmed = False
+
+    def action_restore_pending(self) -> None:
+        if not self.session.has_pending_changes:
+            self.notify('no staged changes to restore', severity='information')
+            return
+        discarded = self.session.restore_pending()
+        self.notify(f'restored {discarded} staged change(s) to last save state')
+        self._populate_cmip_tree()
         self._quit_confirmed = False
 
     def action_save_pending(self) -> None:

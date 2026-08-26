@@ -459,6 +459,112 @@ def test_mapsession_clear_mapping(temp_dir): # pylint: disable=redefined-outer-n
     assert json.loads(out_path.read_text(encoding='utf-8')) == {'t_ref': 'tas', 'sfc_pres': ''}
 
 
+def test_mapsession_undo_new_key(temp_dir): # pylint: disable=redefined-outer-name
+    ''' undoing a staged mapping for a key that didn't exist before removes it entirely
+    (rather than leaving it as '') and drops it from dirty_keys '''
+    pp_dir, varlist_dir, tables_dir = _make_session_fixture(temp_dir)
+    (Path(varlist_dir) / 'CMIP6_Amon_atmos.list').write_text(
+        json.dumps({'t_ref': 'tas'}), encoding='utf-8'
+    )
+    yamlfile = _amon_yaml(temp_dir, pp_dir, varlist_dir, tables_dir, component_names=['atmos'])
+    session = MapSession(yamlfile)
+
+    session.set_mapping('Amon', 'atmos', 'precip', 'pr')
+    edit = session.undo()
+
+    assert edit.local_key == 'precip'
+    assert ('Amon', 'atmos', 'precip') not in session.dirty_keys
+    report = session.table_report('Amon')
+    assert 'pr' not in dict(report['one_to_one_mapped'])
+    for _component, _path, data in session.varlists_by_table['Amon']:
+        assert 'precip' not in data
+
+
+def test_mapsession_undo_overwritten_key(temp_dir): # pylint: disable=redefined-outer-name
+    ''' undoing a staged edit that overwrote an existing mapping restores the prior value
+    rather than deleting the key '''
+    pp_dir, varlist_dir, tables_dir = _make_session_fixture(temp_dir)
+    (Path(varlist_dir) / 'CMIP6_Amon_atmos.list').write_text(
+        json.dumps({'t_ref': 'tas'}), encoding='utf-8'
+    )
+    yamlfile = _amon_yaml(temp_dir, pp_dir, varlist_dir, tables_dir, component_names=['atmos'])
+    session = MapSession(yamlfile)
+
+    session.set_mapping('Amon', 'atmos', 't_ref', 'ps')  # re-point an existing key
+    session.undo()
+
+    assert ('Amon', 'atmos', 't_ref') not in session.dirty_keys
+    report = session.table_report('Amon')
+    assert report['one_to_one_mapped']['tas'] == ('atmos', 't_ref')
+
+
+def test_mapsession_undo_leaves_key_dirty_if_earlier_edit_pending(temp_dir): # pylint: disable=redefined-outer-name
+    ''' undoing one of two staged edits to the same key steps back only one edit -- the key
+    stays dirty since it still differs from the last-saved value '''
+    pp_dir, varlist_dir, tables_dir = _make_session_fixture(temp_dir)
+    yamlfile = _amon_yaml(temp_dir, pp_dir, varlist_dir, tables_dir, component_names=['atmos'])
+    session = MapSession(yamlfile)
+
+    session.set_mapping('Amon', 'atmos', 'precip', 'pr')
+    session.set_mapping('Amon', 'atmos', 'precip', 'ps')
+    session.undo()
+
+    assert ('Amon', 'atmos', 'precip') in session.dirty_keys
+    report = session.table_report('Amon')
+    assert report['one_to_one_mapped']['pr'] == ('atmos', 'precip')
+
+
+def test_mapsession_undo_empty_history(temp_dir): # pylint: disable=redefined-outer-name
+    ''' undo with nothing staged returns None and is a no-op '''
+    pp_dir, varlist_dir, tables_dir = _make_session_fixture(temp_dir)
+    yamlfile = _amon_yaml(temp_dir, pp_dir, varlist_dir, tables_dir, component_names=['atmos'])
+    session = MapSession(yamlfile)
+    assert session.undo() is None
+
+
+def test_mapsession_restore_pending(temp_dir): # pylint: disable=redefined-outer-name
+    ''' restore_pending discards every staged edit at once, back to the last save_pending()
+    (or, if nothing was ever saved, back to the initial load) -- and clears undo history '''
+    pp_dir, varlist_dir, tables_dir = _make_session_fixture(temp_dir)
+    (Path(varlist_dir) / 'CMIP6_Amon_atmos.list').write_text(
+        json.dumps({'t_ref': 'tas'}), encoding='utf-8'
+    )
+    yamlfile = _amon_yaml(temp_dir, pp_dir, varlist_dir, tables_dir, component_names=['atmos'])
+    session = MapSession(yamlfile)
+
+    session.set_mapping('Amon', 'atmos', 't_ref', 'ps')  # overwrite an existing mapping
+    session.set_mapping('Amon', 'atmos', 'precip', 'pr')  # stage a brand-new key
+    discarded = session.restore_pending()
+
+    assert discarded == 2
+    assert session.has_pending_changes is False
+    assert session.undo() is None  # undo history was cleared too
+    report = session.table_report('Amon')
+    assert report['one_to_one_mapped']['tas'] == ('atmos', 't_ref')
+    assert 'pr' not in dict(report['one_to_one_mapped'])
+
+    # disk is untouched either way -- restore_pending never writes
+    out_path = Path(varlist_dir) / 'CMIP6_Amon_atmos.list'
+    assert json.loads(out_path.read_text(encoding='utf-8')) == {'t_ref': 'tas'}
+
+
+def test_mapsession_restore_pending_after_save_keeps_saved_edits(temp_dir): # pylint: disable=redefined-outer-name
+    ''' restore_pending only rewinds edits staged since the last save -- a save_pending()
+    re-baselines, so restoring afterward keeps what was already saved '''
+    pp_dir, varlist_dir, tables_dir = _make_session_fixture(temp_dir)
+    yamlfile = _amon_yaml(temp_dir, pp_dir, varlist_dir, tables_dir, component_names=['atmos'])
+    session = MapSession(yamlfile)
+
+    session.set_mapping('Amon', 'atmos', 't_ref', 'tas')
+    session.save_pending()
+    session.set_mapping('Amon', 'atmos', 'precip', 'pr')
+    session.restore_pending()
+
+    report = session.table_report('Amon')
+    assert report['one_to_one_mapped']['tas'] == ('atmos', 't_ref')
+    assert 'pr' not in dict(report['one_to_one_mapped'])
+
+
 def test_mapsession_usage_count(temp_dir): # pylint: disable=redefined-outer-name
     ''' usage_count reflects how many loaded tables' varlists map a given (component,
     local_key) to a non-empty CMIP variable, ignoring other components/keys and empty
@@ -786,6 +892,97 @@ async def test_map_app_clear_mapping(temp_dir): # pylint: disable=redefined-oute
 
     assert json.loads(out_path.read_text(encoding='utf-8')) == {'sfc_pres': ''}
     assert not session.has_pending_changes
+
+
+@pytest.mark.asyncio
+async def test_map_app_undo_key(temp_dir): # pylint: disable=redefined-outer-name
+    ''' pressing 'u' after 'm' undoes the just-staged mapping, rebuilding the tree so the
+    variable shows back up under Unmapped and the table's pending count drops '''
+    pp_dir, varlist_dir, tables_dir = _make_session_fixture(temp_dir)
+
+    comp_ts_dir = Path(pp_dir) / 'atmos' / 'ts' / 'monthly' / '5yr'
+    comp_ts_dir.mkdir(parents=True)
+    _write_nc_file(comp_ts_dir / 'atmos.000101-000512.pr.nc', 'pr', units='kg m-2 s-1')
+
+    yamlfile = _amon_yaml(temp_dir, pp_dir, varlist_dir, tables_dir, component_names=['atmos'])
+    session = MapSession(yamlfile)
+    app = MapApp(session)
+    out_path = Path(varlist_dir) / 'CMIP6_Amon_atmos.list'
+
+    async with app.run_test() as pilot:
+        cmip_tree = app.query_one('#cmip_tree')
+        table_node = cmip_tree.root.children[0]
+        unmapped_node = table_node.children[0]
+        pr_node = next(n for n in unmapped_node.children if n.data['var'] == 'pr')
+        app.on_tree_node_selected(_FakeTreeEvent(pr_node, 'cmip_tree'))
+
+        pp_tree = app.query_one('#pp_tree')
+        component_node = pp_tree.root.children[0]
+        app.on_tree_node_expanded(_FakeTreeEvent(component_node, 'pp_tree'))
+        freq_node = component_node.children[0]
+        app.on_tree_node_expanded(_FakeTreeEvent(freq_node, 'pp_tree'))
+        chunk_node = freq_node.children[0]
+        app.on_tree_node_expanded(_FakeTreeEvent(chunk_node, 'pp_tree'))
+        file_node = chunk_node.children[0]
+        app.on_tree_node_selected(_FakeTreeEvent(file_node, 'pp_tree'))
+        await pilot.pause()
+
+        await pilot.press('m')
+        await pilot.pause()
+        assert session.has_pending_changes
+
+        await pilot.press('u')
+        await pilot.pause()
+
+        assert not session.has_pending_changes
+        assert not out_path.exists()
+        # tree was rebuilt -- re-fetch nodes rather than reusing the old (now-stale) ones
+        table_node = cmip_tree.root.children[0]
+        assert 'unsaved' not in str(table_node.label)
+        unmapped_node = table_node.children[0]
+        assert any(n.data['var'] == 'pr' for n in unmapped_node.children)
+
+        # a second undo has nothing left to do
+        await pilot.press('u')
+        await pilot.pause()
+        assert not session.has_pending_changes
+
+
+@pytest.mark.asyncio
+async def test_map_app_restore_pending_key(temp_dir): # pylint: disable=redefined-outer-name
+    ''' pressing 'R' discards every staged-but-unsaved edit at once, rebuilding the tree back
+    to the last-saved state without touching disk '''
+    pp_dir, varlist_dir, tables_dir = _make_session_fixture(temp_dir)
+    (Path(varlist_dir) / 'CMIP6_Amon_atmos.list').write_text(
+        json.dumps({'t_ref': 'tas'}), encoding='utf-8'
+    )
+    yamlfile = _amon_yaml(temp_dir, pp_dir, varlist_dir, tables_dir, component_names=['atmos'])
+    session = MapSession(yamlfile)
+    session.set_mapping('Amon', 'atmos', 'sfc_pres', 'ps')
+    session.set_mapping('Amon', 'atmos', 'precip', 'pr')
+    app = MapApp(session)
+    out_path = Path(varlist_dir) / 'CMIP6_Amon_atmos.list'
+
+    async with app.run_test() as pilot:
+        assert session.has_pending_changes
+
+        await pilot.press('R')
+        await pilot.pause()
+
+        assert not session.has_pending_changes
+        # nothing was ever written -- restore_pending only affects in-memory state
+        assert json.loads(out_path.read_text(encoding='utf-8')) == {'t_ref': 'tas'}
+
+        cmip_tree = app.query_one('#cmip_tree')
+        table_node = cmip_tree.root.children[0]
+        assert 'unsaved' not in str(table_node.label)
+        unmapped_node = table_node.children[0]
+        assert {n.data['var'] for n in unmapped_node.children} == {'pr', 'ps'}
+
+        # nothing left to restore -- pressing it again is a no-op
+        await pilot.press('R')
+        await pilot.pause()
+        assert not session.has_pending_changes
 
 
 @pytest.mark.asyncio
