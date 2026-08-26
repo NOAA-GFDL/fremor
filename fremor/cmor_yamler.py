@@ -160,7 +160,10 @@ def cmor_yaml_subtool( yamlfile: str = None,
         table_name = cmor_yaml_table_target['table_name']
         fre_logger.info('table_name = %s', table_name)
 
-        json_mip_table_config = f'{cmip_cmor_table_dir}/{mip_era}_{table_name}.json'
+        if mip_era != 'CMIP6PLUS':
+            json_mip_table_config = f'{cmip_cmor_table_dir}/{mip_era}_{table_name}.json'
+        else:
+            json_mip_table_config = f'{cmip_cmor_table_dir}/MIP_{table_name}.json'
         fre_logger.info('json_mip_table_config = %s', json_mip_table_config)
         check_path_existence(json_mip_table_config)
 

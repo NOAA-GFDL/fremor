@@ -51,7 +51,7 @@ ESM4_DEV_PP_DIR = (
 # CMIP7 output dir structure
 # (activity_id/source_id/experiment_id/member_id/variable_id/branding_suffix/grid_label)
 CMOR_CREATES_DIR_BASE_CMIP7 = (
-    'CMIP/DUMMY-MODEL/historical/r3i1p1f3'
+    'CMIP/GFDL-ESM4p5/historical/r3i1p1f3'
 )
 
 
@@ -139,6 +139,12 @@ def _ncgen_for_case(testfile_dir, opt_var_name):
             '/land/ts/monthly/5yr/',
             'CMIP7_land', 'lai', 'g999', '0001', 'noleap',
             id='land_lai_g999',
+        ),
+        pytest.param(
+            f'{MOCK_ARCHIVE_ROOT}/{ESM4_DEV_PP_DIR}'
+            '/atmos_cmip/ts/monthly/5yr/',
+            'CMIP7_atmos', 'tas', 'g999', '0001', 'noleap',
+            id='atmos_tas_g999',
         ),
     ],
 )

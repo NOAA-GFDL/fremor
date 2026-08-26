@@ -111,10 +111,11 @@ def test_cmor_config_subtool_nomip7_tables_in_mip6_tables_err(temp_dir): # pylin
     pp_dir_targ.mkdir(exist_ok=True,parents=True)
     mip_tables_targ.mkdir(exist_ok=True, parents=True)
     (mip_tables_targ / 'CMIP6_Omon.json').write_text('{}', encoding='utf-8')
-    exp_config_targ.write_text(json.dumps({
-        'grid': 'native grid from exp config',
-        'nominal_resolution': '100 km',
-    }), encoding='utf-8')
+    exp_config_targ.write_text(
+        json.dumps(
+            {'grid': 'native grid from exp config',
+             'nominal_resolution': '100 km',}),
+        encoding='utf-8')
     with pytest.raises(ValueError,
                        match=f'no MIP tables found in {mip_tables_targ} for era {mip_era_targ} after filtering'):
         cmor_config_subtool(pp_dir=pp_dir_targ,
@@ -151,7 +152,12 @@ def test_cmor_config_subtool_writes_self_contained_yaml(temp_dir): # pylint: dis
     output_dir = temp_root / 'cmor_out'
     varlist_dir = temp_root / 'varlists'
 
-    def _fake_make_simple_varlist(dir_targ, output_variable_list, json_mip_table, return_none_if_no_mip_vars):
+    def _fake_make_simple_varlist(
+            dir_targ,
+            output_variable_list,
+            json_mip_table,
+            return_none_if_no_mip_vars, # pylint: disable=unused-argument
+    ):
         del dir_targ, json_mip_table
         Path(output_variable_list).write_text('{}', encoding='utf-8')
 

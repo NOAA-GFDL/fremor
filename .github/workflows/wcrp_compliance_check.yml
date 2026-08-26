@@ -1,8 +1,5 @@
 name: wcrp_compliance_check
 
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-
 on:
   pull_request:
     branches:
@@ -24,12 +21,12 @@ jobs:
         shell: bash -l {0}
     steps:
       - name: Checkout Files
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           submodules: recursive
 
       - name: Setup Conda
-        uses: conda-incubator/setup-miniconda@v3
+        uses: conda-incubator/setup-miniconda@v4
         with:
           activate-environment: fremor-wcrp
           environment-file: environment.yaml
@@ -234,7 +231,7 @@ jobs:
 
       - name: Upload test outputs
         if: always() && steps.gather_outputs.outputs.file_count != '0'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: wcrp-test-outputs
           path: tmp/qa_test_outputs/
@@ -242,7 +239,7 @@ jobs:
 
       - name: Upload WCRP compliance reports
         if: always() && steps.gather_outputs.outputs.file_count != '0'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: wcrp-compliance-reports
           path: tmp/wcrp_compliance_reports/

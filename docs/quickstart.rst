@@ -6,8 +6,8 @@ CMOR Quickstart (``fremor``)
 
 This guide adapts the ``README`` for ``fre.cmor`` in ``NOAA-GFDL/fre-cli`` for the
 standalone ``fremor`` package. The ``fremor`` CLI rewrites climate model output
-with CMIP-compliant metadata (\"CMORization\") and supports both CMIP6 and CMIP7
-workflows.
+with CMIP-compliant metadata (\"CMORization\") and supports CMIP6, CMIP6Plus, and
+CMIP7 workflows.
 
 Comprehensive API and CLI reference material lives in :ref:`usage` and
 :ref:`commands`. Use this page when you want a concise, end-to-end reminder of
@@ -33,6 +33,9 @@ Before CMORizing data, use ``fremor init`` to set up required resources:
    # Generate a CMIP6 config template and fetch CMIP6 tables
    fremor init -m cmip6 -e exp_config.json -t cmip6-tables
 
+   # Generate a CMIP6Plus config template and fetch CMIP6Plus tables (fast mode)
+   fremor init -m cmip6plus -e exp_config.json -t mip-cmor-tables --fast
+
    # Generate a CMIP7 config template and fetch CMIP7 tables (fast mode)
    fremor init -m cmip7 -e exp_config.json -t cmip7-tables --fast
 
@@ -50,8 +53,29 @@ The ``init`` command:
 * Generates experiment configuration JSON templates with required CMIP metadata fields
 * Fetches official MIP tables from trusted GitHub repositories:
    - CMIP6: `pcmdi/cmip6-cmor-tables <https://github.com/pcmdi/cmip6-cmor-tables>`_
+   - CMIP6Plus: `PCMDI/mip-cmor-tables <https://github.com/PCMDI/mip-cmor-tables>`_
    - CMIP7: `WCRP-CMIP/cmip7-cmor-tables <https://github.com/WCRP-CMIP/cmip7-cmor-tables>`_
 * Supports both git clone (default) and tarball download (``--fast``) methods
+
+MIP Era Differences
+~~~~~~~~~~~~~~~~~~~
+
+``fremor`` supports three MIP eras, selected via the ``-m/--mip_era`` option:
+
+* **CMIP6** — The original CMIP Phase 6 tables and controlled vocabularies from
+  `pcmdi/cmip6-cmor-tables <https://github.com/pcmdi/cmip6-cmor-tables>`_. Use this
+  for existing CMIP6 datasets.
+
+* **CMIP6Plus** — A transitional era using the unified
+  `PCMDI/mip-cmor-tables <https://github.com/PCMDI/mip-cmor-tables>`_ repository.
+  CMIP6Plus shares the same experiment configuration structure as CMIP6 but uses
+  updated table definitions. Choose this for new submissions that follow CMIP6-era
+  conventions but target the newer consolidated table infrastructure.
+
+* **CMIP7** — The next-generation CMIP Phase 7 tables from
+  `WCRP-CMIP/cmip7-cmor-tables <https://github.com/WCRP-CMIP/cmip7-cmor-tables>`_.
+  CMIP7 uses a distinct experiment configuration template with fields tailored to the
+  evolving CMIP7 data request.
 
 External configuration
 ~~~~~~~~~~~~~~~~~~~~~~
@@ -68,9 +92,19 @@ Required user inputs
   example lives in the repository at
   ``fremor/tests/test_files/CMORbite_var_list.json``.
 * **Experiment configuration** (JSON) supplying metadata such as ``calendar``,
-  ``grid``, and the desired output directory structure. See
-  ``fremor/tests/test_files/CMOR_input_example.json`` for CMIP6 or
-  ``fremor/tests/test_files/CMOR_CMIP7_input_example.json`` for CMIP7.
+  ``grid``, and the desired output directory structure. The required fields are
+  determined by the target MIP's controlled vocabularies — see
+  `CMIP7 required global attributes <https://github.com/WCRP-CMIP/cmip7-cmor-tables/blob/main/tables-cvs/split-view/required_global_attributes.json>`_
+  for an example of how a MIP specifies its required metadata. Reference
+  example experiment configuration files for each MIP era:
+
+  * **CMIP6**: `CMIP6_input_example.json <https://github.com/PCMDI/cmip6-cmor-tables/blob/main/Tables/CMIP6_input_example.json>`_
+  * **CMIP6Plus**: `CMOR_input_example.json <https://github.com/PCMDI/mip-cmor-tables/blob/main/src/exploration/old/CMOR_input_example.json>`_
+  * **CMIP7**: `cmor_test.py (lines 9–41) <https://github.com/WCRP-CMIP/cmip7-cmor-tables/blob/main/scripts/cmor_test.py#L9-L41>`_
+    and `CMOR_input_example.json (PCMDI/cmor) <https://github.com/PCMDI/cmor/blob/9d82dfb7c091cd0e0366fffd8a50f4d17f85f4a6/Test/CMOR_input_example.json>`_
+
+  Use ``fremor init -m <mip_era> -e exp_config.json`` to generate a template
+  pre-populated with the correct fields for your target MIP era.
 * **Optional CMOR YAML** if you want to batch multiple ``run`` calls via
   ``fremor yaml``. These YAML files are part of the larger FRE workflow and are
   not shipped here; point ``-y/--yamlfile`` at your project-specific YAMLs.
@@ -95,6 +129,9 @@ fetching MIP tables from trusted sources.
    # Generate config template and fetch tables
    fremor init -m cmip6 -e exp_config.json -t cmip6-tables
 
+   # CMIP6Plus: use the unified mip-cmor-tables repository
+   fremor init -m cmip6plus -e exp_config.json -t mip-cmor-tables --fast
+
    # Use fast mode (tarball download instead of git clone)
    fremor init -m cmip7 -e exp_config.json -t cmip7-tables --fast
 
@@ -113,7 +150,7 @@ configuration.
        -d /path/to/input/netcdf/dir \
        -l fremor/tests/test_files/CMORbite_var_list.json \
        -r fremor/tests/test_files/cmip6-cmor-tables/Tables/CMIP6_Omon.json \
-       -p fremor/tests/test_files/CMOR_input_example.json \
+       -p /path/to/CMOR_input_example.json \
        -o /tmp/cmorized_output
 
 ``yaml``

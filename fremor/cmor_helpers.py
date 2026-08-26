@@ -419,9 +419,17 @@ def get_vertical_dimension( ds: Dataset,
             if dim.lower() == 'landuse':
                 vert_dim = dim
                 break
-            if 'axis' not in ds[dim].ncattrs():
-                continue
-            if not (ds[dim].axis and ds[dim].axis == 'Z'):
+            dim_attrs = ds[dim].ncattrs()
+            axis_attr = None
+            if 'axis' in dim_attrs:
+                axis_attr = ds[dim].axis
+                fre_logger.debug('dim %s has axis=%s', dim, axis_attr)
+            elif 'cartesian_axis' in dim_attrs:
+                axis_attr = ds[dim].cartesian_axis
+                fre_logger.debug('dim %s has cartesian_axis=%s', dim, axis_attr)
+            else:
+                fre_logger.debug('dim %s has neither axis nor cartesian_axis attr, skipping', dim)
+            if not (axis_attr and axis_attr == 'Z'):
                 continue
             vert_dim = dim
     return vert_dim
@@ -731,7 +739,8 @@ def filter_brands( brands: list,
                    target_var: str,
                    mip_var_cfgs: dict,
                    has_time_bnds: bool,
-                   input_vert_dim: Union[str, int] ) -> str:
+                   input_vert_dim: Union[str, int],
+                   cell_methods: Optional[str] = None ) -> str:
     """
     Disambiguate multiple CMIP7 variable brands by comparing input data
     properties against each candidate brand's MIP dimension list.
@@ -788,6 +797,26 @@ def filter_brands( brands: list,
             fre_logger.debug('filtering out brand %s: expected MIP vert dim %s '
                              'not found in %s', brand, expected_mip_vert, mip_dims)
             continue
+
+        # cell_methods temporal filter: match brand temporal prefix to input cell_methods
+        if cell_methods is not None:
+            time_method = None
+            if 'time: mean' in cell_methods:
+                time_method = 'tavg'
+            elif 'time: maximum' in cell_methods:
+                time_method = 'tmax'
+            elif 'time: minimum' in cell_methods:
+                time_method = 'tmin'
+            elif 'time: point' in cell_methods:
+                time_method = 'tpt'
+
+            if time_method is not None:
+                brand_temporal = brand.split('-')[0]
+                if brand_temporal != time_method:
+                    fre_logger.debug('filtering out brand %s: temporal prefix %s '
+                                     'does not match cell_methods %s',
+                                     brand, brand_temporal, cell_methods)
+                    continue
 
         filtered_brands.append(brand)
 

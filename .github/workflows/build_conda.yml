@@ -1,8 +1,5 @@
 name: build_conda
 
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-
 on:
   pull_request:
     branches:
@@ -23,12 +20,12 @@ jobs:
         shell: bash -l {0}
     steps:
       - name: Checkout Files
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           submodules: 'recursive'
 
       - name: Setup Conda
-        uses: conda-incubator/setup-miniconda@v3
+        uses: conda-incubator/setup-miniconda@v4
         with:
           auto-activate: true
           activate-environment: base
@@ -64,7 +61,7 @@ jobs:
           conda build --package-format tar.bz2 --output-folder /tmp/fremor-tarball .
 
       - name: Upload fremor Tarball
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: fremor-tarball
           path: /tmp/fremor-tarball/noarch/fremor-*.tar.bz2

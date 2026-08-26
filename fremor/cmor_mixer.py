@@ -43,7 +43,8 @@ from .cmor_helpers import ( from_ds_get_this, create_lev_bnds,
 from .cmor_tripolar import load_tripolar_grid
 from .cmor_constants import ( ACCEPTED_VERT_DIMS, NON_HYBRID_SIGMA_COORDS, ALT_HYBRID_SIGMA_COORDS,
                               DEPTH_COORDS, CMOR_NC_FILE_ACTION, CMOR_VERBOSITY,
-                              CMOR_EXIT_CTL, CMOR_MK_SUBDIRS, CMOR_LOG )
+                              CMOR_EXIT_CTL, CMOR_MK_SUBDIRS, CMOR_LOG,
+                              CMOR_LAT_AXIS_NAME, CMOR_LON_AXIS_NAME )
 
 fre_logger = logging.getLogger(__name__)
 
@@ -102,6 +103,23 @@ def rewrite_netcdf_file_var( mip_var_cfgs: dict = None,
     var_dim = len(var.shape)
     fre_logger.info('var_dim = %d, local_var = %s', var_dim, local_var)
 
+    # detect scalar coordinate variables (0-dimensional) with axis='Z'
+    # these are auxiliary coordinates like "height" referenced via the coordinates attribute
+    # and must be accounted for before brand matching, as MIP tables count them as dimensions
+    scalar_z_coords = {}
+    try:
+        coord_attr = ds.variables[local_var].coordinates
+        for coord_name in coord_attr.split():
+            if coord_name in ds.variables:
+                coord_var = ds.variables[coord_name]
+                if len(coord_var.dimensions) == 0:  # scalar (0-dim)
+                    if hasattr(coord_var, 'axis') and coord_var.axis == 'Z':
+                        scalar_z_coords[coord_name] = coord_var
+                        fre_logger.info('detected scalar Z-coordinate: %s', coord_name)
+    except AttributeError:
+        pass
+    var_dim_with_scalars = var_dim + len(scalar_z_coords)
+
     # CMORizing ocean grids are implemented only for scalar quantities valued at the central T/h-point of the grid cell.
     # https://en.wikipedia.org/wiki/Arakawa_grids heavily consulted for this work.
     # we also need to do:
@@ -123,7 +141,7 @@ def rewrite_netcdf_file_var( mip_var_cfgs: dict = None,
         brands = []
         for mip_var in mip_var_cfgs['variable_entry'].keys():
             if all([ target_var == mip_var.split('_')[0],
-                     var_dim == len(mip_var_cfgs['variable_entry'][mip_var]['dimensions']) ]):
+                     var_dim_with_scalars == len(mip_var_cfgs['variable_entry'][mip_var]['dimensions']) ]):
                 brands.append(mip_var.split('_')[1])
 
         if len(brands)>0:
@@ -136,7 +154,8 @@ def rewrite_netcdf_file_var( mip_var_cfgs: dict = None,
                 var_brand = filter_brands(
                     brands, target_var, mip_var_cfgs,
                     has_time_bnds = 'time_bnds' in ds.variables,
-                    input_vert_dim = get_vertical_dimension(ds, local_var)
+                    input_vert_dim = get_vertical_dimension(ds, local_var),
+                    cell_methods = getattr(ds.variables[local_var], 'cell_methods', None)
                 )
 
         else:
@@ -221,6 +240,22 @@ def rewrite_netcdf_file_var( mip_var_cfgs: dict = None,
         if vert_dim.lower() != 'landuse':
             lev_units = ds[vert_dim].units
 
+    # if no vertical dimension found in data but scalar Z-coordinates exist,
+    # identify the corresponding MIP axis name from expected dimensions
+    if vert_dim == 0 and scalar_z_coords and expected_mip_coord_dims is not None:
+        dims_to_check = (expected_mip_coord_dims.split()
+                         if isinstance(expected_mip_coord_dims, str)
+                         else expected_mip_coord_dims)
+        for dim_name in dims_to_check:
+            if dim_name.lower() in [d.lower() for d in ACCEPTED_VERT_DIMS]:
+                scalar_coord_name = list(scalar_z_coords.keys())[0]
+                vert_dim = dim_name
+                lev = ds.variables[scalar_coord_name]
+                lev_units = ds.variables[scalar_coord_name].units
+                fre_logger.info('scalar Z-coordinate %s mapped to MIP axis %s',
+                                scalar_coord_name, dim_name)
+                break
+
     process_tripolar_data = all([uses_ocean_grid, lat is None, lon is None])
     xh, yh = None, None
     xh_bnds, yh_bnds = None, None
@@ -275,9 +310,9 @@ def rewrite_netcdf_file_var( mip_var_cfgs: dict = None,
     else:
         fre_logger.info('assigning cmor_y')
         if lat_bnds is None:
-            cmor_y = cmor.axis('latitude', coord_vals=lat[:], units='degrees_N') #uncovered
+            cmor_y = cmor.axis(CMOR_LAT_AXIS_NAME, coord_vals=lat[:], units='degrees_N') #uncovered
         else:
-            cmor_y = cmor.axis('latitude', coord_vals=lat[:], cell_bounds=lat_bnds, units='degrees_N')
+            cmor_y = cmor.axis(CMOR_LAT_AXIS_NAME, coord_vals=lat[:], cell_bounds=lat_bnds, units='degrees_N')
         fre_logger.info('DONE assigning cmor_y')
 
     # setup cmor longitude axis if relevant
@@ -290,9 +325,9 @@ def rewrite_netcdf_file_var( mip_var_cfgs: dict = None,
     else:
         fre_logger.info('assigning cmor_x')
         if lon_bnds is None:
-            cmor_x = cmor.axis('longitude', coord_vals=lon[:], units='degrees_E') #uncovered
+            cmor_x = cmor.axis(CMOR_LON_AXIS_NAME, coord_vals=lon[:], units='degrees_E') #uncovered
         else:
-            cmor_x = cmor.axis('longitude', coord_vals=lon[:], cell_bounds=lon_bnds, units='degrees_E')
+            cmor_x = cmor.axis(CMOR_LON_AXIS_NAME, coord_vals=lon[:], cell_bounds=lon_bnds, units='degrees_E')
         fre_logger.info('DONE assigning cmor_x')
 
     cmor_grid = None
@@ -356,14 +391,15 @@ def rewrite_netcdf_file_var( mip_var_cfgs: dict = None,
         fre_logger.info('assigning cmor_z')
 
         if vert_dim.lower() in NON_HYBRID_SIGMA_COORDS:
-            fre_logger.info('non-hybrid sigma coordinate case')
+            fre_logger.info('vert_dim is NON_HYBRID_SIGMA_COORDS')
             if vert_dim.lower() != 'landuse':
                 cmor_vert_dim_name = vert_dim
+                lev_vals = np.atleast_1d(np.array(lev[:]))
                 cmor_z = cmor.axis(cmor_vert_dim_name,
-                                   coord_vals=lev[:], units=lev_units)
+                                   coord_vals=lev_vals, units=lev_units)
             else:
                 landuse_str_list = ['primary_and_secondary_land', 'pastures', 'crops', 'urban']
-                cmor_vert_dim_name = 'landUse' if exp_cfg_mip_era == 'CMIP6' else 'landuse'
+                cmor_vert_dim_name = 'landUse' if exp_cfg_mip_era in ['CMIP6', 'CMIP6PLUS'] else 'landuse'
                 cmor_z = cmor.axis(cmor_vert_dim_name,
                                    coord_vals=np.array(
                                        landuse_str_list,
@@ -371,7 +407,8 @@ def rewrite_netcdf_file_var( mip_var_cfgs: dict = None,
                                    ),
                                    units=lev_units)
 
-        elif vert_dim in DEPTH_COORDS:
+        elif vert_dim.lower() in DEPTH_COORDS:
+            fre_logger.info('vert_dim is DEPTH_COORDS')
             try:
                 lev_bnds = create_lev_bnds(bound_these=lev, with_these=ds['z_i'])
                 fre_logger.info('created lev_bnds...')
@@ -386,6 +423,7 @@ def rewrite_netcdf_file_var( mip_var_cfgs: dict = None,
                                cell_bounds=lev_bnds)
 
         elif vert_dim in ALT_HYBRID_SIGMA_COORDS:
+            fre_logger.info('vert_dim is ALT_HYBRID_SIGMA_COORDS')
             # find the ps file nearby
             ps_file = netcdf_file.replace(f'.{local_var}.nc', '.ps.nc')
             ds_ps = nc.Dataset(ps_file)
@@ -491,10 +529,26 @@ def rewrite_netcdf_file_var( mip_var_cfgs: dict = None,
 
     if exp_cfg_mip_era == 'CMIP7':
         fre_logger.info('cmor.variable call: for cmip7_target_var = %s ', f'{target_var}_{var_brand}')
+
         cmor_var = cmor.variable(f'{target_var}_{var_brand}', units, axes,
                                  missing_value = var_missing_val,
                                  positive = positive)
         fre_logger.info('DONE cmor.variable call: for cmip7_target_var = %s ',f'{target_var}_{var_brand}')
+
+        # need to add this kind of file opening
+        fre_logger.info('NOW trying to add the cell_measures field from CMIP7_cell_measures.json')
+        with open(f'{Path(json_table_config).parent}/CMIP7_cell_measures.json', 'r', encoding='utf-8') as handle:
+            cell_measures = json.load(handle)['cell_measures']
+
+            # need to add this kind of line
+            fre_logger.debug('setting cell_measures attribute for cmor variable: %s', cmor_var)
+            cmor.set_variable_attribute(
+                cmor_var,
+                'cell_measures',
+                'c',
+                cell_measures.get(f'{target_var}_{var_brand}', ''),
+            )
+
 
     else:
         fre_logger.info('cmor.variable call: for target_var = %s ',target_var)
@@ -679,7 +733,7 @@ def cmorize_target_var_files(indir: str = None,
         filename_no_nc = filename[:filename.rfind('.nc')]
         chunk_str = filename_no_nc[-6:]
         if not chunk_str.isdigit():
-            fre_logger.warning('chunk_str is not a digit: chunk_str = %s', chunk_str) #uncovered
+            fre_logger.warning('chunk_str is not a digit: chunk_str = %s', chunk_str)
             filename_corr = f'{filename[:filename.rfind(".nc")]}_{iso_datetime}.nc'
             mv_cmd = f'mv {filename} {filename_corr}'
             fre_logger.warning('moving files, strange chunkstr logic...\n%s', mv_cmd)
@@ -854,11 +908,14 @@ def cmor_run_subtool(indir: str = None,
         raise KeyError('no mip_era entry in experimental metadata configuration, the file is noncompliant!') from exc
 
     fre_logger.debug('exp_cfg_mip_era = %s', exp_cfg_mip_era)
-    if exp_cfg_mip_era not in ['CMIP6', 'CMIP7']:
-        raise ValueError('cmor_mixer only supports CMIP6 and CMIP7 cases')
+    if exp_cfg_mip_era not in ['CMIP6', 'CMIP6PLUS', 'CMIP7']:
+        raise ValueError('cmor_mixer only supports CMIP6, CMIP6 Plus, and CMIP7 cases')
 
     if exp_cfg_mip_era == 'CMIP7':
-        fre_logger.warning('CMIP7 configuration detected, will be expecting and enforcing variable brands.')
+        fre_logger.warning('CMIP7 config detected, will be expecting and enforcing variable brands.')
+
+    if exp_cfg_mip_era == 'CMIP6PLUS':
+        fre_logger.warning('CMIP6Plus config detected, capability under development, treating as a CMIP6 case for now')
 
     # CHECK optional grid/grid_label/nom_res inputs from exp config, the function raises the potential error conditions
     if any( [ grid_label is not None,
@@ -881,8 +938,11 @@ def cmor_run_subtool(indir: str = None,
     table_mip_era = mip_var_cfgs.get('Header', {}).get('mip_era')
     if isinstance(table_mip_era, str):
         table_mip_era = table_mip_era.upper()
-    elif Path(json_table_config).stem.split('_', maxsplit=1)[0].upper() in ['CMIP6', 'CMIP7']:
+    elif Path(json_table_config).stem.split('_', maxsplit=1)[0].upper() in ['CMIP6', 'CMIP6PLUS', 'CMIP7']:
         table_mip_era = Path(json_table_config).stem.split('_', maxsplit=1)[0].upper()
+        if table_mip_era == 'MIP':
+            table_mip_era = 'CMIP6PLUS'
+
     if table_mip_era is not None and table_mip_era != exp_cfg_mip_era:
         raise ValueError(
             'mip_era mismatch between experiment config and MIP table.\n'
@@ -901,7 +961,7 @@ def cmor_run_subtool(indir: str = None,
         mip_var_brand_list = [ var.split('_')[1] for var in mip_fullvar_list ]
         if len(mip_var_list) != len(mip_var_brand_list):
             raise ValueError('the number of brands is not one-to-one with the number of variables. check config.')
-    elif exp_cfg_mip_era == 'CMIP6':
+    elif exp_cfg_mip_era in ['CMIP6', 'CMIP6PLUS']:
         mip_var_list = mip_fullvar_list
 
     fre_logger.debug('list of table variables we will process = \n %s', mip_var_list)

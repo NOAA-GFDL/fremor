@@ -1,11 +1,11 @@
 # `fremor`
-`fremor` CMORizes FRE output with `CMOR`. It is both a `conda` and `pip` package. 
-
-Documentation is on [`readthedocs`](https://fremor.readthedocs.io/en/latest/).
-
 [![Anaconda-Server Badge](https://anaconda.org/conda-forge/fremor/badges/version.svg)](https://anaconda.org/conda-forge/fremor)
 [![Anaconda-Server Badge](https://anaconda.org/conda-forge/fremor/badges/latest_release_date.svg)](https://anaconda.org/conda-forge/fremor)
 [![Anaconda-Server Badge](https://anaconda.org/conda-forge/fremor/badges/latest_release_relative_date.svg)](https://anaconda.org/conda-forge/fremor)
+
+`fremor` CMORizes FRE output with `CMOR`. It is both a `conda` and `pip` package. 
+
+Documentation is on [`readthedocs`](https://fremor.readthedocs.io/en/latest/).
 
 ### License
 Apache License 2.0 — see [LICENSE.md](LICENSE.md)
@@ -39,37 +39,32 @@ contributed.
 
 
 ## Quickstart
+
+```bash
+# Initialize CMIP6Plus resources (config template + MIP tables)
+fremor init -m cmip6plus -e exp_config.json -t mip-cmor-tables --fast
+```
+
 For an overview of required inputs and sample commands, see the [CMOR Quickstart](docs/quickstart.rst).
 
 
 
 ## Installation / Access
 
-### Requirements
 
-- `python>=3.11`
-- `click>=8.2`
-- `cmor>=3.15.0`
-- `netCDF4>=1.7`
-- `numpy>=2`
-- `pyyaml`
-
-For development and testing, `pylint`, `pytest`, and `pytest-cov` are all highly recommended as helpful additions.
-
-
-
-### via PPAN / modules (COMING SOON/TODO)
+### via PPAN / modules
 If you're trying to gain access to `fremor` functionality as quickly as possible:
 ```bash
-# the current post-release in main
-module load fremor/test
-
 # a tagged version of fremor, post-releases will never be named modules
 module load fremor/X.Y.Z
+
+## (COMING SOON) the current post-release, i.e., latest commit on main
+#module load fremor/test
 ```
 
 
 ### via `conda` and/or `conda-forge`
+
 If you have a path to a `fremor` environment you can activate it like so:
 ```bash
 conda activate some/path/to/fremor_env
@@ -121,7 +116,7 @@ pylint --rcfile pylintrc fremor/
 ```
 
 #### via `pip install fremor` without a checkout of the code
-not all of `fremor`'s dependencies are `pip` installable, so this method assumes you've grabbed the requirements, and made them
+Not all of `fremor`'s dependencies are `pip` installable, so this method assumes you've grabbed the requirements, and made them
 available to `fremor` in a common context via another method (`conda` is still easiest). Assuming this was done correctly and
 all relevant python modules are installed to locations in `PYTHONPATH`, `pip install fremor` should install the package
 from PyPI.
@@ -176,6 +171,20 @@ with `fre-workflows` and `fre-cli`, which often demand that the version tags mat
 
 ## New Release Procedure 
 see `.github/PULL_REQUEST_TEMPLATE/new_release.md`
+
+
+## Requirements
+`fremor`'s requirements are deliberately kept loose, so that it can be installed in as wide array of `conda` environments
+as possible. You'll find stricter ones in `environment.yaml`. Currently, the package build is using the following, slightly
+looser requirements:
+- `python>=3.11`
+- `click>=8.2`
+- `cmor>=3.15.0`
+- `netCDF4>=1.7`
+- `numpy>=2`
+- `pyyaml`
+
+For development and testing, `pylint`, `pytest`, and `pytest-cov` are all highly recommended as helpful additions.
 
 ## CI/CD Workflows and QA
 

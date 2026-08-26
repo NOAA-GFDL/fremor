@@ -106,8 +106,60 @@ def _cmip6_exp_config_template():
     }
 
 def _cmip6plus_exp_config_template():
-    """ return a template for CMIP6Plus. currently, this is the identical object for cmip6 """
-    return _cmip6_exp_config_template()
+    """ return a template for CMIP6Plus. currently, near-identical to object returned for cmip6 """
+    return {
+        '#note': ' **** CMIP6 experiment configuration template – fill in values below ****',
+        'source_type': '',
+        'experiment_id': '',
+        'activity_id': '',
+        'sub_experiment_id': 'none',
+        'realization_index': '1',
+        'initialization_index': '1',
+        'physics_index': '1',
+        'forcing_index': '1',
+        'run_variant': '',
+        'parent_experiment_id': 'no parent',
+        'parent_activity_id': 'no parent',
+        'parent_source_id': 'no parent',
+        'parent_variant_label': 'no parent',
+        'parent_time_units': 'no parent',
+        'branch_method': 'no parent',
+        'branch_time_in_child': 0.0,
+        'branch_time_in_parent': 0.0,
+        'institution_id': 'NOAA-GFDL',
+        'source_id': '',
+        'calendar': '',
+        'grid': '',
+        'grid_label': '',
+        'nominal_resolution': '',
+        'license': 'CMIP6 model data produced by Lawrence Livermore NOAA-GFDL is licensed under a Creative Commons Attribution 4.0 International License (https://creativecommons.org/licenses/by/4.0/). Consult https://pcmdi.llnl.gov/CMIP6/TermsOfUse for terms of use governing CMIP6 output, including citation requirements and proper acknowledgment. Further information about this data, including some limitations, can be found via the further_info_url (recorded as a global attribute in this file) and at https:///pcmdi.llnl.gov/. The data producers and data providers make no warranty, either express or implied, including, but not limited to, warranties of merchantability and fitness for a particular purpose. All liabilities arising from the supply of the information (including any liability arising in negligence) are excluded to the fullest extent permitted by law.', # pylint: disable=line-too-long
+        'outpath': '',
+        'contact': '',
+        'history': '',
+        'comment': '',
+        'references': '',
+        'sub_experiment': 'none',
+        'institution': 'NOAA-GFDL',
+        'source': '',
+        '_controlled_vocabulary_file': 'CMIP6_CV.json',
+        '_AXIS_ENTRY_FILE': 'CMIP6_coordinate.json',
+        '_FORMULA_VAR_FILE': 'CMIP6_formula_terms.json',
+        '_cmip6_option': 'CMIP6',
+        'mip_era': 'CMIP6Plus',
+        'parent_mip_era': 'no parent',
+        'tracking_prefix': 'hdl:21.14100',
+        '_history_template': (
+            '%s ;rewrote data to be consistent with '
+            '<activity_id> for variable <variable_id> found in table <table_id>.'
+        ),
+        'output_path_template': (
+            '<mip_era><activity_id><institution_id><source_id>'
+            '<experiment_id><_member_id><table><variable_id><grid_label><version>'
+        ),
+        'output_file_template': (
+            '<variable_id><table><source_id><experiment_id><_member_id><grid_label>'
+        ),
+    }
 
 def _cmip7_exp_config_template():
     """Return an ordered dict-like structure for an empty CMIP7 experiment config."""
@@ -127,13 +179,13 @@ def _cmip7_exp_config_template():
         'parent_mip_era': 'CMIP7',
         'parent_activity_id': 'CMIP',
         'institution_id': 'NOAA-GFDL',
-        'source': 'DUMMY-MODEL',
-        'source_id': 'DUMMY-MODEL: aerosol: Dummy Aerosol; atmosphere: Dummy Atmosphere; atmospheric_chemistry: Dummy Atmospheric Chemistry; land_surface: Dummy Land Surface; ocean: Dummy Ocean; ocean_biogeochemistry: Dummy Ocean Biogeochemistry; sea_ice: Dummy Sea Ice', # pylint: disable=line-too-long
+        'source': 'GFDL-ESM4p5: aerosol: gfdl-am4p5-aerosol; atmosphere: gfdl-am4p5; land-surface: gfdl-lm4p5; ocean-biogeochemistry: cobaltv3p1; ocean: gfdl-om4p5; sea-ice: sis2', # pylint disable=line-too-long
+        'source_id': 'GFDL-ESM4p5',
         'source_type': '',
         'experiment_id': '',
         'parent_experiment_id': '',
         'parent_variant_label': '',
-        'parent_source_id': 'DUMMY-MODEL',
+        'parent_source_id': '',
         'sub_experiment': 'none',
         'sub_experiment_id': 'none',
         'realization_index': 'r1',
@@ -263,7 +315,7 @@ def cmor_init_subtool(
     Parameters
     ----------
     mip_era : str
-        ``'cmip6'`` or ``'cmip7'``.
+        ``'cmip6'``, ``'cmip6plus'```, or ``'cmip7'``.
     exp_config : str or None
         Output path for the template experiment-config JSON file.
         When *None* and *tables_dir* is also *None*, a default path
@@ -283,16 +335,26 @@ def cmor_init_subtool(
     """
     mip_era_lower = mip_era.lower()
     if mip_era_lower not in ('cmip6', 'cmip6plus', 'cmip7'):
-        raise ValueError(f'mip_era must be cmip6 or cmip7, got {mip_era}')
+        raise ValueError(f'mip_era must be cmip6, cmip6plus, or cmip7, got {mip_era}')
 
     result = {'exp_config': None, 'tables_dir': None}
+
+    if exp_config is None and tables_dir is None: # create a default user exp json
+        exp_config = f'CMOR_{mip_era_lower}_template.json'
+
+    # -- MIP tables --
+    if tables_dir is not None:
+        repo_url = MIP_TABLE_REPOS[mip_era_lower]
+        if fast:
+            _fetch_tables_curl(repo_url, tables_dir, tag=tag)
+        else:
+            _fetch_tables_git(repo_url, tables_dir, tag=tag)
+        result['tables_dir'] = tables_dir
 
     # -- experiment config --
     # Write config when explicitly requested OR when tables_dir is not given
     # (i.e. the user invoked `fremor init` without --tables_dir).
-    if exp_config is not None or tables_dir is None:
-        if exp_config is None:
-            exp_config = f'CMOR_{mip_era_lower}_template.json'
+    if exp_config is not None:
 
         template_func = {
             'cmip6'     : _cmip6_exp_config_template,
@@ -313,14 +375,5 @@ def cmor_init_subtool(
         click_echo = f'Wrote {mip_era_lower.upper()} experiment config template to {out_path}'
         print(click_echo)
         result['exp_config'] = str(out_path)
-
-    # -- MIP tables --
-    if tables_dir is not None:
-        repo_url = MIP_TABLE_REPOS[mip_era_lower]
-        if fast:
-            _fetch_tables_curl(repo_url, tables_dir, tag=tag)
-        else:
-            _fetch_tables_git(repo_url, tables_dir, tag=tag)
-        result['tables_dir'] = tables_dir
 
     return result

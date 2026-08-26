@@ -31,6 +31,9 @@ Before beginning CMORization, initialize the required resources:
    # Generate CMIP6 experiment config template and fetch tables
    fremor init -m cmip6 -e CMOR_cmip6_config.json -t cmip6-tables
 
+   # Generate CMIP6Plus experiment config template and fetch tables (fast mode)
+   fremor init -m cmip6plus -e CMOR_cmip6plus_config.json -t mip-cmor-tables --fast
+
    # Generate CMIP7 experiment config template and fetch tables (fast mode)
    fremor init -m cmip7 -e CMOR_cmip7_config.json -t cmip7-tables --fast
 
@@ -83,22 +86,55 @@ Variable lists map your modeler variable names to MIP table variable names. Gene
        -o generated_varlist.json
 
 This tool examines filenames to extract variable names. It assumes FRE-style naming conventions
-(e.g., ``component.YYYYMMDD.variable.nc``). Review the generated file and edit as needed to map
-local variable names to target MIP variable names.
+(e.g., ``component.YYYYMMDD.variable.nc``). The same variable name may appear in multiple files
+at different datetimes; ``fremor varlist`` deduplicates automatically so each variable appears
+only once in the output.
 
-When a modeler's variable name differs from the MIP table variable name, the variable list
-maps between them. For example, if your model produces ``sea_sfc_salinity`` but the MIP table
-expects ``sos``:
+**Using a MIP table to filter variables**
+
+Pass ``-t`` to cross-reference found variables against a specific MIP table:
+
+.. code-block:: bash
+
+   fremor varlist \
+       -d /path/to/ocean/ts/monthly/5yr \
+       -t /path/to/cmip6-cmor-tables/Tables/CMIP6_Omon.json \
+       -o ocean_varlist.json
+
+When a MIP table is provided:
+
+* Variables whose names match a MIP entry are **self-mapped** (key and value are identical, e.g., ``"sos": "sos"``). These are ready to use immediately.
+* Variables whose names do **not** match any MIP entry receive an **empty-string value** (e.g., ``"sea_sfc_salinity": ""``). This signals that manual mapping is required.
+* Matching is **case-insensitive** — ``LWP`` in a filename will match ``lwp`` in the MIP table.
+
+Review the generated file and fill in any empty-string values to map local variable names to target MIP variable names. For example:
 
 .. code-block:: json
 
    {
+       "sos": "sos",
        "sea_sfc_salinity": "sos"
    }
 
-The key (``sea_sfc_salinity``) is the modeler's variable name — it must match both the filename
-and the variable name inside the netCDF file. The value (``sos``) is the MIP table variable name
+The key (e.g., ``sea_sfc_salinity``) is the modeler's variable name — it must match both the filename
+and the variable name inside the netCDF file. The value (e.g., ``sos``) is the MIP table variable name
 used for metadata lookups.
+
+**Strict mode**
+
+If you provide a MIP table and want to skip components where none of the found variables match any MIP
+entry (rather than writing a file full of empty-value entries), use ``--strict_mode``:
+
+.. code-block:: bash
+
+   fremor varlist \
+       -d /path/to/land/ts/monthly/5yr \
+       -t /path/to/cmip6-cmor-tables/Tables/CMIP6_Amon.json \
+       --strict_mode \
+       -o land_atmos_varlist.json
+
+If no variables match, nothing is written and the tool exits without error. This is useful for
+batch workflows where many components are checked against many tables and most pairs have no overlap.
 
 To verify variables exist in MIP tables, search for variable definitions:
 
@@ -121,7 +157,19 @@ This displays which MIP table contains the variable and its metadata requirement
 Preparing Experiment Configuration
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-The experiment configuration JSON file contains required metadata for CMORization (e.g., ``CMOR_input_example.json``).
+The experiment configuration JSON file contains required metadata for CMORization.
+The required fields are determined by the target MIP's controlled vocabularies — see
+`CMIP7 required global attributes <https://github.com/WCRP-CMIP/cmip7-cmor-tables/blob/main/tables-cvs/split-view/required_global_attributes.json>`_
+for an example of how a MIP specifies its required metadata. Reference example
+experiment configuration files for each MIP era:
+
+* **CMIP6**: `CMIP6_input_example.json <https://github.com/PCMDI/cmip6-cmor-tables/blob/main/Tables/CMIP6_input_example.json>`_
+* **CMIP6Plus**: `CMOR_input_example.json <https://github.com/PCMDI/mip-cmor-tables/blob/main/src/exploration/old/CMOR_input_example.json>`_
+* **CMIP7**: `cmor_test.py (lines 9–41) <https://github.com/WCRP-CMIP/cmip7-cmor-tables/blob/main/scripts/cmor_test.py#L9-L41>`_
+  and `CMOR_input_example.json (PCMDI/cmor) <https://github.com/PCMDI/cmor/blob/9d82dfb7c091cd0e0366fffd8a50f4d17f85f4a6/Test/CMOR_input_example.json>`_
+
+Use ``fremor init -m <mip_era> -e exp_config.json`` to generate a template
+pre-populated with the correct fields for your target MIP era.
 This file should include:
 
 * Experiment metadata (``experiment_id``, ``activity_id``, ``source_id``, etc.)
@@ -250,6 +298,38 @@ YAML configuration for you:
 This scans the ``pp_dir`` for post-processing components, cross-references found variables against MIP
 tables, writes per-component variable list files, and emits a structured YAML that ``fremor yaml`` can
 later consume.
+
+To limit which pp component directories are scanned, use ``-g``/``--pp_comp_glob``:
+
+.. code-block:: bash
+
+   fremor config \
+       -p /path/to/pp \
+       -t /path/to/mip-tables \
+       -m cmip7 \
+       -e exp_config.json \
+       -o cmor.yaml \
+       -d /path/to/output \
+       -l /path/to/varlists \
+       -g 'ocean*'
+
+To skip components where none of the found variables match any MIP entry (i.e., apply
+``--strict_mode`` to every internal ``fremor varlist`` call), add ``--strict_varlist``:
+
+.. code-block:: bash
+
+   fremor config \
+       -p /path/to/pp \
+       -t /path/to/mip-tables \
+       -m cmip7 \
+       -e exp_config.json \
+       -o cmor.yaml \
+       -d /path/to/output \
+       -l /path/to/varlists \
+       --strict_varlist
+
+Components that produce no MIP-matching variables are silently omitted from the generated YAML,
+keeping the output focused on components that actually have data that can be cmorized.
 
 Common Issues and Solutions
 ---------------------------
@@ -399,7 +479,10 @@ Tips
 * Use ``--no-print_cli_call`` with ``--dry_run`` to see the Python ``cmor_run_subtool(...)`` call instead of the CLI invocation — useful for debugging
 * Use ``--run_one`` with ``fremor run`` for testing to only process a single file and catch issues early
 * Use ``--run_one`` with ``fremor yaml`` to process a single file per ``fremor run`` call for quicker debugging
+* Use ``--run_strict`` with ``fremor yaml`` to stop immediately when any ``fremor run`` call raises an exception — without it, failures are logged as warnings and processing continues to the next component
 * Use ``fremor config`` to auto-generate a CMOR YAML configuration from a post-processing directory tree — it scans components, cross-references against MIP tables, and writes both variable lists and the YAML that ``fremor yaml`` expects
+* Use ``-t`` with ``fremor varlist`` to cross-reference found variables against a MIP table: matched variables are self-mapped, unmatched variables receive an empty-string value indicating they need manual mapping
+* Use ``--strict_mode`` with ``fremor varlist`` (or ``--strict_varlist`` with ``fremor config``) to suppress output for components where no found variables match the MIP table
 * Increase verbosity when debugging — use ``-v`` to see ``INFO`` logging, and ``-vv`` (or ``-v -v``) for ``DEBUG`` logging
 * Version control your YAML files — track changes to your CMORization configuration and commit them to git!
 * Check controlled vocabulary — verify grid labels and nominal resolutions are CV-compliant
