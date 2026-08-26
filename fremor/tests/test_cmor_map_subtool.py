@@ -459,6 +459,41 @@ def test_mapsession_clear_mapping(temp_dir): # pylint: disable=redefined-outer-n
     assert json.loads(out_path.read_text(encoding='utf-8')) == {'t_ref': 'tas', 'sfc_pres': ''}
 
 
+def test_mapsession_usage_count(temp_dir): # pylint: disable=redefined-outer-name
+    ''' usage_count reflects how many loaded tables' varlists map a given (component,
+    local_key) to a non-empty CMIP variable, ignoring other components/keys and empty
+    (cleared) values '''
+    pp_dir, varlist_dir, tables_dir = _make_session_fixture(temp_dir)
+    (Path(varlist_dir) / 'CMIP6_Amon_atmos.list').write_text(
+        json.dumps({'t_ref': 'tas', 'sfc_pres': ''}), encoding='utf-8'
+    )
+    yamlfile = _amon_yaml(temp_dir, pp_dir, varlist_dir, tables_dir, component_names=['atmos'])
+    session = MapSession(yamlfile)
+
+    assert session.usage_count('atmos', 't_ref') == 1
+    assert session.usage_count('atmos', 'sfc_pres') == 0  # cleared -- empty value
+    assert session.usage_count('atmos', 'not_a_key') == 0
+    assert session.usage_count('other_component', 't_ref') == 0
+
+
+def test_mapsession_usage_count_reflects_staged_edits(temp_dir): # pylint: disable=redefined-outer-name
+    ''' usage_count picks up staged-but-unsaved set_mapping/clear_mapping calls immediately,
+    since they mutate varlists_by_table in memory '''
+    pp_dir, varlist_dir, tables_dir = _make_session_fixture(temp_dir)
+    (Path(varlist_dir) / 'CMIP6_Amon_atmos.list').write_text(
+        json.dumps({'t_ref': 'tas'}), encoding='utf-8'
+    )
+    yamlfile = _amon_yaml(temp_dir, pp_dir, varlist_dir, tables_dir, component_names=['atmos'])
+    session = MapSession(yamlfile)
+    assert session.usage_count('atmos', 'precip') == 0
+
+    session.set_mapping('Amon', 'atmos', 'precip', 'pr')
+    assert session.usage_count('atmos', 'precip') == 1
+
+    session.clear_mapping('Amon', 'atmos', 'precip')
+    assert session.usage_count('atmos', 'precip') == 0
+
+
 # ── selected-CMIP-variable box formatting ───────────────────────────────────
 
 def test_format_selected_cmip_none(temp_dir): # pylint: disable=redefined-outer-name
@@ -571,6 +606,38 @@ async def test_map_app_assign_mapping(temp_dir): # pylint: disable=redefined-out
     assert out_path.exists()
     assert json.loads(out_path.read_text(encoding='utf-8')) == {'pr': 'pr'}
     assert not session.has_pending_changes
+
+
+@pytest.mark.asyncio
+async def test_pp_tree_file_label_shows_usage_count(temp_dir): # pylint: disable=redefined-outer-name
+    ''' pp-file leaf labels show how many times their (component, local_key) is currently
+    mapped -- 0 for a pp file with no matching mapping, 1 once one exists in the varlist '''
+    pp_dir, varlist_dir, tables_dir = _make_session_fixture(temp_dir)
+    (Path(varlist_dir) / 'CMIP6_Amon_atmos.list').write_text(
+        json.dumps({'t_ref': 'tas'}), encoding='utf-8'
+    )
+
+    comp_ts_dir = Path(pp_dir) / 'atmos' / 'ts' / 'monthly' / '5yr'
+    comp_ts_dir.mkdir(parents=True)
+    _write_nc_file(comp_ts_dir / 'atmos.000101-000512.t_ref.nc', 't_ref')
+    _write_nc_file(comp_ts_dir / 'atmos.000101-000512.precip.nc', 'precip')
+
+    yamlfile = _amon_yaml(temp_dir, pp_dir, varlist_dir, tables_dir, component_names=['atmos'])
+    app = MapApp(MapSession(yamlfile))
+
+    async with app.run_test():
+        pp_tree = app.query_one('#pp_tree')
+        component_node = pp_tree.root.children[0]
+        app.on_tree_node_expanded(_FakeTreeEvent(component_node, 'pp_tree'))
+        freq_node = component_node.children[0]
+        app.on_tree_node_expanded(_FakeTreeEvent(freq_node, 'pp_tree'))
+        chunk_node = freq_node.children[0]
+        app.on_tree_node_expanded(_FakeTreeEvent(chunk_node, 'pp_tree'))
+
+        t_ref_node = next(n for n in chunk_node.children if n.data['local_key'] == 't_ref')
+        precip_node = next(n for n in chunk_node.children if n.data['local_key'] == 'precip')
+        assert '(used 1x)' in str(t_ref_node.label)
+        assert '(used 0x)' in str(precip_node.label)
 
 
 @pytest.mark.asyncio

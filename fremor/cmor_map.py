@@ -297,6 +297,19 @@ class MapSession:
         placeholder convention rather than deleting the key)."""
         self.set_mapping(table_name, component_name, local_key, '')
 
+    def usage_count(self, component_name: str, local_key: str) -> int:
+        """Number of currently-loaded (table, component) varlists in which local_key is
+        mapped to a non-empty CMIP variable for the given component -- i.e. how many times
+        a pp file for this component/local_key is actually referenced by the mapping, across
+        every MIP table loaded into this session. Reflects staged-but-unsaved edits too,
+        since those mutate varlists_by_table directly."""
+        count = 0
+        for entries in self.varlists_by_table.values():
+            for component, _path, data in entries:
+                if component == component_name and data.get(local_key):
+                    count += 1
+        return count
+
     @property
     def has_pending_changes(self) -> bool:
         """True if any staged mapping edits haven't been written to disk yet."""
@@ -499,6 +512,13 @@ class MapApp(App):
             )
         tree.root.expand()
 
+    @staticmethod
+    def _pp_file_label(nc_path: str, local_var: str, usage_count: int) -> str:
+        """Render one pp-file leaf's label, including how many of the currently-loaded
+        MIP tables' varlists actually map this file's (component, local_key) to a CMIP
+        variable -- so a heavily-reused file (or a never-used one) is obvious at a glance."""
+        return f'{Path(nc_path).name}  [{local_var}]  (used {usage_count}x)'
+
     def on_tree_node_expanded(self, event: Tree.NodeExpanded) -> None:
         if event.control.id != 'pp_tree':
             return
@@ -520,8 +540,9 @@ class MapApp(App):
         elif kind == 'chunk':
             for nc_path in _discover_nc_files(data['path'], data['freq'], data['chunk']):
                 local_var = _local_var_name_from_nc_path(nc_path)
+                usage_count = self.session.usage_count(data['component'], local_var)
                 node.add_leaf(
-                    f'{Path(nc_path).name}  [{local_var}]',
+                    self._pp_file_label(nc_path, local_var, usage_count),
                     data={'kind': 'file', 'path': nc_path,
                           'component': data['component'], 'local_key': local_var})
 
