@@ -18,6 +18,7 @@ from .cmor_mixer import cmor_run_subtool
 from .cmor_yamler import cmor_yaml_subtool
 from .cmor_resolver import resolve_fremor_yaml
 from .cmor_config import cmor_config_subtool
+from .cmor_check import cmor_check_subtool
 from .cmor_init import cmor_init_subtool
 
 fre_logger = logging.getLogger(__name__)
@@ -328,6 +329,38 @@ def config(pp_dir, mip_tables_dir, mip_era, exp_config, output_yaml,
         grid=grid,
         overwrite=overwrite,
         calendar_type=calendar
+    )
+
+
+@fremor.command()
+@click.option('-l', '--varlist_dir', type=str, required=True,
+              help='Directory containing per-component variable list JSON files, '
+                   'as written by \'fremor config\' / \'fremor varlist\'.')
+@click.option('-t', '--mip_tables_dir', type=str, required=True,
+              help='Directory containing MIP table JSON files (e.g. fetched via \'fremor init\'), '
+                   'used as the authoritative source of each table\'s required variables.')
+@click.option('-m', '--mip_era', type=click.Choice(['cmip6', 'cmip7'], case_sensitive=False),
+              required=True,
+              help='MIP era to check: cmip6 or cmip7.')
+@click.option('--json', 'json_output', is_flag=True, default=False,
+              help='Print the report as JSON instead of a text summary.')
+@click.option('-o', '--output_report', type=str, default=None,
+              help='Optional path to also write the JSON report to.')
+def check(varlist_dir, mip_tables_dir, mip_era, json_output, output_report):
+    """
+    Check variable-mapping coverage of varlist files against MIP tables.
+
+    For each MIP table found in mip_tables_dir, reports CMIP variables required
+    by the table but not mapped from any component in varlist_dir, variables
+    mapped from more than one component/diagnostic, and mapped values that
+    don't correspond to any variable actually defined in that table.
+    """
+    cmor_check_subtool(
+        varlist_dir=varlist_dir,
+        mip_tables_dir=mip_tables_dir,
+        mip_era=mip_era,
+        json_output=json_output,
+        output_report=output_report
     )
 
 
