@@ -10,6 +10,7 @@ workflows are supported. Available subcommands:
 * ``fremor init`` — Initialize CMOR resources: generate config templates and fetch MIP tables
 * ``fremor run`` — Rewrite individual directories of netCDF files
 * ``fremor yaml`` — Process multiple directories/tables using YAML configuration
+* ``fremor stage`` — Recall all mapped YAML-run inputs with one batched ``dmget`` call
 * ``fremor resolve`` — Combine model + grids + cmor YAMLs into one resolved document for inspection
 * ``fremor find`` — Search MIP tables for variable definitions
 * ``fremor varlist`` — Generate variable lists from netCDF files
@@ -73,6 +74,24 @@ workflows are supported. Available subcommands:
    - ``--start TEXT`` — Minimum year (YYYY)
    - ``--stop TEXT`` — Maximum year (YYYY)
 * Example: ``fremor yaml -y cmor.yaml --dry_run``
+
+``stage``
+---------
+
+* Discovers the mapped NetCDF inputs selected by a self-contained CMOR YAML file and submits them in one ``dmget`` invocation
+* Deduplicates files referenced by multiple table targets and includes existing same-date ``ps`` auxiliary files
+* Uses the YAML ``start``/``stop`` bounds unless they are overridden on the command line
+* Minimal Syntax: ``fremor stage -y [yamlfile] [options]``
+* Required Options:
+   - ``-y, --yamlfile TEXT`` — Self-contained CMOR YAML file
+* Optional:
+   - ``--start TEXT`` — Override the minimum year (YYYY)
+   - ``--stop TEXT`` — Override the maximum year (YYYY)
+   - ``--dmget_bin TEXT`` — Executable name or path (default: ``dmget``)
+   - ``--dry_run`` — Print selected paths without invoking ``dmget``
+* Examples:
+   - ``fremor stage -y cmor.yaml``
+   - ``fremor stage -y cmor.yaml --start 2000 --stop 2014 --dry_run``
 
 ``resolve``
 -----------

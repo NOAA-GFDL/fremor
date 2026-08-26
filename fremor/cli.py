@@ -21,6 +21,7 @@ from .cmor_config import cmor_config_subtool
 from .cmor_check import cmor_check_subtool
 from .cmor_map import cmor_map_subtool
 from .cmor_init import cmor_init_subtool
+from .cmor_stage import cmor_stage_subtool
 
 fre_logger = logging.getLogger(__name__)
 
@@ -142,6 +143,32 @@ def yaml(yamlfile, run_strict, run_one, dry_run, start, stop, print_cli_call):
         stop = stop,
         print_cli_call = print_cli_call
     )
+
+
+@fremor.command()
+@click.option('-y', '--yamlfile', type=str, required=True,
+              help='Self-contained CMOR YAML file whose mapped input files should be staged.')
+@click.option('--start', type=str, default=None, help=START_YEAR_HELP)
+@click.option('--stop', type=str, default=None, help=STOP_YEAR_HELP)
+@click.option('--dmget_bin', type=str, default='dmget', show_default=True,
+              help='dmget executable name or path.')
+@click.option('--dry_run', is_flag=True, default=False,
+              help='List the selected files without invoking dmget.')
+def stage(yamlfile, start, stop, dmget_bin, dry_run):
+    """Stage all mapped archive inputs for a YAML-driven run in one dmget batch."""
+    input_files = cmor_stage_subtool(
+        yamlfile=yamlfile,
+        start=start,
+        stop=stop,
+        dmget_bin=dmget_bin,
+        dry_run=dry_run,
+    )
+    if dry_run:
+        for input_file in input_files:
+            click.echo(input_file)
+        click.echo(f'Would stage {len(input_files)} files in one dmget batch.')
+    else:
+        click.echo(f'Staged {len(input_files)} files in one dmget batch.')
 
 
 @fremor.command()

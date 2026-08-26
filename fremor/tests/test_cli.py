@@ -160,6 +160,38 @@ def test_cli_fremor_yaml_case1(mock_subtool, tmp_path):
     )
 
 
+# ── fremor stage ───────────────────────────────────────────────────
+
+def test_cli_fremor_stage_help():
+    """fremor stage --help."""
+    result = runner.invoke(fremor, args=['stage', '--help'])
+    assert result.exit_code == 0
+
+
+@patch('fremor.cli.cmor_stage_subtool')
+def test_cli_fremor_stage_dry_run(mock_subtool, tmp_path):
+    """The stage CLI prints dry-run paths and forwards its options."""
+    yamlfile = tmp_path / 'cmor.yaml'
+    yamlfile.touch()
+    mock_subtool.return_value = ['/archive/case/a.nc', '/archive/case/b.nc']
+
+    result = runner.invoke(fremor, args=[
+        'stage', '-y', str(yamlfile), '--start', '2000', '--stop', '2004',
+        '--dmget_bin', '/usr/local/bin/dmget', '--dry_run',
+    ])
+
+    assert result.exit_code == 0
+    assert '/archive/case/a.nc' in result.output
+    assert 'Would stage 2 files in one dmget batch.' in result.output
+    mock_subtool.assert_called_once_with(
+        yamlfile=str(yamlfile),
+        start='2000',
+        stop='2004',
+        dmget_bin='/usr/local/bin/dmget',
+        dry_run=True,
+    )
+
+
 # ── fremor resolve ───────────────────────────────────────────────────────────
 
 def test_cli_fremor_resolve():
