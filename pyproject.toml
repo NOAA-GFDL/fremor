@@ -26,6 +26,7 @@ dependencies = [
     "netCDF4",
     "numpy",
     "pyyaml",
+    "textual",
 ]
 
 classifiers = [
@@ -58,11 +59,16 @@ docs = [
 test = [
     "pylint",
     "pytest",
+    "pytest-asyncio",
 ]
 
 qa = [
     "cc-plugin-wcrp",
 ]
+
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
 
 
 [tool.rstcheck]

@@ -19,6 +19,7 @@ from .cmor_yamler import cmor_yaml_subtool
 from .cmor_resolver import resolve_fremor_yaml
 from .cmor_config import cmor_config_subtool
 from .cmor_check import cmor_check_subtool
+from .cmor_map import cmor_map_subtool
 from .cmor_init import cmor_init_subtool
 
 fre_logger = logging.getLogger(__name__)
@@ -334,42 +335,74 @@ def config(pp_dir, mip_tables_dir, mip_era, exp_config, output_yaml,
 
 @fremor.command()
 @click.argument('tables', nargs=-1)
-@click.option('-l', '--varlist_dir', type=str, required=True,
-              help='Directory containing per-component variable list JSON files, '
-                   'as written by \'fremor config\' / \'fremor varlist\'.')
-@click.option('-t', '--mip_tables_dir', type=str, required=True,
-              help='Directory containing MIP table JSON files (e.g. fetched via \'fremor init\'), '
-                   'used as the authoritative source of each table\'s required variables.')
-@click.option('-m', '--mip_era', type=click.Choice(['cmip6', 'cmip7'], case_sensitive=False),
-              required=True,
-              help='MIP era to check: cmip6 or cmip7.')
+@click.option('-y', '--yamlfile', type=str, required=True,
+              help='Self-contained CMOR YAML file, as written by \'fremor config\'. pp_dir, '
+                   'the MIP tables directory, the MIP era, and each component\'s variable_list '
+                   'path are all derived from it.')
 @click.option('--show_mapped', is_flag=True, default=False,
               help='Also report variables mapped from exactly one component/diagnostic (one-to-one).')
 @click.option('--json', 'json_output', is_flag=True, default=False,
               help='Print the report as JSON instead of a text summary.')
 @click.option('-o', '--output_report', type=str, default=None,
               help='Optional path to also write the JSON report to.')
-def check(tables, varlist_dir, mip_tables_dir, mip_era, show_mapped, json_output, output_report):
+def check(tables, yamlfile, show_mapped, json_output, output_report):
     """
     Check variable-mapping coverage of varlist files against MIP tables.
 
-    For each MIP table found in mip_tables_dir, reports CMIP variables required
-    by the table but not mapped from any component in varlist_dir, variables
-    mapped from more than one component/diagnostic, and mapped values that
-    don't correspond to any variable actually defined in that table.
+    For each MIP table in yamlfile's table_targets, reports CMIP variables required
+    by the table but not mapped from any component, variables mapped from more than
+    one component/diagnostic, and mapped values that don't correspond to any variable
+    actually defined in that table.
 
     TABLES is an optional list of MIP table names to check, e.g. 'Amon' or
     'Lmon'. Shell-style wildcards are supported, e.g. 'AER*'. If omitted,
-    every MIP table found in mip_tables_dir is checked.
+    every MIP table in yamlfile's table_targets is checked.
     """
     cmor_check_subtool(
-        varlist_dir=varlist_dir,
-        mip_tables_dir=mip_tables_dir,
-        mip_era=mip_era,
+        yamlfile=yamlfile,
         table_patterns=tables,
         show_mapped=show_mapped,
         json_output=json_output,
         output_report=output_report
+    )
+
+
+@fremor.command('map')
+@click.argument('tables', nargs=-1)
+@click.option('-y', '--yamlfile', type=str, required=True,
+              help='Self-contained CMOR YAML file, as written by \'fremor config\'. pp_dir, '
+                   'the MIP tables directory, the MIP era, and each component\'s variable_list '
+                   'path are all derived from it; mapping edits are staged in memory and only '
+                   'written back to the variable_list files referenced there once you save.')
+@click.option('--ncinfo_bin', type=str, required=False, default=None,
+              help='Path to the ncinfo binary for richer NetCDF file previews. If omitted, '
+                   'looks for \'ncinfo\' on PATH; if not found either, falls back to a plain '
+                   'netCDF4-based preview.')
+def map_(tables, yamlfile, ncinfo_bin):
+    """
+    Open an interactive TUI to review and edit variable-mapping varlist files.
+
+    Shows each selected MIP table as a tree of variables alongside their current mapping
+    status (unmapped / mapped / multiply-mapped / unknown, as reported by 'fremor check'),
+    and lets you browse time-series files under pp_dir to assign or fix a mapping. When
+    selecting a file, a preview panel shows its variable's dimensions/attributes via ncinfo
+    (if available) or netCDF4 as a fallback.
+
+    Pressing 'm'/'d' only stages a mapping/clear in memory, marking the affected node in
+    place (a newly (re)mapped variable shows '<- component:local_key', a cleared mapping is
+    struck through and labeled '(deleted)') so you can batch edits across many variables
+    without the tree collapsing; press 's' to write all staged changes to disk. Press 'q' to
+    quit; if there are unsaved staged changes, 'q' warns first and requires a second 'q' to
+    confirm quitting without saving.
+
+    TABLES is an optional list of MIP table names to load, e.g. 'Amon' or 'Lmon'. Shell-style
+    wildcards are supported, e.g. 'AER*'. If omitted, every MIP table in yamlfile's
+    table_targets is loaded.
+    """
+    cmor_map_subtool(
+        yamlfile=yamlfile,
+        table_patterns=tables,
+        ncinfo_bin=ncinfo_bin
     )
 
 

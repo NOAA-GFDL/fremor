@@ -2,11 +2,11 @@
 ``fremor check``: Variable Mapping Coverage Check
 ==================================================
 
-This module powers the ``fremor check`` command. It cross-references the
-per-component variable list files (as written by ``fremor config`` /
-``fremor varlist``) against the authoritative MIP table JSON files fetched
-by ``fremor init`` (e.g. the ``cmip6-cmor-tables`` / ``cmip7-cmor-tables``
-repos) and reports, per MIP table:
+This module powers the ``fremor check`` command. It reads a self-contained CMOR YAML file
+(as written by ``fremor config``) to derive pp_dir, the MIP tables directory, the MIP era,
+and each component's variable list path, cross-references the per-component variable lists
+against the authoritative MIP table JSON files fetched by ``fremor init`` (e.g. the
+``cmip6-cmor-tables`` / ``cmip7-cmor-tables`` repos), and reports, per MIP table:
 
 - variables the MIP table actually requires (its ``variable_entry`` keys)
   that are not mapped from any GFDL post-processing component, and
@@ -33,21 +33,17 @@ Functions
 import fnmatch
 import json
 import logging
-import re
+import os
 from collections import defaultdict
 from pathlib import Path
 from typing import Optional, Sequence
 
 import click
 
-from .cmor_config import _filter_mip_tables
+from .cmor_config import _load_config_yaml
 from .cmor_helpers import get_json_file_data
 
 fre_logger = logging.getLogger(__name__)
-
-VARLIST_FILENAME_RE = re.compile(
-    r'^(?P<era>[A-Za-z0-9]+)_(?P<table>[A-Za-z0-9]+)_(?P<component>.+)\.list$'
-)
 
 
 def _reference_vars_for_table(table_path: str, mip_era: str) -> set:
@@ -70,44 +66,61 @@ def _reference_vars_for_table(table_path: str, mip_era: str) -> set:
     return set(variable_entry.keys())
 
 
-def _load_varlists_by_table(varlist_dir: str, era_upper: str) -> dict:
+def _select_table_names(table_names: Sequence[str], table_patterns: Sequence[str]) -> list:
     """
-    Group varlist JSON files in ``varlist_dir`` by MIP table name.
+    Filter a list of MIP table names down to those matching at least one of the given
+    glob-style patterns (e.g. 'Amon', 'AER*'). If no patterns are given, all names are kept.
+    """
+    if not table_patterns:
+        return list(table_names)
+    return [
+        table_name for table_name in table_names
+        if any(fnmatch.fnmatchcase(table_name, pattern) for pattern in table_patterns)
+    ]
 
-    Expects filenames of the form ``{ERA}_{table_name}_{component_name}.list``,
-    matching what ``fremor config`` / ``fremor varlist`` write.
 
-    :return: table_name -> list of (component_name, filename, data) tuples
+def _mip_table_paths(mip_tables_dir: str, mip_era: str, table_names: Sequence[str]) -> dict:
+    """
+    Resolve each of the given MIP table names to its ``{ERA}_{table_name}.json`` path in
+    ``mip_tables_dir``.
+
+    :raises FileNotFoundError: if a table name has no corresponding MIP table JSON file.
+    :return: table_name -> table_path
+    :rtype: dict
+    """
+    era_upper = mip_era.upper()
+    table_paths = {}
+    for table_name in table_names:
+        table_path = f'{mip_tables_dir}/{era_upper}_{table_name}.json'
+        if not Path(table_path).is_file():
+            raise FileNotFoundError(f'MIP table for {table_name} not found: {table_path}')
+        table_paths[table_name] = table_path
+    return table_paths
+
+
+def _varlists_by_table_from_yaml(table_targets: Sequence[dict]) -> dict:
+    """
+    Group per-component variable lists by MIP table name, reading the ``variable_list``
+    paths straight out of a cmor yaml's ``table_targets`` (as written by ``fremor config``)
+    instead of globbing a directory for files matching a naming convention.
+
+    :return: table_name -> list of (component_name, variable_list_path, data) tuples
     :rtype: dict
     """
     grouped = defaultdict(list)
-    for path in sorted(Path(varlist_dir).glob(f'{era_upper}_*.list')):
-        match = VARLIST_FILENAME_RE.match(path.name)
-        if not match or match.group('era') != era_upper:
-            continue
-        try:
-            data = json.loads(path.read_text(encoding='utf-8'))
-        except json.JSONDecodeError as exc:
-            fre_logger.warning('failed to parse %s: %s', path.name, exc)
-            continue
-        grouped[match.group('table')].append((match.group('component'), path.name, data))
+    for table_target in table_targets:
+        table_name = table_target['table_name']
+        for comp in table_target.get('target_components') or []:
+            component_name = comp['component_name']
+            variable_list_path = os.path.expandvars(comp['variable_list'])
+            try:
+                data = get_json_file_data(variable_list_path)
+            except FileNotFoundError:
+                fre_logger.warning('variable_list not found, treating as empty: %s',
+                                   variable_list_path)
+                data = {}
+            grouped[table_name].append((component_name, variable_list_path, data))
     return grouped
-
-
-def _select_mip_tables(mip_tables: list, table_patterns: Sequence[str]) -> list:
-    """
-    Filter a list of MIP table JSON paths down to those whose table name
-    (e.g. 'Amon' from 'CMIP6_Amon.json') matches at least one of the given
-    glob-style patterns. If no patterns are given, all tables are kept.
-    """
-    if not table_patterns:
-        return mip_tables
-    selected = []
-    for table_path in mip_tables:
-        table_name = Path(table_path).stem.split('.')[0].split('_')[1]
-        if any(fnmatch.fnmatchcase(table_name, pattern) for pattern in table_patterns):
-            selected.append(table_path)
-    return selected
 
 
 def _build_table_report(table_path: str, mip_era: str, varlists_by_table: dict,
@@ -186,9 +199,7 @@ def _print_report(report: dict, show_mapped: bool = False) -> None:
 
 
 def cmor_check_subtool(
-        varlist_dir: str,
-        mip_tables_dir: str,
-        mip_era: str,
+        yamlfile: str,
         table_patterns: Sequence[str] = (),
         show_mapped: bool = False,
         json_output: bool = False,
@@ -199,14 +210,14 @@ def cmor_check_subtool(
     and report unmapped, multiply-mapped, and unrecognized variable mappings
     per MIP table.
 
-    :param varlist_dir: directory containing ``{ERA}_{table}_{component}.list`` files.
-    :type varlist_dir: str
-    :param mip_tables_dir: directory containing MIP table JSON files (e.g. fetched via ``fremor init``).
-    :type mip_tables_dir: str
-    :param mip_era: MIP era identifier, e.g. 'cmip6' or 'cmip7'.
-    :type mip_era: str
+    pp_dir, the MIP tables directory, the MIP era, and each component's variable_list path
+    are all derived from ``yamlfile``, a self-contained CMOR YAML file as written by
+    ``fremor config`` -- no separate varlist_dir/mip_tables_dir/mip_era flags are needed.
+
+    :param yamlfile: path to a CMOR YAML file produced by ``fremor config``.
+    :type yamlfile: str
     :param table_patterns: optional glob-style patterns (e.g. 'Amon', 'AER*') selecting which MIP
-        tables to check by name. If empty, every MIP table found in mip_tables_dir is checked.
+        tables to check by name. If empty, every MIP table in yamlfile's table_targets is checked.
     :type table_patterns: Sequence[str]
     :param show_mapped: if True, also report variables mapped from exactly one component/diagnostic.
     :type show_mapped: bool
@@ -214,34 +225,34 @@ def cmor_check_subtool(
     :type json_output: bool
     :param output_report: optional path to also write the JSON report to.
     :type output_report: str or None
-    :raises FileNotFoundError: if varlist_dir or mip_tables_dir do not exist.
-    :raises ValueError: if no MIP tables are found for the given era after filtering, or if none
-        of the given table_patterns match any MIP table found.
+    :raises FileNotFoundError: if yamlfile, its pp_dir, or its table_dir do not exist, or a
+        table_target's MIP table JSON file is missing.
+    :raises ValueError: if yamlfile has no table_targets, or none of the given table_patterns
+        match any table_target.
     :return: table_name -> report dict, with keys 'reference_var_count', 'unmapped',
              'multiply_mapped', 'unknown_mapped', and (if show_mapped) 'one_to_one_mapped'.
     :rtype: dict
     """
-    if not Path(varlist_dir).is_dir():
-        raise FileNotFoundError(f'varlist_dir does not exist: {varlist_dir}')
-    if not Path(mip_tables_dir).is_dir():
-        raise FileNotFoundError(f'mip_tables_dir does not exist: {mip_tables_dir}')
+    cmor_yaml_ctx = _load_config_yaml(yamlfile)
+    mip_era = cmor_yaml_ctx['mip_era']
+    mip_tables_dir = cmor_yaml_ctx['mip_tables_dir']
+    table_targets = cmor_yaml_ctx['table_targets']
 
-    mip_tables = _filter_mip_tables(mip_tables_dir, mip_era)
-    if not mip_tables:
+    all_table_names = sorted({table_target['table_name'] for table_target in table_targets})
+    if not all_table_names:
+        raise ValueError(f'no table_targets found in {yamlfile}')
+
+    table_names = _select_table_names(all_table_names, table_patterns)
+    if not table_names:
         raise ValueError(
-            f'no MIP tables found in {mip_tables_dir} for era {mip_era} after filtering')
+            f'no table_targets in {yamlfile} matched table_patterns {list(table_patterns)}')
 
-    mip_tables = _select_mip_tables(mip_tables, table_patterns)
-    if not mip_tables:
-        raise ValueError(
-            f'no MIP tables in {mip_tables_dir} matched table_patterns {list(table_patterns)}')
-
-    era_upper = mip_era.upper()
-    varlists_by_table = _load_varlists_by_table(varlist_dir, era_upper)
+    table_paths = _mip_table_paths(mip_tables_dir, mip_era, table_names)
+    varlists_by_table = _varlists_by_table_from_yaml(table_targets)
 
     report = {}
-    for table_path in sorted(mip_tables):
-        table_entry = _build_table_report(table_path, mip_era, varlists_by_table,
+    for table_name in table_names:
+        table_entry = _build_table_report(table_paths[table_name], mip_era, varlists_by_table,
                                           show_mapped=show_mapped)
         report[table_entry.pop('table_name')] = table_entry
 
