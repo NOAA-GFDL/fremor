@@ -131,6 +131,34 @@ def test_cmor_check_subtool_missing_table_json_err(temp_dir): # pylint: disable=
         cmor_check_subtool(yamlfile=yamlfile)
 
 
+def test_cmor_check_subtool_cmip6plus_table_uses_mip_prefix(temp_dir): # pylint: disable=redefined-outer-name
+    ''' cmip6plus's mip-cmor-tables repo names its table JSON files 'MIP_<table>.json',
+    not '<ERA>_<table>.json' like cmip6/cmip7 -- fremor check (and map/stage, which share
+    the same table-path resolution) must look for that prefix instead. '''
+    temp_root = Path(temp_dir)
+    tables_dir = temp_root / 'tables'
+    tables_dir.mkdir()
+    (tables_dir / 'MIP_ACmon.json').write_text(
+        json.dumps({'Header': {'table_id': 'Table ACmon'},
+                    'variable_entry': {'tas': {'standard_name': 'tas'}}}),
+        encoding='utf-8'
+    )
+
+    varlist_dir = temp_root / 'varlists'
+    varlist_dir.mkdir()
+    atmos_list = varlist_dir / 'MIP_ACmon_atmos.list'
+    atmos_list.write_text(json.dumps({'t_ref': 'tas'}), encoding='utf-8')
+
+    yamlfile = _write_yaml(temp_dir, [
+        _table_target('ACmon', [_component_entry('atmos', atmos_list)])
+    ], mip_era='cmip6plus', table_dir=tables_dir)
+
+    report = cmor_check_subtool(yamlfile=yamlfile)
+
+    assert report['ACmon']['reference_var_count'] == 1
+    assert report['ACmon']['unmapped'] == []
+
+
 def test_cmor_check_subtool_reports_unmapped_and_multiply_mapped(temp_dir): # pylint: disable=redefined-outer-name
     ''' full report: unmapped, multiply-mapped, and unknown-mapped variables '''
     temp_root = Path(temp_dir)

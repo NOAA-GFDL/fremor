@@ -107,17 +107,21 @@ def _select_table_names(table_names: Sequence[str], table_patterns: Sequence[str
 
 def _mip_table_paths(mip_tables_dir: str, mip_era: str, table_names: Sequence[str]) -> dict:
     """
-    Resolve each of the given MIP table names to its ``{ERA}_{table_name}.json`` path in
-    ``mip_tables_dir``.
+    Resolve each of the given MIP table names to its MIP table JSON path in
+    ``mip_tables_dir``: ``{ERA}_{table_name}.json`` for cmip6/cmip7, but
+    ``MIP_{table_name}.json`` for cmip6plus, whose ``mip-cmor-tables`` repo uses a bare
+    ``MIP_`` prefix instead of an era-specific one (matches ``_filter_mip_tables`` in
+    cmor_config.py).
 
     :raises FileNotFoundError: if a table name has no corresponding MIP table JSON file.
     :return: table_name -> table_path
     :rtype: dict
     """
     era_upper = mip_era.upper()
+    prefix = 'MIP' if era_upper == 'CMIP6PLUS' else era_upper
     table_paths = {}
     for table_name in table_names:
-        table_path = f'{mip_tables_dir}/{era_upper}_{table_name}.json'
+        table_path = f'{mip_tables_dir}/{prefix}_{table_name}.json'
         if not Path(table_path).is_file():
             raise FileNotFoundError(f'MIP table for {table_name} not found: {table_path}')
         table_paths[table_name] = table_path
