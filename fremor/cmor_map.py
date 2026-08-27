@@ -536,6 +536,7 @@ class MapApp(App):
         height: 1fr;
         border: solid $accent;
         padding: 1 2;
+        overflow-y: auto;
     }
     #pp_pane {
         width: 1fr;
@@ -553,6 +554,7 @@ class MapApp(App):
         height: 1fr;
         border: solid $accent;
         padding: 1 2;
+        overflow-y: auto;
     }
     """
 
