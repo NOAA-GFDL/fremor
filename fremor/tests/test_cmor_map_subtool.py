@@ -785,6 +785,127 @@ async def test_pp_preview_runs_in_background_with_loading_message(temp_dir, monk
         assert 'kg m-2 s-1' in preview_box.content
 
 
+def _fake_dmls(monkeypatch, dmls_bin, state_by_path):
+    ''' patch shutil.which('dmls') to resolve to dmls_bin, and subprocess.run to return a
+    dmls -l-style listing line (with the given state) for whichever path is queried '''
+    import subprocess as subprocess_mod # pylint: disable=import-outside-toplevel
+
+    monkeypatch.setattr(
+        'shutil.which', lambda name: dmls_bin if name == 'dmls' else None)
+
+    class _FakeResult: # pylint: disable=too-few-public-methods
+        def __init__(self, stdout):
+            self.stdout = stdout
+
+    def _fake_run(cmd, **kwargs): # pylint: disable=unused-argument
+        assert cmd[0] == dmls_bin
+        path = cmd[-1]
+        state = state_by_path[path]
+        return _FakeResult(f'-rw-r--r-- 1 user group 123 Jan 1 12:00 ({state}) {path}\n')
+
+    monkeypatch.setattr(subprocess_mod, 'run', _fake_run)
+
+
+@pytest.mark.asyncio
+async def test_pp_preview_shows_tape_message_when_offline(temp_dir, monkeypatch): # pylint: disable=redefined-outer-name
+    ''' a pp file whose dmls status is anything other than REG/DUL (still on tape) shows a
+    "still on tape" message instead of a preview -- ncinfo/netCDF4 are never even attempted '''
+    pp_dir, varlist_dir, tables_dir = _make_session_fixture(temp_dir)
+
+    comp_ts_dir = Path(pp_dir) / 'atmos' / 'ts' / 'monthly' / '5yr'
+    comp_ts_dir.mkdir(parents=True)
+    nc_path = comp_ts_dir / 'atmos.000101-000512.pr.nc'
+    _write_nc_file(nc_path, 'pr', units='kg m-2 s-1')
+    _fake_dmls(monkeypatch, '/usr/bin/dmls', {str(nc_path): 'OFL'})
+
+    yamlfile = _amon_yaml(temp_dir, pp_dir, varlist_dir, tables_dir, component_names=['atmos'])
+    app = MapApp(MapSession(yamlfile))
+
+    async with app.run_test() as pilot:
+        pp_tree = app.query_one('#pp_tree')
+        component_node = pp_tree.root.children[0]
+        app.on_tree_node_expanded(_FakeTreeEvent(component_node, 'pp_tree'))
+        freq_node = component_node.children[0]
+        app.on_tree_node_expanded(_FakeTreeEvent(freq_node, 'pp_tree'))
+        chunk_node = freq_node.children[0]
+        app.on_tree_node_expanded(_FakeTreeEvent(chunk_node, 'pp_tree'))
+        file_node = chunk_node.children[0]
+
+        app.on_tree_node_selected(_FakeTreeEvent(file_node, 'pp_tree'))
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+
+        preview_box = app.query_one('#preview')
+        assert 'still on tape' in preview_box.content
+        assert 'OFL' in preview_box.content
+
+
+@pytest.mark.asyncio
+async def test_pp_preview_shown_when_dmls_reports_disk_resident(temp_dir, monkeypatch): # pylint: disable=redefined-outer-name
+    ''' a pp file whose dmls status is REG or DUL is previewed normally '''
+    pp_dir, varlist_dir, tables_dir = _make_session_fixture(temp_dir)
+
+    comp_ts_dir = Path(pp_dir) / 'atmos' / 'ts' / 'monthly' / '5yr'
+    comp_ts_dir.mkdir(parents=True)
+    nc_path = comp_ts_dir / 'atmos.000101-000512.pr.nc'
+    _write_nc_file(nc_path, 'pr', units='kg m-2 s-1')
+    _fake_dmls(monkeypatch, '/usr/bin/dmls', {str(nc_path): 'DUL'})
+
+    yamlfile = _amon_yaml(temp_dir, pp_dir, varlist_dir, tables_dir, component_names=['atmos'])
+    app = MapApp(MapSession(yamlfile))
+
+    async with app.run_test() as pilot:
+        pp_tree = app.query_one('#pp_tree')
+        component_node = pp_tree.root.children[0]
+        app.on_tree_node_expanded(_FakeTreeEvent(component_node, 'pp_tree'))
+        freq_node = component_node.children[0]
+        app.on_tree_node_expanded(_FakeTreeEvent(freq_node, 'pp_tree'))
+        chunk_node = freq_node.children[0]
+        app.on_tree_node_expanded(_FakeTreeEvent(chunk_node, 'pp_tree'))
+        file_node = chunk_node.children[0]
+
+        app.on_tree_node_selected(_FakeTreeEvent(file_node, 'pp_tree'))
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+
+        preview_box = app.query_one('#preview')
+        assert 'still on tape' not in preview_box.content
+        assert preview_box.content.startswith('[netcdf4] pr')
+        assert 'kg m-2 s-1' in preview_box.content
+
+
+@pytest.mark.asyncio
+async def test_pp_preview_falls_back_to_stat_heuristic_without_dmls(temp_dir, monkeypatch): # pylint: disable=redefined-outer-name
+    ''' with no dmls binary available at all, a normal on-disk file still previews (via the
+    stat-based residency heuristic) instead of being reported as on tape '''
+    monkeypatch.setattr('shutil.which', lambda _: None)
+    pp_dir, varlist_dir, tables_dir = _make_session_fixture(temp_dir)
+
+    comp_ts_dir = Path(pp_dir) / 'atmos' / 'ts' / 'monthly' / '5yr'
+    comp_ts_dir.mkdir(parents=True)
+    _write_nc_file(comp_ts_dir / 'atmos.000101-000512.pr.nc', 'pr', units='kg m-2 s-1')
+
+    yamlfile = _amon_yaml(temp_dir, pp_dir, varlist_dir, tables_dir, component_names=['atmos'])
+    app = MapApp(MapSession(yamlfile))
+
+    async with app.run_test() as pilot:
+        pp_tree = app.query_one('#pp_tree')
+        component_node = pp_tree.root.children[0]
+        app.on_tree_node_expanded(_FakeTreeEvent(component_node, 'pp_tree'))
+        freq_node = component_node.children[0]
+        app.on_tree_node_expanded(_FakeTreeEvent(freq_node, 'pp_tree'))
+        chunk_node = freq_node.children[0]
+        app.on_tree_node_expanded(_FakeTreeEvent(chunk_node, 'pp_tree'))
+        file_node = chunk_node.children[0]
+
+        app.on_tree_node_selected(_FakeTreeEvent(file_node, 'pp_tree'))
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+
+        preview_box = app.query_one('#preview')
+        assert preview_box.content.startswith('[netcdf4] pr')
+
+
 @pytest.mark.asyncio
 async def test_pp_preview_shows_latest_selection_after_rapid_switch(temp_dir, monkeypatch): # pylint: disable=redefined-outer-name
     ''' selecting a second pp file before the first one's preview has finished loading still

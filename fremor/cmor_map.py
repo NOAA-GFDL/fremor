@@ -29,6 +29,13 @@ Staged edits can also be walked back: 'u' undoes the single most recent staged e
 'R' discards every staged edit at once, restoring the whole session back to its state as of
 the last save (or the initial load, if nothing has been saved yet).
 
+Before previewing a selected pp file, its ``dmls -l`` status (or via ``--dmls_bin``) is
+checked to confirm it has actually been retrieved from tape ('REG' disk-resident, or 'DUL'
+disk-resident and also copied to tape) -- any other status shows a "still on tape" message
+instead of a preview, since opening/inspecting an offline file would otherwise silently
+trigger (or block on) a tape retrieval. If dmls isn't available, falls back to a stat-only
+residency heuristic (same one ``fremor check --staging`` uses).
+
 File previews in the pp-directory browser prefer the user's ``ncinfo`` tool (an external,
 non-Python CLI) when available on PATH or via ``--ncinfo_bin``, falling back to a plain
 ``netCDF4``-based attribute dump otherwise. Since either can be slow (a subprocess call, or
@@ -58,8 +65,9 @@ from textual.app import App, ComposeResult
 from textual.containers import Horizontal, Vertical
 from textual.widgets import Footer, Static, Tree
 
-from .cmor_check import _build_table_report, _matching_variable_keys, _mip_table_paths, \
-    _select_table_names, _varlists_by_table_from_yaml
+from .cmor_check import _build_table_report, _dmls_state_for_file, _find_dmls_bin, \
+    _is_file_staged, _matching_variable_keys, _mip_table_paths, _select_table_names, \
+    _varlists_by_table_from_yaml
 from .cmor_config import _load_config_yaml
 from .cmor_helpers import get_json_file_data
 
@@ -152,6 +160,16 @@ def _ncinfo_preview(nc_path: str, var_name: str, ncinfo_bin: Optional[str] = Non
         if variable.get('name') == var_name:
             return variable
     return None
+
+
+_DMLS_DISK_RESIDENT_STATES = {'REG', 'DUL'}
+
+
+def _format_tape_message(local_var_name: str, nc_path: str, dmls_state: Optional[str]) -> str:
+    """Message shown in place of a preview when a pp file hasn't been retrieved from tape."""
+    status = f' (dmls status: {dmls_state})' if dmls_state else ''
+    return (f'"{local_var_name}" in {Path(nc_path).name} is still on tape -- '
+            f'not yet retrieved to disk{status}')
 
 
 def _preview_nc_file(nc_path: str, var_name: str, ncinfo_bin: Optional[str] = None):
@@ -276,7 +294,7 @@ class MapSession:
     once back to the last save (``restore_pending()``)."""
 
     def __init__(self, yamlfile: str, table_patterns: Sequence[str] = (),
-                 ncinfo_bin: Optional[str] = None):
+                 ncinfo_bin: Optional[str] = None, dmls_bin: Optional[str] = None):
         cmor_yaml_ctx = _load_config_yaml(yamlfile)
         table_targets = cmor_yaml_ctx['table_targets']
 
@@ -292,6 +310,7 @@ class MapSession:
         self.mip_era = cmor_yaml_ctx['mip_era']
         self.era_upper = self.mip_era.upper()
         self.ncinfo_bin = _find_ncinfo_bin(ncinfo_bin)
+        self.dmls_bin = _find_dmls_bin(dmls_bin)
 
         self.table_paths = _mip_table_paths(cmor_yaml_ctx['mip_tables_dir'], self.mip_era,
                                             table_names)
@@ -724,14 +743,25 @@ class MapApp(App):
 
     @work(exclusive=True, thread=True, group='pp_preview')
     def _load_preview(self, path: str, local_key: str, generation: int) -> None:
-        """Runs ncinfo/netCDF4 (both potentially slow, e.g. over a network filesystem) in a
-        background thread. exclusive=True cancels the *previous* worker in this group as soon
-        as a new selection starts one, but a Python thread already blocked in subprocess/file
-        I/O can't actually be interrupted -- so `generation` is what actually prevents a
-        stale, still-in-flight preview from clobbering a newer selection's result once it
-        eventually finishes."""
-        source, preview_data = _preview_nc_file(path, local_key, self.session.ncinfo_bin)
-        text = _format_preview_text(local_key, source, preview_data)
+        """Runs dmls/ncinfo/netCDF4 (all potentially slow, e.g. over a network filesystem) in
+        a background thread. exclusive=True cancels the *previous* worker in this group as
+        soon as a new selection starts one, but a Python thread already blocked in
+        subprocess/file I/O can't actually be interrupted -- so `generation` is what actually
+        prevents a stale, still-in-flight preview from clobbering a newer selection's result
+        once it eventually finishes.
+
+        Checks dmls status first: a file not yet retrieved from tape ('REG'/'DUL' via dmls,
+        or the stat-based heuristic as a fallback) shows a "still on tape" message instead of
+        a preview, since opening/inspecting it would otherwise silently trigger (or block on)
+        a tape retrieval."""
+        dmls_state = _dmls_state_for_file(Path(path), self.session.dmls_bin)
+        on_tape = (dmls_state not in _DMLS_DISK_RESIDENT_STATES if dmls_state is not None
+                  else not _is_file_staged(Path(path)))
+        if on_tape:
+            text = _format_tape_message(local_key, path, dmls_state)
+        else:
+            source, preview_data = _preview_nc_file(path, local_key, self.session.ncinfo_bin)
+            text = _format_preview_text(local_key, source, preview_data)
         self.call_from_thread(self._apply_preview_result, generation, text)
 
     def _apply_preview_result(self, generation: int, text: str) -> None:
@@ -849,7 +879,8 @@ class MapApp(App):
 def cmor_map_subtool(
         yamlfile: str,
         table_patterns: Sequence[str] = (),
-        ncinfo_bin: Optional[str] = None
+        ncinfo_bin: Optional[str] = None,
+        dmls_bin: Optional[str] = None
 ) -> None:
     """
     Launch the interactive ``fremor map`` TUI.
@@ -867,6 +898,11 @@ def cmor_map_subtool(
     :param ncinfo_bin: optional explicit path to the ncinfo binary for richer NetCDF previews.
         If omitted, 'ncinfo' is looked up on PATH; if not found, previews fall back to netCDF4.
     :type ncinfo_bin: str or None
+    :param dmls_bin: optional explicit path to the dmls binary, used to check whether a
+        selected pp file has actually been retrieved from tape ('REG'/'DUL') before previewing
+        it. If omitted, 'dmls' is looked up on PATH; if not found either, falls back to a
+        stat-only residency heuristic.
+    :type dmls_bin: str or None
     :raises FileNotFoundError: if yamlfile, its pp_dir, or its table_dir do not exist, or a
         table_target's MIP table JSON file is missing.
     :raises ValueError: if yamlfile has no table_targets, or none of the given table_patterns
@@ -874,5 +910,5 @@ def cmor_map_subtool(
     :return: None
     :rtype: None
     """
-    session = MapSession(yamlfile, table_patterns, ncinfo_bin)
+    session = MapSession(yamlfile, table_patterns, ncinfo_bin, dmls_bin)
     MapApp(session).run()

@@ -189,6 +189,18 @@ def _find_dmls_bin(dmls_bin: Optional[str] = None) -> Optional[str]:
     return shutil.which('dmls')
 
 
+def _parse_dmls_states(stdout: str) -> dict:
+    """Parse ``dmls -l`` output into ``{path: state}``, e.g. ``{'/a/b.nc': 'OFL'}`` -- 'OFL'
+    (offline, archived only) and 'REG'/'DUL' (disk-resident, with 'DUL' also copied to tape)
+    are the states relevant to this module."""
+    states = {}
+    for line in stdout.splitlines():
+        match = re.search(r'\((\w+)\)\s+(\S+)\s*$', line.strip())
+        if match:
+            states[match.group(2)] = match.group(1).upper()
+    return states
+
+
 def _dmls_offline_files(paths: Sequence[Path], dmls_bin: Optional[str] = None) -> Optional[set]:
     """Best-effort, single batched ``dmls -l`` query (like ``fremor stage``'s one-shot dmget)
     for which of the given paths are offline (archived, not yet staged). Returns None --
@@ -205,15 +217,26 @@ def _dmls_offline_files(paths: Sequence[Path], dmls_bin: Optional[str] = None) -
     except (subprocess.SubprocessError, OSError):
         return None
 
-    offline = set()
-    for line in result.stdout.splitlines():
-        match = re.search(r'\((\w+)\)\s+(\S+)\s*$', line.strip())
-        if not match:
-            continue
-        state, filename = match.group(1).upper(), match.group(2)
-        if state == 'OFL':
-            offline.add(filename)
-    return offline
+    states = _parse_dmls_states(result.stdout)
+    return {filename for filename, state in states.items() if state == 'OFL'}
+
+
+def _dmls_state_for_file(path: Path, dmls_bin: Optional[str] = None) -> Optional[str]:
+    """Best-effort single-file ``dmls -l`` query, returning the parsed state code (e.g.
+    'REG', 'DUL', 'OFL'), or None if dmls isn't available, the call fails, or its output
+    doesn't include a parseable entry for ``path``. Used by ``fremor map``'s pp-file preview
+    to decide whether a file has actually been retrieved from tape yet."""
+    binary = _find_dmls_bin(dmls_bin)
+    if binary is None:
+        return None
+    try:
+        result = subprocess.run(
+            [binary, '-l', str(path)],
+            capture_output=True, text=True, timeout=10, check=True
+        )
+    except (subprocess.SubprocessError, OSError):
+        return None
+    return _parse_dmls_states(result.stdout).get(str(path))
 
 
 def _is_file_staged(path: Path) -> bool:

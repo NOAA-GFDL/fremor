@@ -429,17 +429,23 @@ def check(tables, yamlfile, show_mapped, check_staging, check_dims, dmls_bin,
               help='Path to the ncinfo binary for richer NetCDF file previews. If omitted, '
                    'looks for \'ncinfo\' on PATH; if not found either, falls back to a plain '
                    'netCDF4-based preview.')
-def map_(tables, yamlfile, ncinfo_bin):
+@click.option('--dmls_bin', type=str, required=False, default=None,
+              help='Path to the dmls binary, used to check whether a selected pp file has '
+                   'actually been retrieved from tape (\'REG\'/\'DUL\') before previewing it. '
+                   'If omitted, looks for \'dmls\' on PATH; if not found either, falls back to '
+                   'a stat-only residency heuristic.')
+def map_(tables, yamlfile, ncinfo_bin, dmls_bin):
     """
     Open an interactive TUI to review and edit variable-mapping varlist files.
 
     Shows each selected MIP table as a tree of variables alongside their current mapping
     status (unmapped / mapped / multiply-mapped / unknown, as reported by 'fremor check'),
     and lets you browse time-series files under pp_dir to assign or fix a mapping. When
-    selecting a file, a preview panel shows its variable's dimensions/attributes via ncinfo
-    (if available) or netCDF4 as a fallback; the preview loads in the background (showing a
-    loading message meanwhile) so the UI stays responsive, and switching to another file
-    before it finishes discards the outdated result.
+    selecting a file, its dmls status is checked first: a file not yet retrieved from tape
+    shows a "still on tape" message instead of a preview. Otherwise a preview panel shows its
+    variable's dimensions/attributes via ncinfo (if available) or netCDF4 as a fallback; the
+    preview loads in the background (showing a loading message meanwhile) so the UI stays
+    responsive, and switching to another file before it finishes discards the outdated result.
 
     Pressing 'm'/'d' only stages a mapping/clear in memory, marking the affected node in
     place (a newly (re)mapped variable shows '<- component:local_key', a cleared mapping is
@@ -455,7 +461,8 @@ def map_(tables, yamlfile, ncinfo_bin):
     cmor_map_subtool(
         yamlfile=yamlfile,
         table_patterns=tables,
-        ncinfo_bin=ncinfo_bin
+        ncinfo_bin=ncinfo_bin,
+        dmls_bin=dmls_bin
     )
 
 
