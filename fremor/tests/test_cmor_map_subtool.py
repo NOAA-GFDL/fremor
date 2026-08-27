@@ -781,7 +781,7 @@ async def test_pp_preview_runs_in_background_with_loading_message(temp_dir, monk
         await pilot.pause()
 
         assert 'loading' not in preview_box.content
-        assert preview_box.content.startswith('[netcdf4] pr')
+        assert '[netcdf4] pr' in preview_box.content
         assert 'kg m-2 s-1' in preview_box.content
 
 
@@ -870,7 +870,7 @@ async def test_pp_preview_shown_when_dmls_reports_disk_resident(temp_dir, monkey
 
         preview_box = app.query_one('#preview')
         assert 'still on tape' not in preview_box.content
-        assert preview_box.content.startswith('[netcdf4] pr')
+        assert '[netcdf4] pr' in preview_box.content
         assert 'kg m-2 s-1' in preview_box.content
 
 
@@ -903,7 +903,7 @@ async def test_pp_preview_falls_back_to_stat_heuristic_without_dmls(temp_dir, mo
         await pilot.pause()
 
         preview_box = app.query_one('#preview')
-        assert preview_box.content.startswith('[netcdf4] pr')
+        assert '[netcdf4] pr' in preview_box.content
 
 
 @pytest.mark.asyncio
@@ -946,7 +946,7 @@ async def test_pp_preview_shows_latest_selection_after_rapid_switch(temp_dir, mo
         await pilot.pause()
 
         preview_box = app.query_one('#preview')
-        assert preview_box.content.startswith('[netcdf4] pr')
+        assert '[netcdf4] pr' in preview_box.content
 
 
 @pytest.mark.asyncio
@@ -965,7 +965,7 @@ async def test_pp_preview_stale_result_is_discarded(temp_dir): # pylint: disable
         assert preview_box.content != 'stale result from a superseded selection'
 
         app._apply_preview_result(2, 'current result') # pylint: disable=protected-access
-        assert preview_box.content == 'current result'
+        assert preview_box.content.endswith('current result')
 
 
 @pytest.mark.asyncio
@@ -1285,3 +1285,149 @@ async def test_map_app_clear_mapping_resets_detail_box(temp_dir): # pylint: disa
         await pilot.pause()
 
         assert detail_box.content == app.NO_CMIP_DETAIL
+
+
+# ── cmip-tree selection -> pp-tree navigation, pp-file detail's mapped-variables list ──────
+
+@pytest.mark.asyncio
+async def test_map_app_selecting_one_to_one_mapped_var_navigates_pp_tree(temp_dir): # pylint: disable=redefined-outer-name
+    ''' selecting a one-to-one mapped CMIP variable in the cmip tree automatically expands
+    and selects its source pp file in the pp-directory browser, same as browsing there '''
+    pp_dir, varlist_dir, tables_dir = _make_session_fixture(temp_dir)
+    (Path(varlist_dir) / 'CMIP6_Amon_atmos.list').write_text(
+        json.dumps({'t_ref': 'tas'}), encoding='utf-8'
+    )
+    comp_ts_dir = Path(pp_dir) / 'atmos' / 'ts' / 'monthly' / '5yr'
+    comp_ts_dir.mkdir(parents=True)
+    _write_nc_file(comp_ts_dir / 'atmos.000101-000512.t_ref.nc', 't_ref')
+
+    yamlfile = _amon_yaml(temp_dir, pp_dir, varlist_dir, tables_dir, component_names=['atmos'])
+    app = MapApp(MapSession(yamlfile))
+
+    async with app.run_test() as pilot:
+        cmip_tree = app.query_one('#cmip_tree')
+        table_node = cmip_tree.root.children[0]
+        mapped_node = table_node.children[1]
+        source_node = next(n for n in mapped_node.children if n.data['var'] == 'tas')
+
+        # pp_tree hasn't been touched yet -- nothing populated below the component node
+        pp_tree = app.query_one('#pp_tree')
+        component_node = pp_tree.root.children[0]
+        assert not component_node.children
+
+        app.on_tree_node_selected(_FakeTreeEvent(source_node, 'cmip_tree'))
+        await pilot.pause()
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+
+        assert app.selected_pp is not None
+        assert app.selected_pp['local_key'] == 't_ref'
+        assert app.selected_pp['component'] == 'atmos'
+        assert pp_tree.cursor_node is not None
+        assert pp_tree.cursor_node.data['local_key'] == 't_ref'
+        assert component_node.is_expanded
+        preview_box = app.query_one('#preview')
+        assert 'Amon / tas' in preview_box.content
+
+
+@pytest.mark.asyncio
+async def test_map_app_selecting_multiply_mapped_source_navigates_pp_tree(temp_dir): # pylint: disable=redefined-outer-name
+    ''' selecting one particular component:local_key source under a multiply-mapped CMIP
+    variable navigates to that source's own pp file, not some other source's '''
+    pp_dir, varlist_dir, tables_dir = _make_session_fixture(temp_dir)
+    (Path(varlist_dir) / 'CMIP6_Amon_atmos.list').write_text(
+        json.dumps({'sfc_pres': 'ps'}), encoding='utf-8'
+    )
+    (Path(varlist_dir) / 'CMIP6_Amon_atmos_scalar.list').write_text(
+        json.dumps({'sfc_pres_scalar': 'ps'}), encoding='utf-8'
+    )
+    for component, local_key in (('atmos', 'sfc_pres'), ('atmos_scalar', 'sfc_pres_scalar')):
+        comp_ts_dir = Path(pp_dir) / component / 'ts' / 'monthly' / '5yr'
+        comp_ts_dir.mkdir(parents=True)
+        _write_nc_file(comp_ts_dir / f'{component}.000101-000512.{local_key}.nc', local_key)
+
+    yamlfile = _amon_yaml(temp_dir, pp_dir, varlist_dir, tables_dir,
+                          component_names=['atmos', 'atmos_scalar'])
+    app = MapApp(MapSession(yamlfile))
+
+    async with app.run_test() as pilot:
+        cmip_tree = app.query_one('#cmip_tree')
+        table_node = cmip_tree.root.children[0]
+        multi_node = table_node.children[2]
+        ps_node = next(n for n in multi_node.children if n.data['var'] == 'ps')
+        scalar_source = next(
+            n for n in ps_node.children if n.data['component'] == 'atmos_scalar')
+
+        app.on_tree_node_selected(_FakeTreeEvent(scalar_source, 'cmip_tree'))
+        await pilot.pause()
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+
+        assert app.selected_pp['component'] == 'atmos_scalar'
+        assert app.selected_pp['local_key'] == 'sfc_pres_scalar'
+
+
+@pytest.mark.asyncio
+async def test_map_app_selecting_source_with_no_pp_file_notifies(temp_dir): # pylint: disable=redefined-outer-name
+    ''' selecting a mapped CMIP variable whose pp file isn't discoverable on disk (e.g. the
+    component directory is missing) doesn't crash, and warns instead of silently no-opping '''
+    pp_dir, varlist_dir, tables_dir = _make_session_fixture(temp_dir)
+    (Path(varlist_dir) / 'CMIP6_Amon_atmos.list').write_text(
+        json.dumps({'t_ref': 'tas'}), encoding='utf-8'
+    )
+    yamlfile = _amon_yaml(temp_dir, pp_dir, varlist_dir, tables_dir, component_names=['atmos'])
+    app = MapApp(MapSession(yamlfile))
+
+    async with app.run_test():
+        notifications = []
+        app.notify = lambda message, **kwargs: notifications.append(message) # pylint: disable=protected-access
+
+        cmip_tree = app.query_one('#cmip_tree')
+        table_node = cmip_tree.root.children[0]
+        mapped_node = table_node.children[1]
+        source_node = next(n for n in mapped_node.children if n.data['var'] == 'tas')
+
+        app.on_tree_node_selected(_FakeTreeEvent(source_node, 'cmip_tree'))
+
+        assert app.selected_pp is None
+        assert any('not found' in message for message in notifications)
+
+
+@pytest.mark.asyncio
+async def test_pp_file_detail_box_lists_mapped_variables(temp_dir): # pylint: disable=redefined-outer-name
+    ''' the pp-file detail box lists every currently-loaded MIP table variable mapped to the
+    selected pp file, alongside its preview, and says so plainly when there are none '''
+    pp_dir, varlist_dir, tables_dir = _make_session_fixture(temp_dir)
+    (Path(varlist_dir) / 'CMIP6_Amon_atmos.list').write_text(
+        json.dumps({'t_ref': 'tas'}), encoding='utf-8'
+    )
+    comp_ts_dir = Path(pp_dir) / 'atmos' / 'ts' / 'monthly' / '5yr'
+    comp_ts_dir.mkdir(parents=True)
+    _write_nc_file(comp_ts_dir / 'atmos.000101-000512.t_ref.nc', 't_ref')
+    _write_nc_file(comp_ts_dir / 'atmos.000101-000512.precip.nc', 'precip')
+
+    yamlfile = _amon_yaml(temp_dir, pp_dir, varlist_dir, tables_dir, component_names=['atmos'])
+    app = MapApp(MapSession(yamlfile))
+
+    async with app.run_test() as pilot:
+        pp_tree = app.query_one('#pp_tree')
+        component_node = pp_tree.root.children[0]
+        app.on_tree_node_expanded(_FakeTreeEvent(component_node, 'pp_tree'))
+        freq_node = component_node.children[0]
+        app.on_tree_node_expanded(_FakeTreeEvent(freq_node, 'pp_tree'))
+        chunk_node = freq_node.children[0]
+        app.on_tree_node_expanded(_FakeTreeEvent(chunk_node, 'pp_tree'))
+        t_ref_node = next(n for n in chunk_node.children if n.data['local_key'] == 't_ref')
+        precip_node = next(n for n in chunk_node.children if n.data['local_key'] == 'precip')
+
+        app.on_tree_node_selected(_FakeTreeEvent(t_ref_node, 'pp_tree'))
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+        preview_box = app.query_one('#preview')
+        assert 'mapped MIP variables:' in preview_box.content
+        assert 'Amon / tas' in preview_box.content
+
+        app.on_tree_node_selected(_FakeTreeEvent(precip_node, 'pp_tree'))
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+        assert 'not mapped to any MIP variable' in preview_box.content

@@ -18,6 +18,12 @@ fills a detail box under the tree with that variable's own MIP table definition 
 units, cell_methods, etc.), straight from the table JSON and independent of its mapping
 status.
 
+Selecting a mapped CMIP variable in the tree -- whether a one-to-one mapping or one
+particular source of a multiply-mapped variable, both of which point at a single
+component/local_key pp file -- automatically navigates the pp-directory browser to that
+file, same as if the user had browsed there by hand. The pp-file detail box also lists every
+currently-loaded MIP table variable mapped to the selected pp file, alongside its preview.
+
 Mapping/clearing a variable only stages the change in memory -- nothing is written to disk
 until the user explicitly saves, so the tree doesn't collapse/re-categorize after every
 single edit while batching changes across many variables. The affected node is marked in
@@ -207,6 +213,14 @@ def _format_preview_text(local_var_name: str, source: str, data: dict) -> str:
     return '\n'.join(lines)
 
 
+def _format_mapped_variables(mapped: list) -> str:
+    """Render a MapSession.mapped_variables() result for the pp-file detail box."""
+    if not mapped:
+        return 'not mapped to any MIP variable in the currently loaded tables'
+    lines = [f'  {table_name} / {cmip_var}' for table_name, cmip_var in mapped]
+    return 'mapped MIP variables:\n' + '\n'.join(lines)
+
+
 # ---------------------------------------------------------------------------
 # MIP table variable_entry lookup, for the cmip-tree detail box
 # ---------------------------------------------------------------------------
@@ -385,18 +399,28 @@ class MapSession:
         placeholder convention rather than deleting the key)."""
         self.set_mapping(table_name, component_name, local_key, '')
 
+    def mapped_variables(self, component_name: str, local_key: str) -> list:
+        """(table_name, cmip_var) pairs across every currently-loaded MIP table's varlist
+        where local_key is mapped to a non-empty CMIP variable for the given component --
+        i.e. which MIP variables a pp file for this component/local_key is actually
+        referenced by. Reflects staged-but-unsaved edits too, since those mutate
+        varlists_by_table directly."""
+        mapped = []
+        for table_name, entries in self.varlists_by_table.items():
+            for component, _path, data in entries:
+                if component == component_name:
+                    cmip_var = data.get(local_key)
+                    if cmip_var:
+                        mapped.append((table_name, cmip_var))
+        return sorted(mapped)
+
     def usage_count(self, component_name: str, local_key: str) -> int:
         """Number of currently-loaded (table, component) varlists in which local_key is
         mapped to a non-empty CMIP variable for the given component -- i.e. how many times
         a pp file for this component/local_key is actually referenced by the mapping, across
         every MIP table loaded into this session. Reflects staged-but-unsaved edits too,
         since those mutate varlists_by_table directly."""
-        count = 0
-        for entries in self.varlists_by_table.values():
-            for component, _path, data in entries:
-                if component == component_name and data.get(local_key):
-                    count += 1
-        return count
+        return len(self.mapped_variables(component_name, local_key))
 
     def _value_in(self, snapshot: dict, table_name: str, component_name: str, local_key: str):
         """local_key's value for (table_name, component_name) in a varlists_by_table-shaped
@@ -565,6 +589,10 @@ class MapApp(App):
         # makes a superseded (still in-flight) preview effectively "cancelled" from the
         # user's point of view: its result is simply discarded once it arrives.
         self._preview_generation = 0
+        # mapped-MIP-variables text for the currently selected pp file, computed synchronously
+        # on selection and re-prepended to the preview box once the backgrounded nc preview
+        # (which replaces the whole box) lands.
+        self._selected_pp_mapped_text = ''
 
     def compose(self) -> ComposeResult:
         with Horizontal():
@@ -689,10 +717,11 @@ class MapApp(App):
         variable -- so a heavily-reused file (or a never-used one) is obvious at a glance."""
         return f'{Path(nc_path).name}  [{local_var}]  (used {usage_count}x)'
 
-    def on_tree_node_expanded(self, event: Tree.NodeExpanded) -> None:
-        if event.control.id != 'pp_tree':
-            return
-        node = event.node
+    def _ensure_pp_node_populated(self, node) -> None:
+        """Populate a lazily-loaded pp_tree node's children, if not already populated.
+        Shared by on_tree_node_expanded (user-driven expand) and _navigate_pp_tree_to
+        (programmatic navigation), which can't wait on the NodeExpanded message's async
+        round-trip through the app's event handler."""
         if node.children:
             return  # already populated on a prior expand
 
@@ -716,6 +745,50 @@ class MapApp(App):
                     data={'kind': 'file', 'path': nc_path,
                           'component': data['component'], 'local_key': local_var})
 
+    def on_tree_node_expanded(self, event: Tree.NodeExpanded) -> None:
+        if event.control.id != 'pp_tree':
+            return
+        self._ensure_pp_node_populated(event.node)
+
+    def _navigate_pp_tree_to(self, component: str, local_key: str) -> bool:
+        """Expand and select the pp_tree leaf for (component, local_key), if such a pp file
+        is discoverable on disk under pp_dir. Populates whatever component/freq/chunk nodes
+        are needed along the way (bypassing the lazy on-expand population, since that only
+        runs in response to a user-driven expand). Selecting the leaf posts a NodeSelected
+        message, so on_tree_node_selected picks it up and refreshes the preview box exactly
+        as if the user had clicked it.
+
+        :return: True if the file was found and navigated to, False otherwise (e.g. it isn't
+            on disk, or the component directory itself isn't present under pp_dir).
+        :rtype: bool
+        """
+        tree = self.query_one('#pp_tree', Tree)
+        component_node = next(
+            (n for n in tree.root.children if (n.data or {}).get('component') == component),
+            None)
+        if component_node is None:
+            return False
+
+        self._ensure_pp_node_populated(component_node)
+        for freq_node in component_node.children:
+            self._ensure_pp_node_populated(freq_node)
+            for chunk_node in freq_node.children:
+                self._ensure_pp_node_populated(chunk_node)
+                for file_node in chunk_node.children:
+                    if (file_node.data or {}).get('local_key') == local_key:
+                        component_node.expand()
+                        freq_node.expand()
+                        chunk_node.expand()
+                        # Tree.move_cursor (inside select_node) trusts file_node._line, which
+                        # is only kept current by Tree's own on-idle rebuild -- accessing
+                        # last_line forces that rebuild synchronously so the newly-expanded
+                        # ancestors are accounted for before we jump the cursor to a child.
+                        _ = tree.last_line
+                        tree.select_node(file_node)
+                        tree.scroll_to_node(file_node)
+                        return True
+        return False
+
     # ---- selection tracking ----
 
     def on_tree_node_selected(self, event: Tree.NodeSelected) -> None:
@@ -729,14 +802,25 @@ class MapApp(App):
             self.selected_cmip_node = event.node
             self.query_one('#selected_cmip', Static).update(self._format_selected_cmip(data))
             self._update_cmip_detail(data)
+            if kind == 'source':
+                # covers both a one-to-one mapping and one particular source of a
+                # multiply-mapped variable -- both carry component/local_key here.
+                found = self._navigate_pp_tree_to(data['component'], data['local_key'])
+                if not found:
+                    self.notify(
+                        f'pp file for {data["component"]}:{data["local_key"]} not found '
+                        'under pp_dir', severity='warning')
 
         elif event.control.id == 'pp_tree':
             if kind != 'file':
                 return
             self.selected_pp = data
             self._preview_generation += 1
+            mapped = self.session.mapped_variables(data['component'], data['local_key'])
+            self._selected_pp_mapped_text = _format_mapped_variables(mapped)
             self.query_one('#preview', Static).update(
-                f'loading preview for "{data["local_key"]}"...')
+                f'{self._selected_pp_mapped_text}\n\nloading preview for '
+                f'"{data["local_key"]}"...')
             self._load_preview(data['path'], data['local_key'], self._preview_generation)
 
     # ---- pp file preview (backgrounded so the TUI stays responsive) ----
@@ -767,7 +851,7 @@ class MapApp(App):
     def _apply_preview_result(self, generation: int, text: str) -> None:
         if generation != self._preview_generation:
             return  # superseded by a newer pp-file selection -- discard this stale result
-        self.query_one('#preview', Static).update(text)
+        self.query_one('#preview', Static).update(f'{self._selected_pp_mapped_text}\n\n{text}')
 
     # ---- actions ----
 
