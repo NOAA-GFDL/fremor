@@ -10,6 +10,8 @@ dependencies:
   - conda-forge::netcdf4>=1.7.4
   - conda-forge::numpy>=2
   - conda-forge::pyyaml
+  - conda-forge::textual
   - conda-forge::pytest
   - conda-forge::pytest-cov
+  - conda-forge::pytest-asyncio
   - conda-forge::pylint
