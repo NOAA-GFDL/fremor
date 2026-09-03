@@ -18,7 +18,10 @@ from .cmor_mixer import cmor_run_subtool
 from .cmor_yamler import cmor_yaml_subtool
 from .cmor_resolver import resolve_fremor_yaml
 from .cmor_config import cmor_config_subtool
+from .cmor_check import cmor_check_subtool
+from .cmor_map import cmor_map_subtool
 from .cmor_init import cmor_init_subtool
+from .cmor_stage import cmor_stage_subtool
 
 fre_logger = logging.getLogger(__name__)
 
@@ -140,6 +143,32 @@ def yaml(yamlfile, run_strict, run_one, dry_run, start, stop, print_cli_call):
         stop = stop,
         print_cli_call = print_cli_call
     )
+
+
+@fremor.command()
+@click.option('-y', '--yamlfile', type=str, required=True,
+              help='Self-contained CMOR YAML file whose mapped input files should be staged.')
+@click.option('--start', type=str, default=None, help=START_YEAR_HELP)
+@click.option('--stop', type=str, default=None, help=STOP_YEAR_HELP)
+@click.option('--dmget_bin', type=str, default='dmget', show_default=True,
+              help='dmget executable name or path.')
+@click.option('--dry_run', is_flag=True, default=False,
+              help='List the selected files without invoking dmget.')
+def stage(yamlfile, start, stop, dmget_bin, dry_run):
+    """Stage all mapped archive inputs for a YAML-driven run in one dmget batch."""
+    input_files = cmor_stage_subtool(
+        yamlfile=yamlfile,
+        start=start,
+        stop=stop,
+        dmget_bin=dmget_bin,
+        dry_run=dry_run,
+    )
+    if dry_run:
+        for input_file in input_files:
+            click.echo(input_file)
+        click.echo(f'Would stage {len(input_files)} files in one dmget batch.')
+    else:
+        click.echo(f'Staged {len(input_files)} files in one dmget batch.')
 
 
 @fremor.command()
@@ -328,6 +357,112 @@ def config(pp_dir, mip_tables_dir, mip_era, exp_config, output_yaml,
         grid=grid,
         overwrite=overwrite,
         calendar_type=calendar
+    )
+
+
+@fremor.command()
+@click.argument('tables', nargs=-1)
+@click.option('-y', '--yamlfile', type=str, required=True,
+              help='Self-contained CMOR YAML file, as written by \'fremor config\'. pp_dir, '
+                   'the MIP tables directory, the MIP era, and each component\'s variable_list '
+                   'path are all derived from it.')
+@click.option('--show_mapped', is_flag=True, default=False,
+              help='Also report variables mapped from exactly one component/diagnostic (one-to-one).')
+@click.option('--staging', 'check_staging', is_flag=True, default=False,
+              help='For every one-to-one-mapped variable, also check whether its input files '
+                   'exist under pp_dir and whether they are staged/disk-resident (best-effort, '
+                   'via dmls if available, else a stat-only heuristic -- never reads file '
+                   'content), plus a filename-only scan for gaps between chunk date ranges.')
+@click.option('--dims', 'check_dims', is_flag=True, default=False,
+              help='For every one-to-one-mapped variable, also check whether a representative '
+                   'input file\'s vertical dimension matches what the MIP table declares (e.g. '
+                   'distinguishing model-level "alevel" output from fixed "plevNN" pressure '
+                   'levels), and whether hybrid-sigma variables have their companion .ps.nc '
+                   'file present. Only inspects one file\'s header per variable.')
+@click.option('--dmls_bin', type=str, default=None,
+              help='Path to the dmls binary for the --staging check. If omitted, looks for '
+                   '\'dmls\' on PATH; if not found either, falls back to a stat-only residency '
+                   'heuristic.')
+@click.option('--json', 'json_output', is_flag=True, default=False,
+              help='Print the report as JSON instead of a text summary.')
+@click.option('-o', '--output_report', type=str, default=None,
+              help='Optional path to also write the JSON report to.')
+def check(tables, yamlfile, show_mapped, check_staging, check_dims, dmls_bin,
+          json_output, output_report):
+    """
+    Check variable-mapping coverage of varlist files against MIP tables, and optionally
+    the actual pp_dir input files those mappings resolve to.
+
+    For each MIP table in yamlfile's table_targets, reports CMIP variables required
+    by the table but not mapped from any component, variables mapped from more than
+    one component/diagnostic, and mapped values that don't correspond to any variable
+    actually defined in that table.
+
+    Pass --staging and/or --dims to additionally check, for every one-to-one-mapped
+    variable, whether its pp_dir input files are present and staged, and whether their
+    vertical dimension matches what the MIP table expects.
+
+    TABLES is an optional list of MIP table names to check, e.g. 'Amon' or
+    'Lmon'. Shell-style wildcards are supported, e.g. 'AER*'. If omitted,
+    every MIP table in yamlfile's table_targets is checked.
+    """
+    cmor_check_subtool(
+        yamlfile=yamlfile,
+        table_patterns=tables,
+        show_mapped=show_mapped,
+        json_output=json_output,
+        output_report=output_report,
+        check_staging=check_staging,
+        check_dims=check_dims,
+        dmls_bin=dmls_bin
+    )
+
+
+@fremor.command('map')
+@click.argument('tables', nargs=-1)
+@click.option('-y', '--yamlfile', type=str, required=True,
+              help='Self-contained CMOR YAML file, as written by \'fremor config\'. pp_dir, '
+                   'the MIP tables directory, the MIP era, and each component\'s variable_list '
+                   'path are all derived from it; mapping edits are staged in memory and only '
+                   'written back to the variable_list files referenced there once you save.')
+@click.option('--ncinfo_bin', type=str, required=False, default=None,
+              help='Path to the ncinfo binary for richer NetCDF file previews. If omitted, '
+                   'looks for \'ncinfo\' on PATH; if not found either, falls back to a plain '
+                   'netCDF4-based preview.')
+@click.option('--dmls_bin', type=str, required=False, default=None,
+              help='Path to the dmls binary, used to check whether a selected pp file has '
+                   'actually been retrieved from tape (\'REG\'/\'DUL\') before previewing it. '
+                   'If omitted, looks for \'dmls\' on PATH; if not found either, falls back to '
+                   'a stat-only residency heuristic.')
+def map_(tables, yamlfile, ncinfo_bin, dmls_bin):
+    """
+    Open an interactive TUI to review and edit variable-mapping varlist files.
+
+    Shows each selected MIP table as a tree of variables alongside their current mapping
+    status (unmapped / mapped / multiply-mapped / unknown, as reported by 'fremor check'),
+    and lets you browse time-series files under pp_dir to assign or fix a mapping. When
+    selecting a file, its dmls status is checked first: a file not yet retrieved from tape
+    shows a "still on tape" message instead of a preview. Otherwise a preview panel shows its
+    variable's dimensions/attributes via ncinfo (if available) or netCDF4 as a fallback; the
+    preview loads in the background (showing a loading message meanwhile) so the UI stays
+    responsive, and switching to another file before it finishes discards the outdated result.
+
+    Pressing 'm'/'d' only stages a mapping/clear in memory, marking the affected node in
+    place (a newly (re)mapped variable shows '<- component:local_key', a cleared mapping is
+    struck through and labeled '(deleted)') so you can batch edits across many variables
+    without the tree collapsing; press 's' to write all staged changes to disk. Press 'q' to
+    quit; if there are unsaved staged changes, 'q' warns first and requires a second 'q' to
+    confirm quitting without saving.
+
+    TABLES is an optional list of MIP table names to load, e.g. 'Amon' or 'Lmon'. Shell-style
+    wildcards are supported, e.g. 'AER*'. If omitted, every MIP table in yamlfile's
+    table_targets is loaded.
+    """
+    cmor_map_subtool(
+        yamlfile=yamlfile,
+        table_patterns=tables,
+        ncinfo_bin=ncinfo_bin,
+        dmls_bin=dmls_bin
     )
 
 

@@ -99,6 +99,7 @@ daterange
 datetimes
 debuglog
 dedup
+dmget
 difmxybo
 docstrings
 filenotfound

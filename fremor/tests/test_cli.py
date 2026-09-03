@@ -160,6 +160,94 @@ def test_cli_fremor_yaml_case1(mock_subtool, tmp_path):
     )
 
 
+# ── fremor stage ───────────────────────────────────────────────────
+
+def test_cli_fremor_stage_help():
+    """fremor stage --help."""
+    result = runner.invoke(fremor, args=['stage', '--help'])
+    assert result.exit_code == 0
+
+
+@patch('fremor.cli.cmor_stage_subtool')
+def test_cli_fremor_stage_dry_run(mock_subtool, tmp_path):
+    """The stage CLI prints dry-run paths and forwards its options."""
+    yamlfile = tmp_path / 'cmor.yaml'
+    yamlfile.touch()
+    mock_subtool.return_value = ['/archive/case/a.nc', '/archive/case/b.nc']
+
+    result = runner.invoke(fremor, args=[
+        'stage', '-y', str(yamlfile), '--start', '2000', '--stop', '2004',
+        '--dmget_bin', '/usr/local/bin/dmget', '--dry_run',
+    ])
+
+    assert result.exit_code == 0
+    assert '/archive/case/a.nc' in result.output
+    assert 'Would stage 2 files in one dmget batch.' in result.output
+    mock_subtool.assert_called_once_with(
+        yamlfile=str(yamlfile),
+        start='2000',
+        stop='2004',
+        dmget_bin='/usr/local/bin/dmget',
+        dry_run=True,
+    )
+
+
+@patch('fremor.cli.cmor_stage_subtool')
+def test_cli_fremor_stage_non_dry_run(mock_subtool, tmp_path):
+    """Without --dry_run, the stage CLI reports files as already staged."""
+    yamlfile = tmp_path / 'cmor.yaml'
+    yamlfile.touch()
+    mock_subtool.return_value = ['/archive/case/a.nc', '/archive/case/b.nc']
+
+    result = runner.invoke(fremor, args=['stage', '-y', str(yamlfile)])
+
+    assert result.exit_code == 0
+    assert 'Staged 2 files in one dmget batch.' in result.output
+    assert '/archive/case/a.nc' not in result.output
+
+
+# ── fremor check ──────────────────────────────────────────────────────────
+
+@patch('fremor.cli.cmor_check_subtool')
+def test_cli_fremor_check_case(mock_subtool, tmp_path):
+    """The check CLI forwards its options straight through to cmor_check_subtool."""
+    yamlfile = tmp_path / 'cmor.yaml'
+    yamlfile.touch()
+
+    result = runner.invoke(fremor, args=['check', '-y', str(yamlfile), 'Amon'])
+
+    assert result.exit_code == 0
+    mock_subtool.assert_called_once_with(
+        yamlfile=str(yamlfile),
+        table_patterns=('Amon',),
+        show_mapped=False,
+        json_output=False,
+        output_report=None,
+        check_staging=False,
+        check_dims=False,
+        dmls_bin=None,
+    )
+
+
+# ── fremor map ────────────────────────────────────────────────────────────
+
+@patch('fremor.cli.cmor_map_subtool')
+def test_cli_fremor_map_case(mock_subtool, tmp_path):
+    """The map CLI forwards its options straight through to cmor_map_subtool."""
+    yamlfile = tmp_path / 'cmor.yaml'
+    yamlfile.touch()
+
+    result = runner.invoke(fremor, args=['map', '-y', str(yamlfile)])
+
+    assert result.exit_code == 0
+    mock_subtool.assert_called_once_with(
+        yamlfile=str(yamlfile),
+        table_patterns=(),
+        ncinfo_bin=None,
+        dmls_bin=None,
+    )
+
+
 # ── fremor resolve ───────────────────────────────────────────────────────────
 
 def test_cli_fremor_resolve():

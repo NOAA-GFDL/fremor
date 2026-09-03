@@ -272,12 +272,15 @@ def rewrite_netcdf_file_var( mip_var_cfgs: dict = None,
 
     # now we set up the cmor module object
     # initialize CMOR
+    # CMOR's own error messages (e.g. "Problem with 'cmor.variable'.") are content-free unless
+    # a logfile is configured; without one, the real reason for a CMORError is discarded.
+    cmor_logfile = CMOR_LOG if CMOR_LOG is not None else f'cmor_{target_var}.log'
     cmor.setup(
         netcdf_file_action=CMOR_NC_FILE_ACTION,
         set_verbosity=CMOR_VERBOSITY,
         exit_control=CMOR_EXIT_CTL,
         create_subdirectories=CMOR_MK_SUBDIRS,
-        logfile=CMOR_LOG
+        logfile=cmor_logfile
     )
 
     # read experiment configuration file
@@ -713,9 +716,17 @@ def cmorize_target_var_files(indir: str = None,
         except FileExistsError:
             fre_logger.warning('directory %s already exists!', filedir)
 
-        mv_cmd = f'mv {local_file_name} {filedir}'
-        fre_logger.info('moving files...\n%s', mv_cmd)
-        subprocess.run(mv_cmd, shell=True, check=True)
+        if Path(local_file_name).resolve() == Path(filename).resolve():
+            # cmor.close(), with create_subdirectories enabled, sometimes writes the output file
+            # directly to its final DRS location (no /CMOR_tmp/ in the returned path) rather than
+            # into the tmp_dir this function expects to relocate from. When that happens the file
+            # is already where it needs to be, and 'mv'-ing it onto itself would just fail.
+            fre_logger.info('cmor already wrote the final output file directly to %s; nothing to move',
+                            filename)
+        else:
+            mv_cmd = f'mv {local_file_name} {filedir}'
+            fre_logger.info('moving files...\n%s', mv_cmd)
+            subprocess.run(mv_cmd, shell=True, check=True)
 
         # ------ refactor this into function? #TODO
         # ------ what is the use case for this logic really??

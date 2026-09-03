@@ -163,6 +163,45 @@ Process multiple directories/tables using a self-contained CMOR YAML file.
    fremor -v yaml --run_one --dry_run \
        --yamlfile /path/to/cmor.yaml
 
+``stage``
+~~~~~~~~~
+
+Recall all mapped input files from the GFDL archive before running CMORization.
+Use ``--dry_run`` first to review the deduplicated file selection. YAML
+``start`` and ``stop`` bounds are honored and can be overridden with
+``--start YYYY`` and ``--stop YYYY``.
+
+.. code-block:: bash
+
+   fremor stage --yamlfile /path/to/cmor.yaml --dry_run
+   fremor stage --yamlfile /path/to/cmor.yaml
+
+``check``
+~~~~~~~~~
+
+Audit the mappings in a self-contained CMOR YAML before running. The report
+identifies missing, duplicate, and unknown mappings. Add ``--staging`` to check
+that mapped archive inputs are available, and ``--dims`` to compare a
+representative input file's vertical dimension with its MIP-table definition.
+
+.. code-block:: bash
+
+   fremor check --yamlfile /path/to/cmor.yaml --staging --dims
+   fremor check --yamlfile /path/to/cmor.yaml Amon --show_mapped
+
+``map``
+~~~~~~~
+
+Use the interactive mapping UI to correct the issues reported by ``check``.
+Select a MIP variable to inspect its table definition, select a post-processing
+file to preview it, press ``m`` to stage a mapping or ``d`` to stage its
+removal, then press ``s`` to save all staged edits. The variable-list files are
+unchanged until you save.
+
+.. code-block:: bash
+
+   fremor map --yamlfile /path/to/cmor.yaml Amon
+
 ``resolve``
 ~~~~~~~~~~~
 

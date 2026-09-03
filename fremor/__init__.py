@@ -32,3 +32,4 @@ from .cmor_yamler import cmor_yaml_subtool # pylint: disable=wrong-import-positi
 from .cmor_resolver import resolve_fremor_yaml # pylint: disable=wrong-import-position
 from .cmor_config import cmor_config_subtool # pylint: disable=wrong-import-position
 from .cmor_init import cmor_init_subtool # pylint: disable=wrong-import-position
+from .cmor_stage import cmor_stage_subtool # pylint: disable=wrong-import-position

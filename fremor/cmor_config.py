@@ -17,8 +17,11 @@ Functions
 import glob
 import json
 import logging
+import os
 from pathlib import Path
 import re
+
+import yaml
 
 from .cmor_finder import make_simple_varlist
 from .cmor_constants import EXCLUDED_TABLE_SUFFIXES
@@ -68,6 +71,50 @@ def _filter_mip_tables(mip_tables_dir: str, mip_era: str):
     fre_logger.debug('filtered MIP tables (%d of %d): %s',
                      len(filtered), len(all_tables), filtered)
     return filtered
+
+
+def _load_config_yaml(yamlfile: str) -> dict:
+    """
+    Load a self-contained CMOR YAML file, as written by ``cmor_config_subtool`` (``fremor
+    config``), and return the resolved directories/table_targets that downstream tools
+    (``fremor check``, ``fremor map``) need -- so they can derive pp_dir, the MIP tables
+    directory, the MIP era, and each component's variable_list path straight from the yaml
+    instead of requiring all of that to be passed as separate flags.
+
+    :param yamlfile: Path to a CMOR YAML file produced by ``fremor config``.
+    :type yamlfile: str
+    :raises FileNotFoundError: If yamlfile, its pp_dir, or its table_dir do not exist.
+    :raises ValueError: If yamlfile has no top-level ``cmor`` mapping.
+    :return: dict with keys ``mip_era``, ``pp_dir``, ``mip_tables_dir``, ``table_targets``.
+    :rtype: dict
+    """
+    if not Path(yamlfile).is_file():
+        raise FileNotFoundError(f'yamlfile does not exist: {yamlfile}')
+
+    with open(yamlfile, 'r', encoding='utf-8') as handle:
+        yaml_doc = yaml.safe_load(handle)
+
+    if not isinstance(yaml_doc, dict) or 'cmor' not in yaml_doc:
+        raise ValueError(
+            f"invalid CMOR YAML file '{yamlfile}': expected a top-level mapping "
+            "containing a 'cmor' section.")
+    cmor_yaml_dict = yaml_doc['cmor']
+    directories = cmor_yaml_dict.get('directories') or {}
+
+    pp_dir = os.path.expandvars(directories['pp_dir'])
+    if not Path(pp_dir).is_dir():
+        raise FileNotFoundError(f'pp_dir from yamlfile does not exist: {pp_dir}')
+
+    mip_tables_dir = os.path.expandvars(directories['table_dir'])
+    if not Path(mip_tables_dir).is_dir():
+        raise FileNotFoundError(f'mip_tables_dir from yamlfile does not exist: {mip_tables_dir}')
+
+    return {
+        'mip_era': cmor_yaml_dict['mip_era'],
+        'pp_dir': pp_dir,
+        'mip_tables_dir': mip_tables_dir,
+        'table_targets': cmor_yaml_dict.get('table_targets') or [],
+    }
 
 
 def cmor_config_subtool(
