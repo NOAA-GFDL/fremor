@@ -132,7 +132,7 @@ def _load_stage_config(yamlfile: str, start: Optional[str], stop: Optional[str])
         raise FileNotFoundError(f'MIP table directory does not exist: {table_dir}')
 
     mip_era = str(config['mip_era']).upper()
-    if mip_era not in {'CMIP6', 'CMIP7'}:
+    if mip_era not in {'CMIP6', 'CMIP6PLUS', 'CMIP7'}:
         raise ValueError(f'unsupported mip_era: {mip_era}')
 
     start_year = _year_bound(start if start is not None else config.get('start'), 'start')
