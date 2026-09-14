@@ -42,6 +42,11 @@ pp_dir input files for every cleanly (one-to-one) mapped variable:
   a check that hybrid-sigma variables have their companion ``.ps.nc`` file
   alongside. Only one representative file's header is opened per variable
   (via netCDF4, metadata only, no array data is read).
+- ``check_output=True``: has CMOR actually produced output for a
+  one-to-one-mapped variable under the yaml's ``outdir`` -- i.e. which
+  mapped variables were successfully CMORized -- plus a filename-only scan
+  for gaps between output chunks' date ranges. Only filenames are inspected,
+  never file content. Requires the yaml's ``directories.outdir`` to be set.
 
 Functions
 ---------
@@ -170,15 +175,20 @@ def _component_input_dir(pp_dir: str, table_target: dict, component: dict) -> Op
     return Path(pp_dir) / component['component_name'] / component['data_series_type'] / freq / chunk_bronx
 
 
-def _in_run_bounds(path: Path, start: Optional[int], stop: Optional[int]) -> bool:
-    """Whether a FRE ts filename's date range falls entirely within [start, stop] (either
-    bound may be None, meaning unbounded on that side) -- same "chunk selected only when its
-    complete date range is within the requested bounds" semantics as cmor_stage.py's
-    _in_year_range, but tolerant of an unparseable filename (returns True, since a diagnostic
-    check should never crash a whole report over one odd file in pp_dir) rather than raising."""
+def _in_run_bounds(path: Path, start: Optional[int], stop: Optional[int],
+                   date_range_fn=None) -> bool:
+    """Whether a filename's date range falls entirely within [start, stop] (either bound may
+    be None, meaning unbounded on that side) -- same "chunk selected only when its complete
+    date range is within the requested bounds" semantics as cmor_stage.py's _in_year_range,
+    but tolerant of an unparseable filename (returns True, since a diagnostic check should
+    never crash a whole report over one odd file) rather than raising. `date_range_fn`
+    defaults to the FRE ts convention (``_date_range_from_filename``); pass
+    ``_output_date_range_from_filename`` for CMOR output files, which use a different naming
+    convention."""
     if start is None and stop is None:
         return True
-    date_range = _date_range_from_filename(path)
+    date_range_fn = date_range_fn or _date_range_from_filename
+    date_range = date_range_fn(path)
     if date_range is None:
         return True
     first_year, last_year = date_range
@@ -298,10 +308,12 @@ def _date_range_from_filename(path: Path) -> Optional[tuple]:
     return int(first_date[:4]), int(last_date[:4])
 
 
-def _date_range_gaps(files: list) -> list:
+def _date_range_gaps(files: list, date_range_fn=None) -> list:
     """Filename-only scan for gaps between consecutive chunks' year ranges (e.g. missing
-    postprocessing years that would stall a run partway through)."""
-    ranges = sorted(r for r in (_date_range_from_filename(f) for f in files) if r is not None)
+    postprocessing years that would stall a run partway through). `date_range_fn` defaults to
+    the FRE ts convention; pass ``_output_date_range_from_filename`` for CMOR output files."""
+    date_range_fn = date_range_fn or _date_range_from_filename
+    ranges = sorted(r for r in (date_range_fn(f) for f in files) if r is not None)
     gaps = []
     for (_, prev_end), (next_start, _) in zip(ranges, ranges[1:]):
         if next_start > prev_end + 1:
@@ -337,6 +349,81 @@ def _staging_status(files: list, dmls_bin: Optional[str] = None,
         status = 'partially_staged'
 
     return {'status': status, 'unstaged_files': unstaged, 'gaps': _date_range_gaps(files)}
+
+
+# ---------------------------------------------------------------------------
+# output check: has CMOR actually produced output for a one-to-one-mapped
+# variable under outdir, and (filename-only) does its chunk coverage have
+# gaps? Never opens a file -- existence/naming only.
+# ---------------------------------------------------------------------------
+
+def _index_output_files(outdir: Optional[str]) -> list:
+    """One recursive listing of every ``.nc`` file under outdir, done once per ``fremor
+    check`` invocation and filtered per-variable (by filename prefix) in memory afterward --
+    outdir's DRS tree (mip_era/activity/institution/source/experiment/member/table/var/
+    grid_label/version/...) can be huge, and walking it separately for every
+    one-to-one-mapped variable would be far too slow."""
+    if not outdir or not Path(outdir).is_dir():
+        return []
+    return list(Path(outdir).rglob('*.nc'))
+
+
+def _expected_output_prefixes(table_data: Optional[dict], var: str, table_name: str,
+                              mip_era: str) -> list:
+    """Filename prefixes CMOR would give `var`'s output in this MIP table, e.g. ``'tas_Amon'``
+    for CMIP6/CMIP6Plus, whose output_file_template starts ``<variable_id><table>...``. CMIP7
+    instead starts ``<variable_id><branding_suffix>...``, with no table name in the filename
+    at all -- but a bare variable name's possible brands are exactly the ``{var}_{brand}``
+    keys ``_matching_variable_keys`` already finds in the table's ``variable_entry``, so those
+    are used as the prefixes instead. Falls back to a bare ``{var}`` prefix (matching any
+    brand) if no brand can be resolved, since a loose match is more useful than skipping the
+    variable outright."""
+    if mip_era.lower() == 'cmip7':
+        variable_entry = (table_data or {}).get('variable_entry', {})
+        prefixes = [
+            key for key in _matching_variable_keys(variable_entry, var, mip_era)
+            if key.startswith(f'{var}_')
+        ]
+        return prefixes or [var]
+    return [f'{var}_{table_name}']
+
+
+def _output_date_range_from_filename(path: Path) -> Optional[tuple]:
+    """Parse the (first_year, last_year) range out of a CMOR output filename's trailing
+    ``_<start>-<stop>.nc`` segment (e.g. ``..._199301-199302.nc``), purely from its name -- no
+    file I/O. Returns None for time-invariant ('fx') output, which carries no date range."""
+    stem = path.name[:-3] if path.name.endswith('.nc') else path.name
+    match = re.search(r'_(\d{4,8})-(\d{4,8})$', stem)
+    if match is None:
+        return None
+    return int(match.group(1)[:4]), int(match.group(2)[:4])
+
+
+def _matching_output_files(output_files_index: Sequence[Path], prefixes: Sequence[str],
+                           start: Optional[int] = None, stop: Optional[int] = None) -> list:
+    """Files in `output_files_index` (see ``_index_output_files``) named ``{prefix}_...`` for
+    any of `prefixes`, and whose date range (if any) falls within [start, stop] -- the yaml's
+    own run bounds, same as the staging check applies to pp_dir input files."""
+    prefix_tuple = tuple(f'{prefix}_' for prefix in prefixes)
+    matches = [path for path in output_files_index if path.name.startswith(prefix_tuple)]
+    return sorted(
+        path for path in matches
+        if _in_run_bounds(path, start, stop, _output_date_range_from_filename)
+    )
+
+
+def _output_status(files: list) -> dict:
+    """Build the output report entry for one variable: whether CMOR has produced any matching
+    output file under outdir, plus (mirroring the staging check) a filename-only scan for gaps
+    between output chunks' date ranges."""
+    if not files:
+        return {'status': 'missing', 'file_count': 0, 'files': [], 'gaps': []}
+    return {
+        'status': 'produced',
+        'file_count': len(files),
+        'files': [str(f) for f in files],
+        'gaps': _date_range_gaps(files, _output_date_range_from_filename),
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -497,18 +584,20 @@ def _vertical_dim_finding(mip_vert_tokens: list, files: list) -> dict:
 
 def _build_files_report(table_path: str, table_data: Optional[dict], mip_era: str,
                         table_target: dict, pp_dir: str, one_to_one_mapped: dict,
-                        check_staging: bool, check_dims: bool,
-                        dmls_bin: Optional[str] = None,
+                        check_staging: bool, check_dims: bool, check_output: bool = False,
+                        output_files_index: Sequence[Path] = (), dmls_bin: Optional[str] = None,
                         start: Optional[int] = None, stop: Optional[int] = None) -> dict:
-    """Per one-to-one-mapped variable: staging status and/or vertical-dim consistency,
-    resolved straight from pp_dir. Only variables mapped from exactly one component are
-    checked -- unmapped variables have no files to look at, and multiply-mapped ones are
-    already flagged as a mapping-hygiene issue by the coverage check above. `start`/`stop`
-    (the yaml's own run bounds) restrict which chunks are even considered, matching what
-    fremor yaml/stage would actually select for this run."""
+    """Per one-to-one-mapped variable: staging status and/or vertical-dim consistency
+    (resolved straight from pp_dir), and/or whether CMOR has produced matching output
+    (resolved from `output_files_index`, see ``_index_output_files``). Only variables mapped
+    from exactly one component are checked -- unmapped variables have no files to look at, and
+    multiply-mapped ones are already flagged as a mapping-hygiene issue by the coverage check
+    above. `start`/`stop` (the yaml's own run bounds) restrict which chunks are even
+    considered, matching what fremor yaml/stage would actually select for this run."""
     components_by_name = {
         comp['component_name']: comp for comp in table_target.get('target_components') or []
     }
+    table_name = table_target['table_name']
 
     files_report = {}
     for var, (component_name, gfdl_key) in sorted(one_to_one_mapped.items()):
@@ -526,6 +615,10 @@ def _build_files_report(table_path: str, table_data: Optional[dict], mip_era: st
         if check_dims:
             mip_vert_tokens = _mip_variable_vertical_tokens(table_data or {}, var, mip_era)
             var_entry['dims'] = _vertical_dim_finding(mip_vert_tokens, files)
+        if check_output:
+            prefixes = _expected_output_prefixes(table_data, var, table_name, mip_era)
+            output_files = _matching_output_files(output_files_index, prefixes, start, stop)
+            var_entry['output'] = _output_status(output_files)
         files_report[var] = var_entry
 
     return files_report
@@ -535,6 +628,7 @@ def _build_table_report(table_path: str, mip_era: str, varlists_by_table: dict,
                         show_mapped: bool = False,
                         pp_dir: Optional[str] = None, table_target: Optional[dict] = None,
                         check_staging: bool = False, check_dims: bool = False,
+                        check_output: bool = False, output_files_index: Sequence[Path] = (),
                         dmls_bin: Optional[str] = None,
                         start: Optional[int] = None, stop: Optional[int] = None) -> dict:
     """Build the unmapped / multiply-mapped / unknown-mapped report for one MIP table."""
@@ -568,11 +662,11 @@ def _build_table_report(table_path: str, mip_era: str, varlists_by_table: dict,
     if show_mapped:
         report_entry['one_to_one_mapped'] = one_to_one_mapped
 
-    if (check_staging or check_dims) and pp_dir is not None and table_target is not None:
-        table_data = get_json_file_data(table_path) if check_dims else None
+    if (check_staging or check_dims or check_output) and pp_dir is not None and table_target is not None:
+        table_data = get_json_file_data(table_path) if (check_dims or check_output) else None
         report_entry['files'] = _build_files_report(
             table_path, table_data, mip_era, table_target, pp_dir, one_to_one_mapped,
-            check_staging, check_dims, dmls_bin, start, stop
+            check_staging, check_dims, check_output, output_files_index, dmls_bin, start, stop
         )
 
     return report_entry
@@ -648,6 +742,19 @@ def _print_report(report: dict, show_mapped: bool = False) -> None:
                     click.echo(line)
                     if dims.get('missing_ps_file'):
                         click.echo(f'           missing companion ps file: {dims["missing_ps_file"]}')
+                output = var_entry.get('output')
+                output_abnormal = (
+                    output is not None and
+                    (output['status'] != 'produced' or bool(output['gaps']))
+                )
+                if output_abnormal:
+                    line = f'  FILES  {var}: output={output["status"]}'
+                    click.echo(line)
+                    if output['gaps']:
+                        click.echo(f'           date-range gaps: {", ".join(output["gaps"])}')
+                elif output is not None:
+                    click.echo(f'  FILES  {var}: output=produced '
+                               f'({output["file_count"]} file(s))')
 
 
 def cmor_check_subtool(
@@ -658,6 +765,7 @@ def cmor_check_subtool(
         output_report: Optional[str] = None,
         check_staging: bool = False,
         check_dims: bool = False,
+        check_output: bool = False,
         dmls_bin: Optional[str] = None
 ) -> dict:
     """
@@ -691,16 +799,26 @@ def cmor_check_subtool(
         and whether hybrid-sigma variables have their companion ``.ps.nc`` file present. The
         human-readable output omits normal results.
     :type check_dims: bool
+    :param check_output: if True (CLI: ``--outputs``), for every one-to-one-mapped variable
+        also report whether CMOR has actually produced matching output file(s) under the
+        yaml's ``outdir``, plus a filename-only scan for gaps between output chunks' date
+        ranges. Unlike check_staging/check_dims, the human-readable output reports every
+        variable, not just abnormal ones -- this check answers "what got parsed and what
+        actually landed in outdir", not just "what's broken". Requires the yaml's
+        ``directories.outdir`` to be set.
+    :type check_output: bool
     :param dmls_bin: path to the dmls binary for the staging check. If omitted, looks for
         'dmls' on PATH; if not found either, falls back to a stat-only residency heuristic.
     :type dmls_bin: str or None
     :raises FileNotFoundError: if yamlfile, its pp_dir, or its table_dir do not exist, or a
         table_target's MIP table JSON file is missing.
     :raises ValueError: if yamlfile has no table_targets, none of the given table_patterns
-        match any table_target, or yamlfile's ``start``/``stop`` isn't a four-digit year.
+        match any table_target, yamlfile's ``start``/``stop`` isn't a four-digit year, or
+        check_output is True but yamlfile has no ``directories.outdir`` set.
     :return: enabled table_name -> report dict, with keys 'reference_var_count', 'unmapped',
              'multiply_mapped', 'unknown_mapped', (if show_mapped) 'one_to_one_mapped', and
-             (if check_staging or check_dims) 'files'. Disabled table targets are omitted.
+             (if check_staging or check_dims or check_output) 'files'. Disabled table targets
+             are omitted.
     :rtype: dict
     """
     started_at = time.monotonic()
@@ -709,9 +827,15 @@ def cmor_check_subtool(
     mip_era = cmor_yaml_ctx['mip_era']
     pp_dir = cmor_yaml_ctx['pp_dir']
     mip_tables_dir = cmor_yaml_ctx['mip_tables_dir']
+    outdir = cmor_yaml_ctx['outdir']
     table_targets = cmor_yaml_ctx['table_targets']
     start = _year_bound(cmor_yaml_ctx['start'], 'start')
     stop = _year_bound(cmor_yaml_ctx['stop'], 'stop')
+
+    if check_output and not outdir:
+        raise ValueError(
+            f"--outputs requested but {yamlfile} has no directories.outdir set; "
+            "nothing to check produced output against.")
 
     all_table_names = sorted({table_target['table_name'] for table_target in table_targets})
     if not all_table_names:
@@ -756,6 +880,14 @@ def cmor_check_subtool(
             'fremor check: dimension checks open one NetCDF header per mapped variable...',
             err=True,
         )
+    output_files_index = []
+    if check_output:
+        click.echo(f'fremor check: indexing existing output under {outdir}...', err=True)
+        output_files_index = _index_output_files(outdir)
+        click.echo(
+            f'fremor check: found {len(output_files_index)} existing output file(s) under {outdir}',
+            err=True,
+        )
     table_paths = _mip_table_paths(mip_tables_dir, mip_era, table_names)
     # Restrict reads to selected tables. On archive/network filesystems, loading unrelated
     # varlists was a significant and entirely avoidable part of startup time.
@@ -767,12 +899,14 @@ def cmor_check_subtool(
     report = {}
     for index, table_name in enumerate(table_names, start=1):
         check_detail = 'mapping coverage'
-        if check_staging or check_dims:
+        if check_staging or check_dims or check_output:
             enabled_checks = []
             if check_staging:
                 enabled_checks.append('staging')
             if check_dims:
                 enabled_checks.append('dimensions')
+            if check_output:
+                enabled_checks.append('output')
             check_detail += f' and {"/".join(enabled_checks)} input-file checks'
         click.echo(
             f'fremor check: checking table {index}/{len(table_names)} '
@@ -783,8 +917,9 @@ def cmor_check_subtool(
         table_entry = _build_table_report(
             table_paths[table_name], mip_era, varlists_by_table, show_mapped=show_mapped,
             pp_dir=pp_dir, table_target=table_targets_by_name.get(table_name),
-            check_staging=check_staging, check_dims=check_dims, dmls_bin=dmls_bin,
-            start=start, stop=stop
+            check_staging=check_staging, check_dims=check_dims,
+            check_output=check_output, output_files_index=output_files_index,
+            dmls_bin=dmls_bin, start=start, stop=stop
         )
         report[table_entry.pop('table_name')] = table_entry
         click.echo(

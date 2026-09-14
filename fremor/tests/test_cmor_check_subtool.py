@@ -745,3 +745,147 @@ def test_cmor_check_subtool_no_files_key_by_default(temp_dir): # pylint: disable
 
     report = cmor_check_subtool(yamlfile=yamlfile)
     assert 'files' not in report['Amon']
+
+
+# ── check_output ─────────────────────────────────────────────────────────
+
+def _write_cmor_output(outdir, var, table_name, date_range, source_id='PCMDI-test',
+                       experiment_id='piControl', variant_label='r1i1p1f1', grid_label='gn'):
+    ''' touch a fake CMOR output file nested a few levels deep under outdir, named the way
+    CMOR actually names CMIP6/CMIP6Plus output (variable_id first, table second) '''
+    nested = Path(outdir) / table_name / var / grid_label / 'v20260101'
+    nested.mkdir(parents=True, exist_ok=True)
+    filename = f'{var}_{table_name}_{source_id}_{experiment_id}_{variant_label}_{grid_label}_{date_range}.nc'
+    (nested / filename).touch()
+    return nested / filename
+
+
+def test_cmor_check_subtool_output_missing(temp_dir): # pylint: disable=redefined-outer-name
+    ''' check_output: one-to-one-mapped variable with no output under outdir at all '''
+    temp_root = Path(temp_dir)
+    tables_dir = temp_root / 'tables'
+    tables_dir.mkdir()
+    _write_amon_table(tables_dir, ['tas'])
+
+    varlist_dir = temp_root / 'varlists'
+    varlist_dir.mkdir()
+    atmos_list = varlist_dir / 'CMIP6_Amon_atmos.list'
+    atmos_list.write_text(json.dumps({'tas': 'tas'}), encoding='utf-8')
+
+    yamlfile = _write_yaml(temp_dir, [
+        _table_target('Amon', [_component_entry('atmos', atmos_list)])
+    ], table_dir=tables_dir)
+
+    report = cmor_check_subtool(yamlfile=yamlfile, check_output=True)
+    assert report['Amon']['files']['tas']['output']['status'] == 'missing'
+    assert report['Amon']['files']['tas']['output']['file_count'] == 0
+
+
+def test_cmor_check_subtool_output_produced(temp_dir, capsys): # pylint: disable=redefined-outer-name
+    ''' check_output: produced output is reported (unlike staging/dims, even normal results
+    are surfaced in the human-readable report) '''
+    temp_root = Path(temp_dir)
+    tables_dir = temp_root / 'tables'
+    tables_dir.mkdir()
+    _write_amon_table(tables_dir, ['tas'])
+
+    varlist_dir = temp_root / 'varlists'
+    varlist_dir.mkdir()
+    atmos_list = varlist_dir / 'CMIP6_Amon_atmos.list'
+    atmos_list.write_text(json.dumps({'tas': 'tas'}), encoding='utf-8')
+
+    outdir = temp_root / 'out'
+    _write_cmor_output(outdir, 'tas', 'Amon', '199301-199312')
+
+    yamlfile = _write_yaml(temp_dir, [
+        _table_target('Amon', [_component_entry('atmos', atmos_list)])
+    ], table_dir=tables_dir)
+    # _write_yaml always points outdir at temp_root / 'out', matching the fixture above.
+
+    capsys.readouterr()
+    report = cmor_check_subtool(yamlfile=yamlfile, check_output=True)
+    assert report['Amon']['files']['tas']['output']['status'] == 'produced'
+    assert report['Amon']['files']['tas']['output']['file_count'] == 1
+
+    out = capsys.readouterr().out
+    assert 'output=produced (1 file(s))' in out
+
+
+def test_cmor_check_subtool_output_gap_detection(temp_dir): # pylint: disable=redefined-outer-name
+    ''' check_output: filename-only scan catches a gap between produced output chunks '''
+    temp_root = Path(temp_dir)
+    tables_dir = temp_root / 'tables'
+    tables_dir.mkdir()
+    _write_amon_table(tables_dir, ['tas'])
+
+    varlist_dir = temp_root / 'varlists'
+    varlist_dir.mkdir()
+    atmos_list = varlist_dir / 'CMIP6_Amon_atmos.list'
+    atmos_list.write_text(json.dumps({'tas': 'tas'}), encoding='utf-8')
+
+    outdir = temp_root / 'out'
+    _write_cmor_output(outdir, 'tas', 'Amon', '199301-199312')
+    _write_cmor_output(outdir, 'tas', 'Amon', '199601-199612')
+
+    yamlfile = _write_yaml(temp_dir, [
+        _table_target('Amon', [_component_entry('atmos', atmos_list)])
+    ], table_dir=tables_dir)
+
+    report = cmor_check_subtool(yamlfile=yamlfile, check_output=True)
+    output = report['Amon']['files']['tas']['output']
+    assert output['status'] == 'produced'
+    assert output['file_count'] == 2
+    assert output['gaps'] == ['1993-1996']
+
+
+def test_cmor_check_subtool_output_cmip7_uses_branding_suffix(temp_dir): # pylint: disable=redefined-outer-name
+    ''' check_output: CMIP7 output filenames use <var>_<branding_suffix>, not <var>_<table>,
+    so the expected prefix must come from the table's variable_entry brand keys '''
+    temp_root = Path(temp_dir)
+    tables_dir = temp_root / 'tables'
+    tables_dir.mkdir()
+    _write_cmip7_table_with_dims(tables_dir, 'ocean', {'sos_tavg-u-hxy-sea': ['longitude', 'latitude', 'time']})
+
+    varlist_dir = temp_root / 'varlists'
+    varlist_dir.mkdir()
+    ocean_list = varlist_dir / 'CMIP7_ocean_ocean.list'
+    ocean_list.write_text(json.dumps({'sos': 'sos'}), encoding='utf-8')
+
+    outdir = temp_root / 'out'
+    nested = Path(outdir) / 'ocean' / 'sos' / 'gn' / 'v1'
+    nested.mkdir(parents=True, exist_ok=True)
+    (nested / 'sos_tavg-u-hxy-sea_mon_glb_gn_GFDL-ESM4p5_historical_r1i1p1f1_199301-199312.nc').touch()
+
+    yamlfile = _write_yaml(
+        temp_dir, [_table_target('ocean', [_component_entry('ocean', ocean_list)])],
+        mip_era='cmip7', table_dir=tables_dir
+    )
+
+    report = cmor_check_subtool(yamlfile=yamlfile, check_output=True)
+    assert report['ocean']['files']['sos']['output']['status'] == 'produced'
+    assert report['ocean']['files']['sos']['output']['file_count'] == 1
+
+
+def test_cmor_check_subtool_output_requires_outdir(temp_dir): # pylint: disable=redefined-outer-name
+    ''' check_output raises clearly if the yaml has no directories.outdir set, rather than
+    silently reporting every variable missing '''
+    temp_root = Path(temp_dir)
+    tables_dir = temp_root / 'tables'
+    tables_dir.mkdir()
+    _write_amon_table(tables_dir, ['tas'])
+
+    varlist_dir = temp_root / 'varlists'
+    varlist_dir.mkdir()
+    atmos_list = varlist_dir / 'CMIP6_Amon_atmos.list'
+    atmos_list.write_text(json.dumps({'tas': 'tas'}), encoding='utf-8')
+
+    yamlfile = _write_yaml(temp_dir, [
+        _table_target('Amon', [_component_entry('atmos', atmos_list)])
+    ], table_dir=tables_dir)
+
+    doc = yaml.safe_load(Path(yamlfile).read_text(encoding='utf-8'))
+    doc['cmor']['directories']['outdir'] = None
+    Path(yamlfile).write_text(yaml.safe_dump(doc), encoding='utf-8')
+
+    with pytest.raises(ValueError, match='outdir'):
+        cmor_check_subtool(yamlfile=yamlfile, check_output=True)

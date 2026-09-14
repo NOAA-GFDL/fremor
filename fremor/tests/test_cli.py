@@ -225,6 +225,7 @@ def test_cli_fremor_check_case(mock_subtool, tmp_path):
         output_report=None,
         check_staging=False,
         check_dims=False,
+        check_output=False,
         dmls_bin=None,
     )
 

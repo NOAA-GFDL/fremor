@@ -379,6 +379,13 @@ def config(pp_dir, mip_tables_dir, mip_era, exp_config, output_yaml,
                    'distinguishing model-level "alevel" output from fixed "plevNN" pressure '
                    'levels), and whether hybrid-sigma variables have their companion .ps.nc '
                    'file present. Only inspects one file\'s header per variable.')
+@click.option('--outputs', 'check_output', is_flag=True, default=False,
+              help='For every one-to-one-mapped variable, also report whether CMOR has '
+                   'actually produced matching output file(s) under the yaml\'s outdir, plus '
+                   'a filename-only scan for gaps between output chunks\' date ranges -- i.e. '
+                   'what got parsed and what has successfully landed in outdir. Requires the '
+                   'yaml\'s directories.outdir to be set. Unlike --staging/--dims, reports '
+                   'every variable, not just abnormal ones.')
 @click.option('--dmls_bin', type=str, default=None,
               help='Path to the dmls binary for the --staging check. If omitted, looks for '
                    '\'dmls\' on PATH; if not found either, falls back to a stat-only residency '
@@ -387,11 +394,12 @@ def config(pp_dir, mip_tables_dir, mip_era, exp_config, output_yaml,
               help='Print the report as JSON instead of a text summary.')
 @click.option('-o', '--output_report', type=str, default=None,
               help='Optional path to also write the JSON report to.')
-def check(tables, yamlfile, show_mapped, check_staging, check_dims, dmls_bin,
+def check(tables, yamlfile, show_mapped, check_staging, check_dims, check_output, dmls_bin,
           json_output, output_report):
     """
     Check variable-mapping coverage of varlist files against MIP tables, and optionally
-    the actual pp_dir input files those mappings resolve to.
+    the actual pp_dir input files those mappings resolve to, and/or the outdir output files
+    those mappings have produced.
 
     For each MIP table in yamlfile's table_targets, reports CMIP variables required
     by the table but not mapped from any component, variables mapped from more than
@@ -400,7 +408,9 @@ def check(tables, yamlfile, show_mapped, check_staging, check_dims, dmls_bin,
 
     Pass --staging and/or --dims to additionally check, for every one-to-one-mapped
     variable, whether its pp_dir input files are present and staged, and whether their
-    vertical dimension matches what the MIP table expects.
+    vertical dimension matches what the MIP table expects. Pass --outputs to report, for
+    every one-to-one-mapped variable, whether CMOR has actually produced output for it
+    under outdir.
 
     TABLES is an optional list of MIP table names to check, e.g. 'Amon' or
     'Lmon'. Shell-style wildcards are supported, e.g. 'AER*'. If omitted,
@@ -414,6 +424,7 @@ def check(tables, yamlfile, show_mapped, check_staging, check_dims, dmls_bin,
         output_report=output_report,
         check_staging=check_staging,
         check_dims=check_dims,
+        check_output=check_output,
         dmls_bin=dmls_bin
     )
 
