@@ -368,6 +368,15 @@ def config(pp_dir, mip_tables_dir, mip_era, exp_config, output_yaml,
                    'path are all derived from it.')
 @click.option('--show_mapped', is_flag=True, default=False,
               help='Also report variables mapped from exactly one component/diagnostic (one-to-one).')
+@click.option('--show-unmapped', 'show_unmapped', is_flag=True, default=False,
+              help='List every variable required by the table but not mapped from any '
+                   'component. By default only a count is shown, since this list can be very '
+                   'long for a sparsely-mapped table; the full list is still always available '
+                   'via --json or -o/--output_report.')
+@click.option('--show-multi-mapped', 'show_multi_mapped', is_flag=True, default=False,
+              help='List every variable mapped from more than one component/diagnostic, with '
+                   'each mapping location. By default only a count is shown; the full list is '
+                   'still always available via --json or -o/--output_report.')
 @click.option('--staging', 'check_staging', is_flag=True, default=False,
               help='For every one-to-one-mapped variable, also check whether its input files '
                    'exist under pp_dir and whether they are staged/disk-resident (best-effort, '
@@ -394,8 +403,8 @@ def config(pp_dir, mip_tables_dir, mip_era, exp_config, output_yaml,
               help='Print the report as JSON instead of a text summary.')
 @click.option('-o', '--output_report', type=str, default=None,
               help='Optional path to also write the JSON report to.')
-def check(tables, yamlfile, show_mapped, check_staging, check_dims, check_output, dmls_bin,
-          json_output, output_report):
+def check(tables, yamlfile, show_mapped, show_unmapped, show_multi_mapped, check_staging,
+          check_dims, check_output, dmls_bin, json_output, output_report):
     """
     Check variable-mapping coverage of varlist files against MIP tables, and optionally
     the actual pp_dir input files those mappings resolve to, and/or the outdir output files
@@ -404,7 +413,8 @@ def check(tables, yamlfile, show_mapped, check_staging, check_dims, check_output
     For each MIP table in yamlfile's table_targets, reports CMIP variables required
     by the table but not mapped from any component, variables mapped from more than
     one component/diagnostic, and mapped values that don't correspond to any variable
-    actually defined in that table.
+    actually defined in that table. The unmapped/multiply-mapped counts are always shown;
+    pass --show-unmapped/--show-multi-mapped to also spell out every variable.
 
     Pass --staging and/or --dims to additionally check, for every one-to-one-mapped
     variable, whether its pp_dir input files are present and staged, and whether their
@@ -420,6 +430,8 @@ def check(tables, yamlfile, show_mapped, check_staging, check_dims, check_output
         yamlfile=yamlfile,
         table_patterns=tables,
         show_mapped=show_mapped,
+        show_unmapped=show_unmapped,
+        show_multi_mapped=show_multi_mapped,
         json_output=json_output,
         output_report=output_report,
         check_staging=check_staging,

@@ -221,6 +221,8 @@ def test_cli_fremor_check_case(mock_subtool, tmp_path):
         yamlfile=str(yamlfile),
         table_patterns=('Amon',),
         show_mapped=False,
+        show_unmapped=False,
+        show_multi_mapped=False,
         json_output=False,
         output_report=None,
         check_staging=False,

@@ -23,7 +23,12 @@ mapped at all.
 By default every MIP table found in mip_tables_dir is checked; pass one or
 more glob-style table-name patterns (e.g. ``Amon``, ``AER*``) to restrict
 the check to a subset. Pass show_mapped=True to also report variables that
-are cleanly mapped from exactly one component/diagnostic (one-to-one).
+are cleanly mapped from exactly one component/diagnostic (one-to-one). The
+human-readable summary shows only counts for the unmapped/multiply-mapped
+categories by default -- these lists can get very long for a sparsely-mapped
+table -- pass show_unmapped=True/show_multi_mapped=True to spell them out;
+the JSON report (json_output=True / output_report) always includes them in
+full regardless.
 
 Two additional, opt-in checks look past the varlist JSON and at the actual
 pp_dir input files for every cleanly (one-to-one) mapped variable:
@@ -672,95 +677,121 @@ def _build_table_report(table_path: str, mip_era: str, varlists_by_table: dict,
     return report_entry
 
 
-def _print_report(report: dict, show_mapped: bool = False) -> None:
+# width the category label + count column is padded to, so every category line's trailing
+# note starts in the same column regardless of label length ("MULTIPLY-MAPPED" is the longest).
+_CATEGORY_WIDTH = 20
+
+
+def _category_line(label: str, count: int, note: str, nonzero_fg: str = 'yellow') -> str:
+    """One aligned, color-coded summary line for a coverage category -- green when the
+    category is empty (nothing to worry about), `nonzero_fg` otherwise."""
+    color = 'green' if count == 0 else nonzero_fg
+    head = click.style(f'{label:<{_CATEGORY_WIDTH}}{count:>5}', bold=True, fg=color)
+    return f'  {head}  {click.style(note, dim=True)}'
+
+
+def _print_report(report: dict, show_mapped: bool = False,
+                  show_unmapped: bool = False, show_multi_mapped: bool = False) -> None:
     for table_name in sorted(report):
         entry = report[table_name]
-        click.echo(f'\n[{table_name}]  ({entry["reference_var_count"]} variables required by table)')
+        click.echo()
+        click.echo(click.style(f'[{table_name}]', bold=True, fg='cyan') +
+                   click.style(f'  {entry["reference_var_count"]} variables required by table',
+                               dim=True))
 
-        if entry['unmapped']:
-            click.echo(f'  UNMAPPED ({len(entry["unmapped"])}): variables required by the table '
-                       'but not mapped from any component')
-            for var in entry['unmapped']:
-                click.echo(f'    - {var}')
-        else:
-            click.echo('  UNMAPPED: none')
+        unmapped = entry['unmapped']
+        click.echo(_category_line(
+            'UNMAPPED', len(unmapped), 'required by the table, not mapped from any component'))
+        if unmapped:
+            if show_unmapped:
+                for var in unmapped:
+                    click.echo(f'      - {var}')
+            else:
+                click.echo(click.style(
+                    f'      pass --show-unmapped to list all {len(unmapped)}', dim=True))
 
-        if entry['multiply_mapped']:
-            click.echo(f'  MULTIPLY-MAPPED ({len(entry["multiply_mapped"])}): variables mapped from '
-                       'more than one component/diagnostic')
-            for var in sorted(entry['multiply_mapped']):
-                locs = ', '.join(f'{comp}:{key}' for comp, key in entry['multiply_mapped'][var])
-                click.echo(f'    - {var}: {locs}')
-        else:
-            click.echo('  MULTIPLY-MAPPED: none')
+        multiply_mapped = entry['multiply_mapped']
+        click.echo(_category_line(
+            'MULTIPLY-MAPPED', len(multiply_mapped),
+            'mapped from more than one component/diagnostic'))
+        if multiply_mapped:
+            if show_multi_mapped:
+                for var in sorted(multiply_mapped):
+                    locs = ', '.join(f'{comp}:{key}' for comp, key in multiply_mapped[var])
+                    click.echo(f'      - {var}: {locs}')
+            else:
+                click.echo(click.style(
+                    f'      pass --show-multi-mapped to list all {len(multiply_mapped)}', dim=True))
 
-        if entry['unknown_mapped']:
-            click.echo(f'  UNKNOWN ({len(entry["unknown_mapped"])}): mapped values that are not '
-                       'variables in this MIP table (possible typos)')
-            for var in entry['unknown_mapped']:
-                click.echo(f'    - {var}')
+        unknown_mapped = entry['unknown_mapped']
+        click.echo(_category_line(
+            'UNKNOWN', len(unknown_mapped),
+            'mapped values not defined in this MIP table -- possible typos', nonzero_fg='red'))
+        for var in unknown_mapped:
+            click.echo(f'      - {var}')
 
         if show_mapped:
             one_to_one = entry.get('one_to_one_mapped', {})
-            if one_to_one:
-                click.echo(f'  MAPPED ({len(one_to_one)}): variables mapped from exactly one '
-                           'component/diagnostic')
-                for var in sorted(one_to_one):
-                    comp, key = one_to_one[var]
-                    click.echo(f'    - {var}: {comp}:{key}')
-            else:
-                click.echo('  MAPPED: none')
+            click.echo(_category_line(
+                'MAPPED', len(one_to_one), 'mapped from exactly one component/diagnostic',
+                nonzero_fg='green'))
+            for var in sorted(one_to_one):
+                comp, key = one_to_one[var]
+                click.echo(f'      - {var}: {comp}:{key}')
 
         files = entry.get('files')
         if files is not None:
+            click.echo('  ' + click.style('FILES', bold=True))
             if not files:
-                click.echo('  FILES: no one-to-one-mapped variables to check')
+                click.echo(click.style('      no one-to-one-mapped variables to check', dim=True))
             for var in sorted(files):
                 var_entry = files[var]
+                findings = []  # (color, text) pairs to render under this variable
+
                 staging = var_entry.get('staging')
-                staging_abnormal = (
-                    staging is not None and
-                    (staging['status'] != 'staged' or bool(staging['gaps']))
-                )
-                if staging_abnormal:
-                    line = f'  FILES  {var}: staging={staging["status"]}'
+                if staging is not None and (staging['status'] != 'staged' or bool(staging['gaps'])):
+                    color = 'red' if staging['status'] in ('unstaged', 'missing') else 'yellow'
+                    text = f'staging={staging["status"]}'
                     if staging['unstaged_files']:
-                        line += f' ({len(staging["unstaged_files"])} file(s) not yet staged)'
-                    click.echo(line)
+                        text += f' ({len(staging["unstaged_files"])} file(s) not yet staged)'
+                    findings.append((color, text))
                     if staging['gaps']:
-                        click.echo(f'           date-range gaps: {", ".join(staging["gaps"])}')
+                        findings.append((color, f'date-range gaps: {", ".join(staging["gaps"])}'))
+
                 dims = var_entry.get('dims')
-                dims_abnormal = (
-                    dims is not None and
-                    (dims['status'] != 'ok' or bool(dims.get('missing_ps_file')))
-                )
-                if dims_abnormal:
-                    line = f'  FILES  {var}: dims={dims["status"]}'
+                if dims is not None and (dims['status'] != 'ok' or bool(dims.get('missing_ps_file'))):
+                    color = 'red' if dims['status'] not in ('ok', 'unknown') else 'yellow'
+                    text = f'dims={dims["status"]}'
                     if dims['status'] not in ('ok', 'unknown'):
-                        line += (f' (table wants {dims.get("mip_table_vertical_dims")}, '
+                        text += (f' (table wants {dims.get("mip_table_vertical_dims")}, '
                                  f'input has {dims.get("input_vertical_dim")})')
-                    click.echo(line)
+                    findings.append((color, text))
                     if dims.get('missing_ps_file'):
-                        click.echo(f'           missing companion ps file: {dims["missing_ps_file"]}')
+                        findings.append((color, f'missing companion ps file: {dims["missing_ps_file"]}'))
+
                 output = var_entry.get('output')
-                output_abnormal = (
-                    output is not None and
-                    (output['status'] != 'produced' or bool(output['gaps']))
-                )
-                if output_abnormal:
-                    line = f'  FILES  {var}: output={output["status"]}'
-                    click.echo(line)
-                    if output['gaps']:
-                        click.echo(f'           date-range gaps: {", ".join(output["gaps"])}')
-                elif output is not None:
-                    click.echo(f'  FILES  {var}: output=produced '
-                               f'({output["file_count"]} file(s))')
+                if output is not None:
+                    if output['status'] != 'produced' or bool(output['gaps']):
+                        color = 'red' if output['status'] == 'missing' else 'yellow'
+                        findings.append((color, f'output={output["status"]}'))
+                        if output['gaps']:
+                            findings.append((color, f'date-range gaps: {", ".join(output["gaps"])}'))
+                    else:
+                        findings.append(('green', f'output=produced ({output["file_count"]} file(s))'))
+
+                if not findings:
+                    continue
+                click.echo(f'    {var}')
+                for color, text in findings:
+                    click.echo('      ' + click.style(text, fg=color))
 
 
 def cmor_check_subtool(
         yamlfile: str,
         table_patterns: Sequence[str] = (),
         show_mapped: bool = False,
+        show_unmapped: bool = False,
+        show_multi_mapped: bool = False,
         json_output: bool = False,
         output_report: Optional[str] = None,
         check_staging: bool = False,
@@ -777,6 +808,12 @@ def cmor_check_subtool(
     are all derived from ``yamlfile``, a self-contained CMOR YAML file as written by
     ``fremor config`` -- no separate varlist_dir/mip_tables_dir/mip_era flags are needed.
 
+    The returned dict (and the ``--json``/``output_report`` output) always carries the full
+    ``unmapped``/``multiply_mapped`` variable lists regardless of show_unmapped/
+    show_multi_mapped -- those two flags only control whether the human-readable text summary
+    spells each variable out (it can be very long for a sparsely-mapped table) or just shows a
+    count.
+
     :param yamlfile: path to a CMOR YAML file produced by ``fremor config``.
     :type yamlfile: str
     :param table_patterns: optional glob-style patterns (e.g. 'Amon', 'AER*') selecting which MIP
@@ -784,6 +821,15 @@ def cmor_check_subtool(
     :type table_patterns: Sequence[str]
     :param show_mapped: if True, also report variables mapped from exactly one component/diagnostic.
     :type show_mapped: bool
+    :param show_unmapped: if True, the human-readable summary lists every variable required by
+        a table but not mapped from any component; if False (the default), only a count is
+        shown. Has no effect on ``--json``/``output_report``, which always list them in full.
+    :type show_unmapped: bool
+    :param show_multi_mapped: if True, the human-readable summary lists every variable mapped
+        from more than one component/diagnostic, with each mapping location; if False (the
+        default), only a count is shown. Has no effect on ``--json``/``output_report``, which
+        always list them in full.
+    :type show_multi_mapped: bool
     :param json_output: if True, print the report as JSON instead of a text summary.
     :type json_output: bool
     :param output_report: optional path to also write the JSON report to.
@@ -931,7 +977,8 @@ def cmor_check_subtool(
     if json_output:
         click.echo(json.dumps(report, indent=2))
     else:
-        _print_report(report, show_mapped=show_mapped)
+        _print_report(report, show_mapped=show_mapped,
+                     show_unmapped=show_unmapped, show_multi_mapped=show_multi_mapped)
 
     if output_report is not None:
         with open(output_report, 'w', encoding='utf-8') as handle:
