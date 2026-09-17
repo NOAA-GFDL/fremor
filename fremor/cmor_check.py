@@ -52,6 +52,21 @@ pp_dir input files for every cleanly (one-to-one) mapped variable:
   mapped variables were successfully CMORized -- plus a filename-only scan
   for gaps between output chunks' date ranges. Only filenames are inspected,
   never file content. Requires the yaml's ``directories.outdir`` to be set.
+- ``check_attrs=True``: does a representative input file's ``units`` and
+  ``cell_methods`` attributes match what the MIP table declares for that
+  variable -- e.g. catching a variable mapped from the wrong diagnostic
+  (compatible dimensions, wrong quantity) or an accumulated field mapped
+  where an instantaneous one is expected. Only header metadata is inspected,
+  never array data.
+- ``check_range=True``: does a representative input file's actual data
+  values fall within the MIP table's declared ``valid_min``/``valid_max``
+  (per-value bounds) and ``ok_min_mean_abs``/``ok_max_mean_abs`` (bounds on
+  the mean absolute value) -- e.g. catching unit-conversion bugs or garbage
+  data that would otherwise only surface as a silently wrong CMORized
+  output. Unlike every other check in this module, this reads a file's full
+  array of data rather than just its header, so it can be very slow for
+  large/high-frequency fields; a representative file that is still offline
+  (archived, not staged) is skipped rather than triggering a tape retrieval.
 
 Functions
 ---------
@@ -71,6 +86,7 @@ from pathlib import Path
 from typing import Optional, Sequence, Union
 
 import click
+import numpy as np
 from netCDF4 import Dataset
 
 from .cmor_config import _load_config_yaml
@@ -475,6 +491,22 @@ def _mip_variable_vertical_tokens(table_data: dict, var: str, mip_era: str) -> l
     return tokens
 
 
+def _mip_variable_field_values(table_data: dict, var: str, mip_era: str, field: str) -> list:
+    """All distinct non-empty `field` values (e.g. 'units', 'cell_methods') declared for `var`
+    across every matching variable_entry key in this MIP table -- for CMIP7 a bare variable
+    name can have multiple brands, each potentially declaring a different value, all of which
+    count as valid."""
+    variable_entry = table_data.get('variable_entry', {})
+    keys = _matching_variable_keys(variable_entry, var, mip_era)
+
+    values = []
+    for key in keys:
+        value = variable_entry[key].get(field)
+        if value and value not in values:
+            values.append(value)
+    return values
+
+
 # sentinel distinguishing "file exists but couldn't be opened/read" (status should be
 # reported as unknown -- the check never actually ran) from a cleanly-read file that simply
 # has no vertical dimension (int 0, an actual finding).
@@ -587,18 +619,221 @@ def _vertical_dim_finding(mip_vert_tokens: list, files: list) -> dict:
     return finding
 
 
+# ---------------------------------------------------------------------------
+# attrs check: do the input file's 'units' and 'cell_methods' attributes
+# match what the MIP table declares for that variable? Only header metadata
+# is inspected, never array data.
+# ---------------------------------------------------------------------------
+
+def _normalize_attr_value(value: str) -> str:
+    """Whitespace-normalized form of an attribute string for comparison -- collapses runs of
+    whitespace and strips leading/trailing, since real-world units/cell_methods strings can
+    differ in incidental spacing (e.g. 'kg m-2 s-1' vs 'kg  m-2  s-1') without differing in
+    meaning."""
+    return ' '.join(str(value).split())
+
+
+def _attr_status(mip_values: list, input_value: Optional[str]) -> str:
+    """One attribute's check status: 'ok' if the table declares no value for it (nothing to
+    check), or the input's value matches (after whitespace normalization) any of the table's
+    declared values; 'missing' if the table declares a value but the input file has none at
+    all; else 'mismatch'."""
+    if not mip_values:
+        return 'ok'
+    if not input_value:
+        return 'missing'
+    normalized_targets = {_normalize_attr_value(v) for v in mip_values}
+    return 'ok' if _normalize_attr_value(input_value) in normalized_targets else 'mismatch'
+
+
+def _input_attrs(nc_path: str, local_var: str) -> Union[dict, object]:
+    """Best-effort read of an input file's 'units' and 'cell_methods' attributes for
+    local_var. Only header metadata is inspected, never array data.
+
+    :return: ``{'units': ..., 'cell_methods': ...}`` (either may be None if the attribute
+        isn't present), or ``_INSPECTION_ERROR`` if the file exists but can't be opened/read
+        (e.g. corrupt netCDF) or doesn't contain local_var.
+    """
+    try:
+        with Dataset(nc_path, 'r') as dataset:
+            variable = dataset.variables[local_var]
+            return {
+                'units': getattr(variable, 'units', None),
+                'cell_methods': getattr(variable, 'cell_methods', None),
+            }
+    except Exception:  # pylint: disable=broad-except
+        fre_logger.debug('could not inspect %s in %s for units/cell_methods', local_var,
+                         nc_path, exc_info=True)
+        return _INSPECTION_ERROR
+
+
+def _attrs_finding(mip_units: list, mip_cell_methods: list, files: list) -> dict:
+    """Build the attrs report entry for one variable, comparing its MIP-table-declared
+    ``units``/``cell_methods`` against the actual attributes found in a representative input
+    file."""
+    if not files:
+        return {'status': 'unknown', 'reason': 'no input files found to inspect'}
+
+    representative = files[0]
+    local_var = representative.name.split('.')[-2]
+    input_attrs = _input_attrs(str(representative), local_var)
+
+    if input_attrs is _INSPECTION_ERROR:
+        return {
+            'status': 'unknown',
+            'reason': f'could not inspect {representative} for units/cell_methods '
+                      '(file is unreadable or corrupt)',
+            'file': str(representative),
+        }
+
+    units_status = _attr_status(mip_units, input_attrs.get('units'))
+    cell_methods_status = _attr_status(mip_cell_methods, input_attrs.get('cell_methods'))
+
+    return {
+        'status': 'ok' if units_status == 'ok' and cell_methods_status == 'ok' else 'mismatch',
+        'file': str(representative),
+        'units': {
+            'status': units_status,
+            'mip_table': mip_units or None,
+            'input': input_attrs.get('units'),
+        },
+        'cell_methods': {
+            'status': cell_methods_status,
+            'mip_table': mip_cell_methods or None,
+            'input': input_attrs.get('cell_methods'),
+        },
+    }
+
+
+# ---------------------------------------------------------------------------
+# range check: do the input file's actual data values fall within the MIP
+# table's declared valid_min/valid_max/ok_min_mean_abs/ok_max_mean_abs?
+# Unlike every other check in this module, this reads a file's full array of
+# data, not just its header -- can be slow. A representative file that is
+# still offline (archived, not staged) is skipped rather than triggering a
+# tape retrieval.
+# ---------------------------------------------------------------------------
+
+_RANGE_FIELDS = ('valid_min', 'valid_max', 'ok_min_mean_abs', 'ok_max_mean_abs')
+
+
+def _mip_variable_range_bounds(table_data: dict, var: str, mip_era: str) -> dict:
+    """The MIP table's declared value-range bounds for `var`: ``valid_min``/``valid_max``
+    (absolute per-value bounds) and ``ok_min_mean_abs``/``ok_max_mean_abs`` (bounds on the
+    mean absolute value across the field), as floats. A bound is None if the table leaves it
+    blank, or if matching CMIP7 brands declare inconsistent values for it (safer to skip than
+    to guess which brand applies)."""
+    variable_entry = table_data.get('variable_entry', {})
+    keys = _matching_variable_keys(variable_entry, var, mip_era)
+
+    bounds = {}
+    for field in _RANGE_FIELDS:
+        values = set()
+        for key in keys:
+            raw = variable_entry[key].get(field)
+            if raw in (None, ''):
+                continue
+            try:
+                values.add(float(raw))
+            except (TypeError, ValueError):
+                pass
+        bounds[field] = values.pop() if len(values) == 1 else None
+    return bounds
+
+
+def _file_is_offline(path: Path, dmls_bin: Optional[str] = None) -> bool:
+    """Whether `path` is still offline (archived, not yet staged/retrieved from tape) --
+    same best-effort dmls-then-stat-heuristic resolution as the staging check (see
+    ``_staging_status``), applied to a single file."""
+    offline = _dmls_offline_files([path], dmls_bin)
+    if offline is not None:
+        return str(path) in offline
+    return not _is_file_staged(path)
+
+
+def _range_finding(bounds: dict, files: list, dmls_bin: Optional[str] = None) -> dict:
+    """Build the range report entry for one variable: read a representative input file's
+    actual data values and compare against `bounds` (see ``_mip_variable_range_bounds``).
+    Skipped (status 'skipped_offline') if the representative file is still offline, to avoid
+    triggering a tape retrieval."""
+    if not files:
+        return {'status': 'unknown', 'reason': 'no input files found to inspect'}
+
+    if not any(bound is not None for bound in bounds.values()):
+        return {'status': 'ok', 'reason': 'MIP table declares no range bounds for this variable'}
+
+    representative = files[0]
+    local_var = representative.name.split('.')[-2]
+
+    if _file_is_offline(representative, dmls_bin):
+        return {
+            'status': 'skipped_offline',
+            'reason': f'{representative} is offline (not staged) -- skipping rather than '
+                      'triggering a tape retrieval',
+            'file': str(representative),
+        }
+
+    try:
+        with Dataset(str(representative), 'r') as dataset:
+            data = dataset.variables[local_var][...]
+    except Exception:  # pylint: disable=broad-except
+        fre_logger.debug('could not read %s in %s for range check', local_var, representative,
+                         exc_info=True)
+        return {
+            'status': 'unknown',
+            'reason': f'could not read {representative} (file is unreadable or corrupt)',
+            'file': str(representative),
+        }
+
+    data = np.ma.masked_invalid(data)
+    if data.count() == 0:
+        return {
+            'status': 'unknown',
+            'reason': 'all values in the representative file are missing/masked',
+            'file': str(representative),
+        }
+
+    actual_min = float(data.min())
+    actual_max = float(data.max())
+    actual_mean_abs = float(np.ma.abs(data).mean())
+
+    problems = []
+    if bounds['valid_min'] is not None and actual_min < bounds['valid_min']:
+        problems.append(f'min {actual_min:g} < valid_min {bounds["valid_min"]:g}')
+    if bounds['valid_max'] is not None and actual_max > bounds['valid_max']:
+        problems.append(f'max {actual_max:g} > valid_max {bounds["valid_max"]:g}')
+    if bounds['ok_min_mean_abs'] is not None and actual_mean_abs < bounds['ok_min_mean_abs']:
+        problems.append(
+            f'mean_abs {actual_mean_abs:g} < ok_min_mean_abs {bounds["ok_min_mean_abs"]:g}')
+    if bounds['ok_max_mean_abs'] is not None and actual_mean_abs > bounds['ok_max_mean_abs']:
+        problems.append(
+            f'mean_abs {actual_mean_abs:g} > ok_max_mean_abs {bounds["ok_max_mean_abs"]:g}')
+
+    return {
+        'status': 'out_of_range' if problems else 'ok',
+        'file': str(representative),
+        'bounds': bounds,
+        'actual_min': actual_min,
+        'actual_max': actual_max,
+        'actual_mean_abs': actual_mean_abs,
+        'problems': problems,
+    }
+
+
 def _build_files_report(table_path: str, table_data: Optional[dict], mip_era: str,
                         table_target: dict, pp_dir: str, one_to_one_mapped: dict,
                         check_staging: bool, check_dims: bool, check_output: bool = False,
+                        check_attrs: bool = False, check_range: bool = False,
                         output_files_index: Sequence[Path] = (), dmls_bin: Optional[str] = None,
                         start: Optional[int] = None, stop: Optional[int] = None) -> dict:
-    """Per one-to-one-mapped variable: staging status and/or vertical-dim consistency
-    (resolved straight from pp_dir), and/or whether CMOR has produced matching output
-    (resolved from `output_files_index`, see ``_index_output_files``). Only variables mapped
-    from exactly one component are checked -- unmapped variables have no files to look at, and
-    multiply-mapped ones are already flagged as a mapping-hygiene issue by the coverage check
-    above. `start`/`stop` (the yaml's own run bounds) restrict which chunks are even
-    considered, matching what fremor yaml/stage would actually select for this run."""
+    """Per one-to-one-mapped variable: staging status, vertical-dim consistency, units/
+    cell_methods consistency, and/or actual-value range (all resolved straight from pp_dir),
+    and/or whether CMOR has produced matching output (resolved from `output_files_index`, see
+    ``_index_output_files``). Only variables mapped from exactly one component are checked --
+    unmapped variables have no files to look at, and multiply-mapped ones are already flagged
+    as a mapping-hygiene issue by the coverage check above. `start`/`stop` (the yaml's own run
+    bounds) restrict which chunks are even considered, matching what fremor yaml/stage would
+    actually select for this run."""
     components_by_name = {
         comp['component_name']: comp for comp in table_target.get('target_components') or []
     }
@@ -624,6 +859,14 @@ def _build_files_report(table_path: str, table_data: Optional[dict], mip_era: st
             prefixes = _expected_output_prefixes(table_data, var, table_name, mip_era)
             output_files = _matching_output_files(output_files_index, prefixes, start, stop)
             var_entry['output'] = _output_status(output_files)
+        if check_attrs:
+            mip_units = _mip_variable_field_values(table_data or {}, var, mip_era, 'units')
+            mip_cell_methods = _mip_variable_field_values(
+                table_data or {}, var, mip_era, 'cell_methods')
+            var_entry['attrs'] = _attrs_finding(mip_units, mip_cell_methods, files)
+        if check_range:
+            bounds = _mip_variable_range_bounds(table_data or {}, var, mip_era)
+            var_entry['range'] = _range_finding(bounds, files, dmls_bin)
         files_report[var] = var_entry
 
     return files_report
@@ -633,7 +876,8 @@ def _build_table_report(table_path: str, mip_era: str, varlists_by_table: dict,
                         show_mapped: bool = False,
                         pp_dir: Optional[str] = None, table_target: Optional[dict] = None,
                         check_staging: bool = False, check_dims: bool = False,
-                        check_output: bool = False, output_files_index: Sequence[Path] = (),
+                        check_output: bool = False, check_attrs: bool = False,
+                        check_range: bool = False, output_files_index: Sequence[Path] = (),
                         dmls_bin: Optional[str] = None,
                         start: Optional[int] = None, stop: Optional[int] = None) -> dict:
     """Build the unmapped / multiply-mapped / unknown-mapped report for one MIP table."""
@@ -667,11 +911,16 @@ def _build_table_report(table_path: str, mip_era: str, varlists_by_table: dict,
     if show_mapped:
         report_entry['one_to_one_mapped'] = one_to_one_mapped
 
-    if (check_staging or check_dims or check_output) and pp_dir is not None and table_target is not None:
-        table_data = get_json_file_data(table_path) if (check_dims or check_output) else None
+    any_files_check = (
+        check_staging or check_dims or check_output or check_attrs or check_range
+    )
+    if any_files_check and pp_dir is not None and table_target is not None:
+        needs_table_data = check_dims or check_output or check_attrs or check_range
+        table_data = get_json_file_data(table_path) if needs_table_data else None
         report_entry['files'] = _build_files_report(
             table_path, table_data, mip_era, table_target, pp_dir, one_to_one_mapped,
-            check_staging, check_dims, check_output, output_files_index, dmls_bin, start, stop
+            check_staging, check_dims, check_output, check_attrs, check_range,
+            output_files_index, dmls_bin, start, stop
         )
 
     return report_entry
@@ -779,6 +1028,29 @@ def _print_report(report: dict, show_mapped: bool = False,
                     else:
                         findings.append(('green', f'output=produced ({output["file_count"]} file(s))'))
 
+                attrs = var_entry.get('attrs')
+                if attrs is not None and attrs['status'] != 'ok':
+                    if attrs['status'] == 'unknown':
+                        findings.append(('yellow', f'attrs=unknown ({attrs.get("reason")})'))
+                    else:
+                        for field_name in ('units', 'cell_methods'):
+                            field = attrs[field_name]
+                            if field['status'] != 'ok':
+                                color = 'red' if field['status'] == 'mismatch' else 'yellow'
+                                findings.append((color, (
+                                    f'{field_name}={field["status"]} '
+                                    f'(table wants {field["mip_table"]}, input has {field["input"]!r})'
+                                )))
+
+                range_ = var_entry.get('range')
+                if range_ is not None and range_['status'] != 'ok':
+                    if range_['status'] == 'out_of_range':
+                        findings.append(('red', 'range=out_of_range: ' + '; '.join(range_['problems'])))
+                    elif range_['status'] == 'skipped_offline':
+                        findings.append(('yellow', f'range=skipped_offline ({range_.get("reason")})'))
+                    else:
+                        findings.append(('yellow', f'range=unknown ({range_.get("reason")})'))
+
                 if not findings:
                     continue
                 click.echo(f'    {var}')
@@ -797,6 +1069,8 @@ def cmor_check_subtool(
         check_staging: bool = False,
         check_dims: bool = False,
         check_output: bool = False,
+        check_attrs: bool = False,
+        check_range: bool = False,
         dmls_bin: Optional[str] = None
 ) -> dict:
     """
@@ -853,8 +1127,23 @@ def cmor_check_subtool(
         actually landed in outdir", not just "what's broken". Requires the yaml's
         ``directories.outdir`` to be set.
     :type check_output: bool
-    :param dmls_bin: path to the dmls binary for the staging check. If omitted, looks for
-        'dmls' on PATH; if not found either, falls back to a stat-only residency heuristic.
+    :param check_attrs: if True, for every one-to-one-mapped variable also check whether a
+        representative input file's ``units`` and ``cell_methods`` attributes match what the
+        MIP table declares (e.g. catching a variable mapped from the wrong diagnostic, or an
+        accumulated field mapped where an instantaneous one is expected). Only header metadata
+        is inspected, never array data. The human-readable output omits normal results.
+    :type check_attrs: bool
+    :param check_range: if True, for every one-to-one-mapped variable also check whether a
+        representative input file's actual data values fall within the MIP table's declared
+        ``valid_min``/``valid_max``/``ok_min_mean_abs``/``ok_max_mean_abs``. Unlike every other
+        check, this reads a file's full array of data (not just its header), so it can be very
+        slow for large/high-frequency fields; a representative file that is still offline
+        (archived, not staged) is skipped rather than triggering a tape retrieval. The
+        human-readable output omits normal results.
+    :type check_range: bool
+    :param dmls_bin: path to the dmls binary for the staging check, and for the offline check
+        that gates check_range. If omitted, looks for 'dmls' on PATH; if not found either,
+        falls back to a stat-only residency heuristic.
     :type dmls_bin: str or None
     :raises FileNotFoundError: if yamlfile, its pp_dir, or its table_dir do not exist, or a
         table_target's MIP table JSON file is missing.
@@ -863,8 +1152,8 @@ def cmor_check_subtool(
         check_output is True but yamlfile has no ``directories.outdir`` set.
     :return: enabled table_name -> report dict, with keys 'reference_var_count', 'unmapped',
              'multiply_mapped', 'unknown_mapped', (if show_mapped) 'one_to_one_mapped', and
-             (if check_staging or check_dims or check_output) 'files'. Disabled table targets
-             are omitted.
+             (if check_staging or check_dims or check_output or check_attrs or check_range)
+             'files'. Disabled table targets are omitted.
     :rtype: dict
     """
     started_at = time.monotonic()
@@ -926,6 +1215,18 @@ def cmor_check_subtool(
             'fremor check: dimension checks open one NetCDF header per mapped variable...',
             err=True,
         )
+    if check_attrs:
+        click.echo(
+            'fremor check: attrs checks open one NetCDF header per mapped variable...',
+            err=True,
+        )
+    if check_range:
+        click.echo(
+            'fremor check: range checks read a full file\'s data values per mapped variable '
+            'and can be VERY SLOW for large/high-frequency fields; files still offline '
+            '(not staged) are skipped rather than triggering a tape retrieval...',
+            err=True,
+        )
     output_files_index = []
     if check_output:
         click.echo(f'fremor check: indexing existing output under {outdir}...', err=True)
@@ -945,7 +1246,7 @@ def cmor_check_subtool(
     report = {}
     for index, table_name in enumerate(table_names, start=1):
         check_detail = 'mapping coverage'
-        if check_staging or check_dims or check_output:
+        if check_staging or check_dims or check_output or check_attrs or check_range:
             enabled_checks = []
             if check_staging:
                 enabled_checks.append('staging')
@@ -953,6 +1254,10 @@ def cmor_check_subtool(
                 enabled_checks.append('dimensions')
             if check_output:
                 enabled_checks.append('output')
+            if check_attrs:
+                enabled_checks.append('attrs')
+            if check_range:
+                enabled_checks.append('range')
             check_detail += f' and {"/".join(enabled_checks)} input-file checks'
         click.echo(
             f'fremor check: checking table {index}/{len(table_names)} '
@@ -964,7 +1269,8 @@ def cmor_check_subtool(
             table_paths[table_name], mip_era, varlists_by_table, show_mapped=show_mapped,
             pp_dir=pp_dir, table_target=table_targets_by_name.get(table_name),
             check_staging=check_staging, check_dims=check_dims,
-            check_output=check_output, output_files_index=output_files_index,
+            check_output=check_output, check_attrs=check_attrs, check_range=check_range,
+            output_files_index=output_files_index,
             dmls_bin=dmls_bin, start=start, stop=stop
         )
         report[table_entry.pop('table_name')] = table_entry

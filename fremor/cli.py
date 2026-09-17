@@ -395,16 +395,29 @@ def config(pp_dir, mip_tables_dir, mip_era, exp_config, output_yaml,
                    'what got parsed and what has successfully landed in outdir. Requires the '
                    'yaml\'s directories.outdir to be set. Unlike --check-inputs/--check-dims, reports '
                    'every variable, not just abnormal ones.')
+@click.option('--check-attrs', 'check_attrs', is_flag=True, default=False,
+              help='For every one-to-one-mapped variable, also check whether a representative '
+                   'input file\'s units and cell_methods attributes match what the MIP table '
+                   'declares (e.g. catching a variable mapped from the wrong diagnostic, or an '
+                   'accumulated field mapped where an instantaneous one is expected). Only '
+                   'inspects one file\'s header per variable.')
+@click.option('--check-range', 'check_range', is_flag=True, default=False,
+              help='For every one-to-one-mapped variable, also check whether a representative '
+                   'input file\'s actual data values fall within the MIP table\'s declared '
+                   'valid_min/valid_max/ok_min_mean_abs/ok_max_mean_abs. Unlike every other '
+                   'check, this reads a file\'s full array of data and can be VERY SLOW for '
+                   'large/high-frequency fields. A representative file that is still offline '
+                   '(not staged) is skipped rather than triggering a tape retrieval.')
 @click.option('--dmls_bin', type=str, default=None,
-              help='Path to the dmls binary for the --check-inputs check. If omitted, looks for '
-                   '\'dmls\' on PATH; if not found either, falls back to a stat-only residency '
-                   'heuristic.')
+              help='Path to the dmls binary for the --check-inputs check and for the offline '
+                   'check that gates --check-range. If omitted, looks for \'dmls\' on PATH; if '
+                   'not found either, falls back to a stat-only residency heuristic.')
 @click.option('--json', 'json_output', is_flag=True, default=False,
               help='Print the report as JSON instead of a text summary.')
 @click.option('-o', '--output_report', type=str, default=None,
               help='Optional path to also write the JSON report to.')
 def check(tables, yamlfile, show_mapped, show_unmapped, show_multi_mapped, check_staging,
-          check_dims, check_output, dmls_bin, json_output, output_report):
+          check_dims, check_output, check_attrs, check_range, dmls_bin, json_output, output_report):
     """
     Check variable-mapping coverage of varlist files against MIP tables, and optionally
     the actual pp_dir input files those mappings resolve to, and/or the outdir output files
@@ -420,7 +433,10 @@ def check(tables, yamlfile, show_mapped, show_unmapped, show_multi_mapped, check
     variable, whether its pp_dir input files are present and staged, and whether their
     vertical dimension matches what the MIP table expects. Pass --check-outputs to report, for
     every one-to-one-mapped variable, whether CMOR has actually produced output for it
-    under outdir.
+    under outdir. Pass --check-attrs to check a representative input file's units and
+    cell_methods attributes against what the MIP table declares. Pass --check-range to check a
+    representative input file's actual data values against the MIP table's valid range -- this
+    reads full file contents and can be very slow, so use it sparingly.
 
     TABLES is an optional list of MIP table names to check, e.g. 'Amon' or
     'Lmon'. Shell-style wildcards are supported, e.g. 'AER*'. If omitted,
@@ -437,6 +453,8 @@ def check(tables, yamlfile, show_mapped, show_unmapped, show_multi_mapped, check
         check_staging=check_staging,
         check_dims=check_dims,
         check_output=check_output,
+        check_attrs=check_attrs,
+        check_range=check_range,
         dmls_bin=dmls_bin
     )
 

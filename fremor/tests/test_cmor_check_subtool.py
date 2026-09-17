@@ -889,3 +889,294 @@ def test_cmor_check_subtool_output_requires_outdir(temp_dir): # pylint: disable=
 
     with pytest.raises(ValueError, match='outdir'):
         cmor_check_subtool(yamlfile=yamlfile, check_output=True)
+
+
+def _write_table_with_attrs(tables_dir, table_name, var_entries):
+    ''' like _write_table, but each value is a dict of extra variable_entry fields (units,
+    cell_methods, valid_min, valid_max, ok_min_mean_abs, ok_max_mean_abs, ...) '''
+    variable_entry = {
+        name: {'standard_name': name, **fields} for name, fields in var_entries.items()
+    }
+    (Path(tables_dir) / f'CMIP6_{table_name}.json').write_text(
+        json.dumps({'Header': {'table_id': f'Table {table_name}'}, 'variable_entry': variable_entry}),
+        encoding='utf-8'
+    )
+
+
+def _write_input_nc_with_attrs(nc_path, local_var, units=None, cell_methods=None, values=None):
+    ''' like _write_input_nc, but sets units/cell_methods attributes on local_var and,
+    if `values` is given, writes actual data (otherwise the variable is left empty) '''
+    with Dataset(str(nc_path), 'w') as ds:
+        n = len(values) if values is not None else 2
+        ds.createDimension('time', n)
+        ds.createVariable('time', 'f4', ('time',))
+        var = ds.createVariable(local_var, 'f4', ('time',))
+        if units is not None:
+            var.units = units
+        if cell_methods is not None:
+            var.cell_methods = cell_methods
+        if values is not None:
+            var[:] = values
+
+
+def test_cmor_check_subtool_attrs_ok(temp_dir, capsys): # pylint: disable=redefined-outer-name
+    ''' check_attrs: matching units/cell_methods remain in structured data but are hidden from
+    the human-readable report '''
+    temp_root = Path(temp_dir)
+    tables_dir = temp_root / 'tables'
+    tables_dir.mkdir()
+    _write_table_with_attrs(tables_dir, 'Amon', {
+        'tas': {'units': 'K', 'cell_methods': 'area: time: mean'}
+    })
+
+    varlist_dir = temp_root / 'varlists'
+    varlist_dir.mkdir()
+    atmos_list = varlist_dir / 'CMIP6_Amon_atmos.list'
+    atmos_list.write_text(json.dumps({'tas': 'tas'}), encoding='utf-8')
+
+    pp_dir = temp_root / 'pp'
+    yamlfile = _write_yaml(temp_dir, [
+        _table_target('Amon', [_component_entry('atmos', atmos_list)])
+    ], table_dir=tables_dir, pp_dir=pp_dir)
+
+    comp_dir = _input_dir(pp_dir, 'atmos')
+    _write_input_nc_with_attrs(
+        comp_dir / 'atmos.197901-198312.tas.nc', 'tas',
+        units='K', cell_methods='area: time: mean'
+    )
+
+    report = cmor_check_subtool(yamlfile=yamlfile, check_attrs=True)
+    attrs = report['Amon']['files']['tas']['attrs']
+    assert attrs['status'] == 'ok'
+    assert attrs['units']['status'] == 'ok'
+    assert attrs['cell_methods']['status'] == 'ok'
+    assert 'attrs=' not in capsys.readouterr().out
+
+
+def test_cmor_check_subtool_attrs_units_mismatch(temp_dir, capsys): # pylint: disable=redefined-outer-name
+    ''' check_attrs: input file's units differ from what the MIP table declares '''
+    temp_root = Path(temp_dir)
+    tables_dir = temp_root / 'tables'
+    tables_dir.mkdir()
+    _write_table_with_attrs(tables_dir, 'Amon', {'tas': {'units': 'K'}})
+
+    varlist_dir = temp_root / 'varlists'
+    varlist_dir.mkdir()
+    atmos_list = varlist_dir / 'CMIP6_Amon_atmos.list'
+    atmos_list.write_text(json.dumps({'tas': 'tas'}), encoding='utf-8')
+
+    pp_dir = temp_root / 'pp'
+    yamlfile = _write_yaml(temp_dir, [
+        _table_target('Amon', [_component_entry('atmos', atmos_list)])
+    ], table_dir=tables_dir, pp_dir=pp_dir)
+
+    comp_dir = _input_dir(pp_dir, 'atmos')
+    _write_input_nc_with_attrs(comp_dir / 'atmos.197901-198312.tas.nc', 'tas', units='degC')
+
+    report = cmor_check_subtool(yamlfile=yamlfile, check_attrs=True)
+    attrs = report['Amon']['files']['tas']['attrs']
+    assert attrs['status'] == 'mismatch'
+    assert attrs['units'] == {'status': 'mismatch', 'mip_table': ['K'], 'input': 'degC'}
+    assert 'units=mismatch' in capsys.readouterr().out
+
+
+def test_cmor_check_subtool_attrs_cell_methods_missing(temp_dir): # pylint: disable=redefined-outer-name
+    ''' check_attrs: table declares cell_methods but the input file has no such attribute '''
+    temp_root = Path(temp_dir)
+    tables_dir = temp_root / 'tables'
+    tables_dir.mkdir()
+    _write_table_with_attrs(tables_dir, 'Amon', {'tas': {'cell_methods': 'area: time: mean'}})
+
+    varlist_dir = temp_root / 'varlists'
+    varlist_dir.mkdir()
+    atmos_list = varlist_dir / 'CMIP6_Amon_atmos.list'
+    atmos_list.write_text(json.dumps({'tas': 'tas'}), encoding='utf-8')
+
+    pp_dir = temp_root / 'pp'
+    yamlfile = _write_yaml(temp_dir, [
+        _table_target('Amon', [_component_entry('atmos', atmos_list)])
+    ], table_dir=tables_dir, pp_dir=pp_dir)
+
+    comp_dir = _input_dir(pp_dir, 'atmos')
+    _write_input_nc_with_attrs(comp_dir / 'atmos.197901-198312.tas.nc', 'tas')
+
+    report = cmor_check_subtool(yamlfile=yamlfile, check_attrs=True)
+    assert report['Amon']['files']['tas']['attrs']['cell_methods']['status'] == 'missing'
+
+
+def test_cmor_check_subtool_attrs_unknown_when_no_files(temp_dir): # pylint: disable=redefined-outer-name
+    ''' check_attrs: a one-to-one-mapped variable with no input files under pp_dir '''
+    temp_root = Path(temp_dir)
+    tables_dir = temp_root / 'tables'
+    tables_dir.mkdir()
+    _write_table_with_attrs(tables_dir, 'Amon', {'tas': {'units': 'K'}})
+
+    varlist_dir = temp_root / 'varlists'
+    varlist_dir.mkdir()
+    atmos_list = varlist_dir / 'CMIP6_Amon_atmos.list'
+    atmos_list.write_text(json.dumps({'tas': 'tas'}), encoding='utf-8')
+
+    yamlfile = _write_yaml(temp_dir, [
+        _table_target('Amon', [_component_entry('atmos', atmos_list)])
+    ], table_dir=tables_dir)
+
+    report = cmor_check_subtool(yamlfile=yamlfile, check_attrs=True)
+    assert report['Amon']['files']['tas']['attrs']['status'] == 'unknown'
+
+
+def test_cmor_check_subtool_range_ok(temp_dir, capsys): # pylint: disable=redefined-outer-name
+    ''' check_range: values within the table's declared bounds remain in structured data but
+    are hidden from the human-readable report '''
+    temp_root = Path(temp_dir)
+    tables_dir = temp_root / 'tables'
+    tables_dir.mkdir()
+    _write_table_with_attrs(tables_dir, 'Amon', {
+        'tas': {'valid_min': '150', 'valid_max': '350',
+                'ok_min_mean_abs': '200', 'ok_max_mean_abs': '320'}
+    })
+
+    varlist_dir = temp_root / 'varlists'
+    varlist_dir.mkdir()
+    atmos_list = varlist_dir / 'CMIP6_Amon_atmos.list'
+    atmos_list.write_text(json.dumps({'tas': 'tas'}), encoding='utf-8')
+
+    pp_dir = temp_root / 'pp'
+    yamlfile = _write_yaml(temp_dir, [
+        _table_target('Amon', [_component_entry('atmos', atmos_list)])
+    ], table_dir=tables_dir, pp_dir=pp_dir)
+
+    comp_dir = _input_dir(pp_dir, 'atmos')
+    _write_input_nc_with_attrs(
+        comp_dir / 'atmos.197901-198312.tas.nc', 'tas', values=[270.0, 271.0, 272.0]
+    )
+
+    report = cmor_check_subtool(yamlfile=yamlfile, check_range=True)
+    range_ = report['Amon']['files']['tas']['range']
+    assert range_['status'] == 'ok'
+    assert range_['actual_min'] == 270.0
+    assert range_['actual_max'] == 272.0
+    assert 'range=' not in capsys.readouterr().out
+
+
+def test_cmor_check_subtool_range_out_of_range(temp_dir, capsys): # pylint: disable=redefined-outer-name
+    ''' check_range: a value outside the table's valid_min/valid_max is flagged '''
+    temp_root = Path(temp_dir)
+    tables_dir = temp_root / 'tables'
+    tables_dir.mkdir()
+    _write_table_with_attrs(tables_dir, 'Amon', {'tas': {'valid_min': '150', 'valid_max': '350'}})
+
+    varlist_dir = temp_root / 'varlists'
+    varlist_dir.mkdir()
+    atmos_list = varlist_dir / 'CMIP6_Amon_atmos.list'
+    atmos_list.write_text(json.dumps({'tas': 'tas'}), encoding='utf-8')
+
+    pp_dir = temp_root / 'pp'
+    yamlfile = _write_yaml(temp_dir, [
+        _table_target('Amon', [_component_entry('atmos', atmos_list)])
+    ], table_dir=tables_dir, pp_dir=pp_dir)
+
+    comp_dir = _input_dir(pp_dir, 'atmos')
+    _write_input_nc_with_attrs(
+        comp_dir / 'atmos.197901-198312.tas.nc', 'tas', values=[270.0, 999.0]
+    )
+
+    report = cmor_check_subtool(yamlfile=yamlfile, check_range=True)
+    range_ = report['Amon']['files']['tas']['range']
+    assert range_['status'] == 'out_of_range'
+    assert any('valid_max' in problem for problem in range_['problems'])
+    assert 'range=out_of_range' in capsys.readouterr().out
+
+
+def test_cmor_check_subtool_range_no_bounds_declared(temp_dir): # pylint: disable=redefined-outer-name
+    ''' check_range: a variable with no valid_min/valid_max/ok_*_mean_abs declared in the
+    table has nothing to check against, and is reported ok rather than unknown '''
+    temp_root = Path(temp_dir)
+    tables_dir = temp_root / 'tables'
+    tables_dir.mkdir()
+    _write_amon_table(tables_dir, ['tas'])
+
+    varlist_dir = temp_root / 'varlists'
+    varlist_dir.mkdir()
+    atmos_list = varlist_dir / 'CMIP6_Amon_atmos.list'
+    atmos_list.write_text(json.dumps({'tas': 'tas'}), encoding='utf-8')
+
+    pp_dir = temp_root / 'pp'
+    yamlfile = _write_yaml(temp_dir, [
+        _table_target('Amon', [_component_entry('atmos', atmos_list)])
+    ], table_dir=tables_dir, pp_dir=pp_dir)
+
+    comp_dir = _input_dir(pp_dir, 'atmos')
+    _write_input_nc_with_attrs(
+        comp_dir / 'atmos.197901-198312.tas.nc', 'tas', values=[270.0, 271.0]
+    )
+
+    report = cmor_check_subtool(yamlfile=yamlfile, check_range=True)
+    assert report['Amon']['files']['tas']['range']['status'] == 'ok'
+
+
+def test_cmor_check_subtool_range_skips_offline_file(temp_dir, monkeypatch, capsys): # pylint: disable=redefined-outer-name
+    ''' check_range: a representative file reported offline by dmls is skipped rather than
+    having its data read (which would trigger a tape retrieval) '''
+    temp_root = Path(temp_dir)
+    tables_dir = temp_root / 'tables'
+    tables_dir.mkdir()
+    _write_table_with_attrs(tables_dir, 'Amon', {'tas': {'valid_min': '150', 'valid_max': '350'}})
+
+    varlist_dir = temp_root / 'varlists'
+    varlist_dir.mkdir()
+    atmos_list = varlist_dir / 'CMIP6_Amon_atmos.list'
+    atmos_list.write_text(json.dumps({'tas': 'tas'}), encoding='utf-8')
+
+    pp_dir = temp_root / 'pp'
+    yamlfile = _write_yaml(temp_dir, [
+        _table_target('Amon', [_component_entry('atmos', atmos_list)])
+    ], table_dir=tables_dir, pp_dir=pp_dir)
+
+    comp_dir = _input_dir(pp_dir, 'atmos')
+    nc_path = comp_dir / 'atmos.197901-198312.tas.nc'
+    _write_input_nc_with_attrs(nc_path, 'tas', values=[270.0, 271.0])
+
+    import subprocess as subprocess_mod # pylint: disable=import-outside-toplevel
+
+    class _FakeResult:
+        stdout = f'-rw-r--r-- 1 user group 123 Jan 1 12:00 (OFL) {nc_path}\n'
+
+    read_attempts = []
+    real_dataset_init = Dataset.__init__
+
+    def _tracking_init(self, filename, *args, **kwargs): # pylint: disable=unused-argument
+        read_attempts.append(filename)
+        return real_dataset_init(self, filename, *args, **kwargs)
+
+    def _fake_run(cmd, **kwargs): # pylint: disable=unused-argument
+        assert cmd[0] == 'dmls'
+        return _FakeResult()
+
+    monkeypatch.setattr(subprocess_mod, 'run', _fake_run)
+    monkeypatch.setattr(Dataset, '__init__', _tracking_init)
+
+    report = cmor_check_subtool(yamlfile=yamlfile, check_range=True, dmls_bin='dmls')
+    range_ = report['Amon']['files']['tas']['range']
+    assert range_['status'] == 'skipped_offline'
+    assert str(nc_path) not in read_attempts
+    assert 'range=skipped_offline' in capsys.readouterr().out
+
+
+def test_cmor_check_subtool_range_unknown_when_no_files(temp_dir): # pylint: disable=redefined-outer-name
+    ''' check_range: a one-to-one-mapped variable with no input files under pp_dir '''
+    temp_root = Path(temp_dir)
+    tables_dir = temp_root / 'tables'
+    tables_dir.mkdir()
+    _write_table_with_attrs(tables_dir, 'Amon', {'tas': {'valid_min': '150', 'valid_max': '350'}})
+
+    varlist_dir = temp_root / 'varlists'
+    varlist_dir.mkdir()
+    atmos_list = varlist_dir / 'CMIP6_Amon_atmos.list'
+    atmos_list.write_text(json.dumps({'tas': 'tas'}), encoding='utf-8')
+
+    yamlfile = _write_yaml(temp_dir, [
+        _table_target('Amon', [_component_entry('atmos', atmos_list)])
+    ], table_dir=tables_dir)
+
+    report = cmor_check_subtool(yamlfile=yamlfile, check_range=True)
+    assert report['Amon']['files']['tas']['range']['status'] == 'unknown'
