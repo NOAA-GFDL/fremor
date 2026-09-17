@@ -845,7 +845,7 @@ def cmor_check_subtool(
         and whether hybrid-sigma variables have their companion ``.ps.nc`` file present. The
         human-readable output omits normal results.
     :type check_dims: bool
-    :param check_output: if True (CLI: ``--outputs``), for every one-to-one-mapped variable
+    :param check_output: if True (CLI: ``--check-outputs``), for every one-to-one-mapped variable
         also report whether CMOR has actually produced matching output file(s) under the
         yaml's ``outdir``, plus a filename-only scan for gaps between output chunks' date
         ranges. Unlike check_staging/check_dims, the human-readable output reports every
@@ -880,7 +880,7 @@ def cmor_check_subtool(
 
     if check_output and not outdir:
         raise ValueError(
-            f"--outputs requested but {yamlfile} has no directories.outdir set; "
+            f"--check-outputs requested but {yamlfile} has no directories.outdir set; "
             "nothing to check produced output against.")
 
     all_table_names = sorted({table_target['table_name'] for table_target in table_targets})

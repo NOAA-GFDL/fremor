@@ -199,14 +199,14 @@ Use ``--dry_run`` first to review the deduplicated file selection. YAML
 ~~~~~~~~~
 
 Audit the mappings in a self-contained CMOR YAML before running. The report
-identifies missing, duplicate, and unknown mappings. Add ``--staging`` to check
-that mapped archive inputs are available, and ``--dims`` to compare a
+identifies missing, duplicate, and unknown mappings. Add ``--check-inputs`` to check
+that mapped archive inputs are available, and ``--check-dims`` to compare a
 representative input file's vertical dimension with its MIP-table definition.
 
 .. code-block:: bash
 
-   fremor check --yamlfile /path/to/cmor.yaml --staging --dims
-   fremor check --yamlfile /path/to/cmor.yaml Amon --show_mapped
+   fremor check --yamlfile /path/to/cmor.yaml --check-inputs --check-dims
+   fremor check --yamlfile /path/to/cmor.yaml Amon --show-mapped
 
 ``map``
 ~~~~~~~

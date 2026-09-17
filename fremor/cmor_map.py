@@ -60,7 +60,7 @@ checked to confirm it has actually been retrieved from tape ('REG' disk-resident
 disk-resident and also copied to tape) -- any other status shows a "still on tape" message
 instead of a preview, since opening/inspecting an offline file would otherwise silently
 trigger (or block on) a tape retrieval. If dmls isn't available, falls back to a stat-only
-residency heuristic (same one ``fremor check --staging`` uses).
+residency heuristic (same one ``fremor check --check-inputs`` uses).
 
 File previews in the pp-directory browser prefer the user's ``ncinfo`` tool (an external,
 non-Python CLI) when available on PATH or via ``--ncinfo_bin``, falling back to a plain
