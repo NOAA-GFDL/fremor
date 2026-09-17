@@ -21,8 +21,11 @@ from fremor.cmor_map import (
     _discover_pp_components,
     _find_ncinfo_bin,
     _format_variable_detail,
+    _format_year_coverage,
+    _group_pp_files_by_variable,
     _inspect_nc_variable,
     _local_var_name_from_nc_path,
+    _merge_year_ranges,
     _ncinfo_preview,
     _preview_nc_file,
 )
@@ -115,6 +118,41 @@ def test_local_var_name_from_nc_path():
     assert _local_var_name_from_nc_path('/a/b/ocean_monthly.000101-000512.sos.nc') == 'sos'
     assert _local_var_name_from_nc_path('component.199301-199302.sea_sfc_salinity.nc') == \
         'sea_sfc_salinity'
+
+
+# ── per-variable pp-file grouping/coverage ──────────────────────────────────
+
+def test_merge_year_ranges_contiguous_and_gapped():
+    ''' contiguous/overlapping spans merge into one segment; a genuine gap stays separate '''
+    assert _merge_year_ranges([(1979, 1979), (1980, 1980), (1981, 1981)]) == [(1979, 1981)]
+    assert _merge_year_ranges([(1979, 2018), (2020, 2021)]) == [(1979, 2018), (2020, 2021)]
+    assert _merge_year_ranges([(2000, 2005), (2003, 2010)]) == [(2000, 2010)]  # overlap merges
+    assert _merge_year_ranges([]) == []
+
+
+def test_format_year_coverage():
+    ''' compact 'Y1-Y2[,Y3-Y4...]' rendering, including the single-year and no-range cases '''
+    assert _format_year_coverage([(y, y) for y in range(1979, 2022) if y != 2019]) == \
+        '1979-2018,2020-2021'
+    assert _format_year_coverage([(1979, 2021)]) == '1979-2021'
+    assert _format_year_coverage([(2000, 2000)]) == '2000'
+    assert _format_year_coverage([]) == 'period unknown'
+
+
+def test_group_pp_files_by_variable():
+    ''' groups by local var name, pairing each file with its parsed (first_year, last_year) '''
+    nc_paths = [
+        'atmos.197901-197912.tas.nc',
+        'atmos.198001-198012.tas.nc',
+        'atmos.197901-198012.pr.nc',
+    ]
+    grouped = _group_pp_files_by_variable(nc_paths)
+    assert set(grouped) == {'tas', 'pr'}
+    assert grouped['tas'] == [
+        ('atmos.197901-197912.tas.nc', (1979, 1979)),
+        ('atmos.198001-198012.tas.nc', (1980, 1980)),
+    ]
+    assert grouped['pr'] == [('atmos.197901-198012.pr.nc', (1979, 1980))]
 
 
 # ── netCDF4-based preview fallback ──────────────────────────────────────────
@@ -942,6 +980,86 @@ async def test_pp_tree_file_label_shows_usage_count(temp_dir): # pylint: disable
         precip_node = next(n for n in chunk_node.children if n.data['local_key'] == 'precip')
         assert '(used 1x)' in str(t_ref_node.label)
         assert '(used 0x)' in str(precip_node.label)
+
+
+@pytest.mark.asyncio
+async def test_pp_tree_groups_per_year_files_by_variable(temp_dir): # pylint: disable=redefined-outer-name
+    ''' when a chunk directory holds one file per year for a variable rather than one file
+    for the whole period, the pp tree still shows a single entry for it -- just the variable
+    name, merged year coverage (noting a gap where a year -- here 2002 -- is missing), and
+    usage count, the same as a single-file variable gets, with no per-file listing. '''
+    pp_dir, varlist_dir, tables_dir = _make_session_fixture(temp_dir)
+    comp_ts_dir = Path(pp_dir) / 'atmos' / 'ts' / 'monthly' / '5yr'
+    comp_ts_dir.mkdir(parents=True)
+    for year in (2000, 2001, 2003):  # 2002 is deliberately missing
+        _write_nc_file(comp_ts_dir / f'atmos.{year}01-{year}12.tas.nc', 'tas')
+    # a single-file variable in the same chunk dir gets the same kind of entry, same format
+    _write_nc_file(comp_ts_dir / 'atmos.200001-200312.pr.nc', 'pr')
+
+    yamlfile = _amon_yaml(temp_dir, pp_dir, varlist_dir, tables_dir, component_names=['atmos'])
+    app = MapApp(MapSession(yamlfile))
+
+    async with app.run_test():
+        pp_tree = app.query_one('#pp_tree')
+        component_node = pp_tree.root.children[0]
+        app.on_tree_node_expanded(_FakeTreeEvent(component_node, 'pp_tree'))
+        freq_node = component_node.children[0]
+        app.on_tree_node_expanded(_FakeTreeEvent(freq_node, 'pp_tree'))
+        chunk_node = freq_node.children[0]
+        app.on_tree_node_expanded(_FakeTreeEvent(chunk_node, 'pp_tree'))
+
+        pr_node = next(n for n in chunk_node.children if n.data.get('local_key') == 'pr')
+        assert pr_node.data['kind'] == 'pp_var'
+        assert '2000-2003' in str(pr_node.label)
+
+        tas_node = next(n for n in chunk_node.children if n.data.get('local_key') == 'tas')
+        assert tas_node.data['kind'] == 'pp_var'
+        assert '2000-2001,2003' in str(tas_node.label)
+        assert len(tas_node.data['files']) == 3
+        # files are sorted chronologically, so the earliest year's file is first
+        assert tas_node.data['files'][0][0].endswith('atmos.200001-200012.tas.nc')
+        assert tas_node.data['path'] == tas_node.data['files'][0][0]
+
+
+@pytest.mark.asyncio
+async def test_map_app_navigates_pp_tree_into_var_group(temp_dir): # pylint: disable=redefined-outer-name
+    ''' selecting a one-to-one mapped CMIP variable whose local_key has multiple per-year pp
+    files still navigates straight to its single (collapsed) pp-tree entry, and previews its
+    earliest file -- there's no separate group/file level to descend into any more. '''
+    pp_dir, varlist_dir, tables_dir = _make_session_fixture(temp_dir)
+    (Path(varlist_dir) / 'CMIP6_Amon_atmos.list').write_text(
+        json.dumps({'t_ref': 'tas'}), encoding='utf-8'
+    )
+    comp_ts_dir = Path(pp_dir) / 'atmos' / 'ts' / 'monthly' / '5yr'
+    comp_ts_dir.mkdir(parents=True)
+    _write_nc_file(comp_ts_dir / 'atmos.000101-000512.t_ref.nc', 't_ref')
+    _write_nc_file(comp_ts_dir / 'atmos.000601-001012.t_ref.nc', 't_ref')
+
+    yamlfile = _amon_yaml(temp_dir, pp_dir, varlist_dir, tables_dir, component_names=['atmos'])
+    app = MapApp(MapSession(yamlfile))
+
+    async with app.run_test() as pilot:
+        cmip_tree = app.query_one('#cmip_tree')
+        table_node = cmip_tree.root.children[0]
+        mapped_node = table_node.children[1]
+        source_node = next(n for n in mapped_node.children if n.data['var'] == 'tas')
+
+        app.on_tree_node_selected(_FakeTreeEvent(source_node, 'cmip_tree'))
+        await pilot.pause()
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+
+        assert app.selected_pp is not None
+        assert app.selected_pp['local_key'] == 't_ref'
+        assert app.selected_pp['component'] == 'atmos'
+        # previews the earliest of the two files, since there's one tree entry for both
+        assert app.selected_pp['path'].endswith('atmos.000101-000512.t_ref.nc')
+
+        pp_tree = app.query_one('#pp_tree')
+        assert pp_tree.cursor_node is not None
+        assert pp_tree.cursor_node.data['kind'] == 'pp_var'
+        assert pp_tree.cursor_node.data['local_key'] == 't_ref'
+        assert len(pp_tree.cursor_node.data['files']) == 2
 
 
 @pytest.mark.asyncio

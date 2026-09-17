@@ -70,6 +70,12 @@ a file shows a loading message immediately and the UI stays responsive while it 
 Selecting another file before a preview finishes discards that in-flight result once it
 eventually arrives, so only the most recently selected file's preview is ever shown.
 
+Each local variable in a pp-directory chunk shows as a single tree entry -- its name, the
+year(s) its file(s) cover (merged into one range, or several when a year is missing, e.g.
+``1979-2018,2020-2021``), and how many currently-loaded varlists map it -- the same three
+pieces of information whether the variable has one file for its whole period or one file per
+year. Selecting it previews its earliest file.
+
 Functions
 ---------
 - ``cmor_map_subtool(...)``
@@ -94,7 +100,8 @@ from textual.app import App, ComposeResult
 from textual.containers import Horizontal, Vertical
 from textual.widgets import Footer, Static, Tree
 
-from .cmor_check import _build_table_report, _DMLS_DISK_RESIDENT_STATES, _dmls_state_for_file, \
+from .cmor_check import _build_table_report, _date_range_from_filename, \
+    _DMLS_DISK_RESIDENT_STATES, _dmls_state_for_file, \
     _find_dmls_bin, _is_file_staged, _matching_variable_keys, _mip_table_paths, \
     _select_table_names, _varlists_by_table_from_yaml
 from .cmor_config import _bronx_to_iso_chunk, _load_config_yaml
@@ -137,6 +144,53 @@ def _local_var_name_from_nc_path(nc_path: str) -> str:
     """Extract the local variable name from a filename, same convention as make_simple_varlist:
     <something>.<datetime>.<variable>.nc -- variable is the second-to-last dot-delimited field."""
     return Path(nc_path).name.split('.')[-2]
+
+
+def _group_pp_files_by_variable(nc_paths: Sequence[str]) -> dict:
+    """Group a chunk directory's pp files by local variable name, pairing each file with the
+    (first_year, last_year) span (or None, if unparseable) parsed from its filename. Used to
+    collapse every file for one variable -- whether there's just one or (e.g. one file per
+    year) many -- into a single pp-tree entry per variable, so the tree shows one line per
+    variable instead of a long run of near-identical file leaves.
+
+    :return: local_var -> list of (nc_path, year_range_or_None) tuples, sorted chronologically
+        (earliest year_range first; files with no parseable date range sort last, by path) so
+        that ``files[0]`` is always the variable's earliest file.
+    :rtype: dict
+    """
+    grouped = defaultdict(list)
+    for nc_path in nc_paths:
+        local_var = _local_var_name_from_nc_path(nc_path)
+        grouped[local_var].append((nc_path, _date_range_from_filename(Path(nc_path))))
+    for files in grouped.values():
+        files.sort(key=lambda item: (item[1] is None, item[1] or (0, 0), item[0]))
+    return grouped
+
+
+def _merge_year_ranges(ranges: Sequence[tuple]) -> list:
+    """Merge (first_year, last_year) spans into the smallest set of contiguous/overlapping
+    segments, e.g. [(1979,1979), ..., (2018,2018), (2020,2020), (2021,2021)] ->
+    [(1979,2018), (2020,2021)] -- adjacent spans (next start <= prev end + 1) merge into one."""
+    if not ranges:
+        return []
+    merged = [list(sorted(ranges)[0])]
+    for start, end in sorted(ranges)[1:]:
+        if start <= merged[-1][1] + 1:
+            merged[-1][1] = max(merged[-1][1], end)
+        else:
+            merged.append([start, end])
+    return [tuple(segment) for segment in merged]
+
+
+def _format_year_coverage(ranges: Sequence[tuple]) -> str:
+    """Render merged year ranges as a compact string, e.g. '1979-2021', or, when a year (here
+    2019) is missing in between, '1979-2018,2020-2021'. Returns 'period unknown' if none of
+    the files carried a parseable date range at all."""
+    segments = _merge_year_ranges(ranges)
+    if not segments:
+        return 'period unknown'
+    return ','.join(
+        f'{start}' if start == end else f'{start}-{end}' for start, end in segments)
 
 
 # ---------------------------------------------------------------------------
@@ -931,11 +985,15 @@ class MapApp(App):
         tree.root.expand()
 
     @staticmethod
-    def _pp_file_label(nc_path: str, local_var: str, usage_count: int) -> str:
-        """Render one pp-file leaf's label, including how many of the currently-loaded
-        MIP tables' varlists actually map this file's (component, local_key) to a CMIP
-        variable -- so a heavily-reused file (or a never-used one) is obvious at a glance."""
-        return f'{Path(nc_path).name}  [{local_var}]  (used {usage_count}x)'
+    def _pp_var_label(local_var: str, files: list, usage_count: int) -> str:
+        """Render one pp-tree entry's label: just the local variable name, the year(s) its
+        file(s) cover (merged, noting any gaps), and how many of the currently-loaded MIP
+        tables' varlists actually map it to a CMIP variable -- the same three pieces of
+        information regardless of whether the variable has one file or many (e.g. one file
+        per year), so the tree never grows a long run of near-identical file leaves."""
+        coverage = _format_year_coverage(
+            [year_range for _nc_path, year_range in files if year_range is not None])
+        return f'{local_var}  [{coverage}]  (used {usage_count}x)'
 
     def _ensure_pp_node_populated(self, node) -> None:
         """Populate a lazily-loaded pp_tree node's children, if not already populated.
@@ -957,25 +1015,28 @@ class MapApp(App):
                                       'component': data['component'],
                                       'freq': data['freq'], 'chunk': chunk})
         elif kind == 'chunk':
-            for nc_path in _discover_nc_files(data['path'], data['freq'], data['chunk']):
-                local_var = _local_var_name_from_nc_path(nc_path)
+            nc_paths = _discover_nc_files(data['path'], data['freq'], data['chunk'])
+            grouped = _group_pp_files_by_variable(nc_paths)
+            for local_var in sorted(grouped):
+                files = grouped[local_var]
                 usage_count = self.session.usage_count(data['component'], local_var)
                 node.add_leaf(
-                    self._pp_file_label(nc_path, local_var, usage_count),
-                    data={'kind': 'file', 'path': nc_path, 'component': data['component'],
-                          'local_key': local_var, 'freq': data['freq'], 'chunk': data['chunk']})
+                    self._pp_var_label(local_var, files, usage_count),
+                    data={'kind': 'pp_var', 'path': files[0][0], 'component': data['component'],
+                          'local_key': local_var, 'freq': data['freq'], 'chunk': data['chunk'],
+                          'files': files})
 
     def on_tree_node_expanded(self, event: Tree.NodeExpanded) -> None:
         if event.control.id != 'pp_tree':
             return
         self._ensure_pp_node_populated(event.node)
 
-    def _select_pp_tree_node(self, component_node, freq_node, chunk_node, file_node) -> None:
-        """Expand a pp_tree component/freq/chunk node chain and select its file_node leaf."""
+    def _select_pp_tree_node(self, ancestor_nodes, file_node) -> None:
+        """Expand every node in `ancestor_nodes` (component/freq/chunk) then select and scroll
+        to `file_node`."""
         tree = self.query_one('#pp_tree', Tree)
-        component_node.expand()
-        freq_node.expand()
-        chunk_node.expand()
+        for ancestor in ancestor_nodes:
+            ancestor.expand()
         # Tree.move_cursor (inside select_node) trusts file_node._line, which is only kept
         # current by Tree's own on-idle rebuild -- accessing last_line forces that rebuild
         # synchronously so the newly-expanded ancestors are accounted for before we jump the
@@ -1013,23 +1074,26 @@ class MapApp(App):
             return False
 
         self._ensure_pp_node_populated(component_node)
-        mismatched_fallback = None  # (freq_node, chunk_node, file_node) under a different freq
+        mismatched_fallback = None  # (freq_node, ancestor_nodes, file_node) under a different freq
         for freq_node in component_node.children:
             self._ensure_pp_node_populated(freq_node)
             for chunk_node in freq_node.children:
                 self._ensure_pp_node_populated(chunk_node)
-                for file_node in chunk_node.children:
-                    if (file_node.data or {}).get('local_key') != local_key:
+                for child_node in chunk_node.children:
+                    child_data = child_node.data or {}
+                    if child_data.get('local_key') != local_key:
                         continue
+                    file_node = child_node
+                    ancestor_nodes = [component_node, freq_node, chunk_node]
                     if table_freq is None or (freq_node.data or {}).get('freq') == table_freq:
-                        self._select_pp_tree_node(component_node, freq_node, chunk_node, file_node)
+                        self._select_pp_tree_node(ancestor_nodes, file_node)
                         return True
                     if mismatched_fallback is None:
-                        mismatched_fallback = (freq_node, chunk_node, file_node)
+                        mismatched_fallback = (freq_node, ancestor_nodes, file_node)
 
         if mismatched_fallback is not None:
-            freq_node, chunk_node, file_node = mismatched_fallback
-            self._select_pp_tree_node(component_node, freq_node, chunk_node, file_node)
+            freq_node, ancestor_nodes, file_node = mismatched_fallback
+            self._select_pp_tree_node(ancestor_nodes, file_node)
             self.notify(
                 f'{component}:{local_key} was only found under freq '
                 f'"{(freq_node.data or {}).get("freq")}", not this table\'s configured freq '
@@ -1064,7 +1128,7 @@ class MapApp(App):
                         'under pp_dir', severity='warning')
 
         elif event.control.id == 'pp_tree':
-            if kind != 'file':
+            if kind != 'pp_var':
                 return
             self.selected_pp = data
             self._preview_generation += 1
@@ -1073,6 +1137,9 @@ class MapApp(App):
             self.query_one('#preview', Static).update(
                 f'{self._selected_pp_mapped_text}\n\nloading preview for '
                 f'"{data["local_key"]}"...')
+            # data['path'] is the earliest of this variable's files (see
+            # _group_pp_files_by_variable) -- with many files collapsed into one tree entry,
+            # that's the one shown, since there's no single "the" file to prefer otherwise.
             self._load_preview(data['path'], data['local_key'], self._preview_generation)
 
     # ---- pp file preview (backgrounded so the TUI stays responsive) ----
