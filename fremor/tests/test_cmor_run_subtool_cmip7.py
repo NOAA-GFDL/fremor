@@ -28,8 +28,8 @@ TABLE_CONFIG = \
 
 # explicit inputs to tool
 GRID = 'regridded to FOO grid from native' #placeholder value
-GRID_LABEL = 'g999'
-NOM_RES = '10000 km' #placeholder value
+GRID_LABEL = 'g010'
+NOM_RES = '100 km' #placeholder value
 
 INDIR = f'{ROOTDIR}/ocean_sos_var_file'
 VARLIST = f'{ROOTDIR}/varlist'
