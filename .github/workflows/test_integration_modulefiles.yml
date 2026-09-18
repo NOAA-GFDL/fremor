@@ -101,29 +101,29 @@ jobs:
           cd /tmp/slurm-docker-cluster
 
           for _ in $(seq 1 30); do
-            if docker exec slurmctld bash -lc "scontrol ping" > /dev/null 2>&1; then
+            if docker exec slurmctld bash -c "scontrol ping" > /dev/null 2>&1; then
               break
             fi
             sleep 5
           done
 
-          docker exec slurmctld bash -lc "/usr/bin/sacctmgr --immediate add cluster name=linux || /usr/bin/sacctmgr list cluster | grep -q linux"
+          docker exec slurmctld bash -c "/usr/bin/sacctmgr --immediate add cluster name=linux || /usr/bin/sacctmgr list cluster | grep -q linux"
           SLURM_VERSION=${SLURM_IMAGE_TAG} docker compose restart slurmdbd slurmctld c1 c2
 
           for _ in $(seq 1 30); do
-            if docker exec slurmctld bash -lc "sinfo --noheader | grep -q 'idle'" > /dev/null 2>&1; then
+            if docker exec slurmctld bash -c "sinfo --noheader | grep -q 'idle'" > /dev/null 2>&1; then
               break
             fi
             sleep 5
           done
 
-          docker exec slurmctld bash -lc "scontrol ping"
-          docker exec slurmctld bash -lc "sinfo"
-          docker exec slurmctld bash -lc "sinfo --noheader | grep -q 'idle'"
+          docker exec slurmctld bash -c "scontrol ping"
+          docker exec slurmctld bash -c "sinfo"
+          docker exec slurmctld bash -c "sinfo --noheader | grep -q 'idle'"
 
       - name: Run real Slurm modulefile integration pytest
         run: |
-          docker exec slurmctld bash -lc '
+          docker exec slurmctld bash -c '
             set -euo pipefail
             source /opt/conda/etc/profile.d/conda.sh
             conda activate /opt/conda/envs/fremor

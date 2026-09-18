@@ -85,6 +85,31 @@ def _skip_or_fail(message):
     pytest.skip(message)
 
 
+def _find_lmod_init(shell_name):
+    override = os.environ.get(f'FREMOR_TEST_LMOD_INIT_{shell_name.upper()}')
+    if override:
+        override_path = Path(override)
+        if override_path.exists():
+            return override_path
+
+    conda_prefix = os.environ.get('CONDA_PREFIX')
+    if conda_prefix:
+        prefix_path = Path(conda_prefix)
+        for candidate in sorted(prefix_path.glob(f'lmod/*/init/{shell_name}')):
+            if candidate.exists():
+                return candidate
+        share_candidate = prefix_path / 'share' / 'lmod' / 'lmod' / 'init' / shell_name
+        if share_candidate.exists():
+            return share_candidate
+
+    system_candidate = Path('/usr/share/lmod/lmod/init') / shell_name
+    if system_candidate.exists():
+        return system_candidate
+
+    _skip_or_fail(f'modulefile integration test could not find Lmod init for {shell_name}')
+    return None
+
+
 def _require_binary(binary_name):
     binary_path = shutil.which(binary_name)
     if binary_path is None:
@@ -114,12 +139,9 @@ def modulefile_runtime():
         _skip_or_fail(f'modulefile integration test could not find conda.sh at {conda_sh}')
 
     lmod_init = {
-        'bash': Path('/usr/share/lmod/lmod/init/bash'),
-        'tcsh': Path('/usr/share/lmod/lmod/init/tcsh'),
+        'bash': _find_lmod_init('bash'),
+        'tcsh': _find_lmod_init('tcsh'),
     }
-    for shell_name, init_path in lmod_init.items():
-        if not init_path.exists():
-            _skip_or_fail(f'modulefile integration test requires Lmod init script for {shell_name}')
 
     for required_path in (MODULEFILE_PATH, MODULE_HOOK_SCRIPT, Path(CMIP6_TABLE_CONFIG)):
         if not required_path.exists():
@@ -174,7 +196,7 @@ def _write_job_script(shell_name, shell_root, runtime, job_out, job_err):
     else:
         script_path = shell_root / 'run_script.tcsh'
         script_text = textwrap.dedent(f"""\
-            #!/bin/tcsh
+            #!/usr/bin/env tcsh
             #SBATCH --output={job_out}
             #SBATCH --error={job_err}
             source "{runtime['lmod_init']['tcsh']}"
