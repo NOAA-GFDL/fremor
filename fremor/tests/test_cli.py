@@ -221,10 +221,45 @@ def test_cli_fremor_check_case(mock_subtool, tmp_path):
         yamlfile=str(yamlfile),
         table_patterns=('Amon',),
         show_mapped=False,
+        show_unmapped=False,
+        show_multi_mapped=False,
         json_output=False,
         output_report=None,
         check_staging=False,
         check_dims=False,
+        check_output=False,
+        check_attrs=False,
+        check_range=False,
+        dmls_bin=None,
+    )
+
+
+@patch('fremor.cli.cmor_check_subtool')
+def test_cli_fremor_check_renamed_flags(mock_subtool, tmp_path):
+    """The check CLI accepts the hyphenated names for all optional checks."""
+    yamlfile = tmp_path / 'cmor.yaml'
+    yamlfile.touch()
+
+    result = runner.invoke(
+        fremor,
+        args=['check', '-y', str(yamlfile), '--show-mapped', '--check-inputs',
+              '--check-dims', '--check-outputs', '--check-attrs', '--check-range'],
+    )
+
+    assert result.exit_code == 0
+    mock_subtool.assert_called_once_with(
+        yamlfile=str(yamlfile),
+        table_patterns=(),
+        show_mapped=True,
+        show_unmapped=False,
+        show_multi_mapped=False,
+        json_output=False,
+        output_report=None,
+        check_staging=True,
+        check_dims=True,
+        check_output=True,
+        check_attrs=True,
+        check_range=True,
         dmls_bin=None,
     )
 

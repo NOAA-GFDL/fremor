@@ -366,41 +366,77 @@ def config(pp_dir, mip_tables_dir, mip_era, exp_config, output_yaml,
               help='Self-contained CMOR YAML file, as written by \'fremor config\'. pp_dir, '
                    'the MIP tables directory, the MIP era, and each component\'s variable_list '
                    'path are all derived from it.')
-@click.option('--show_mapped', is_flag=True, default=False,
+@click.option('--show-mapped', 'show_mapped', is_flag=True, default=False,
               help='Also report variables mapped from exactly one component/diagnostic (one-to-one).')
-@click.option('--staging', 'check_staging', is_flag=True, default=False,
+@click.option('--show-unmapped', 'show_unmapped', is_flag=True, default=False,
+              help='List every variable required by the table but not mapped from any '
+                   'component. By default only a count is shown, since this list can be very '
+                   'long for a sparsely-mapped table; the full list is still always available '
+                   'via --json or -o/--output_report.')
+@click.option('--show-multi-mapped', 'show_multi_mapped', is_flag=True, default=False,
+              help='List every variable mapped from more than one component/diagnostic, with '
+                   'each mapping location. By default only a count is shown; the full list is '
+                   'still always available via --json or -o/--output_report.')
+@click.option('--check-inputs', 'check_staging', is_flag=True, default=False,
               help='For every one-to-one-mapped variable, also check whether its input files '
                    'exist under pp_dir and whether they are staged/disk-resident (best-effort, '
                    'via dmls if available, else a stat-only heuristic -- never reads file '
                    'content), plus a filename-only scan for gaps between chunk date ranges.')
-@click.option('--dims', 'check_dims', is_flag=True, default=False,
+@click.option('--check-dims', 'check_dims', is_flag=True, default=False,
               help='For every one-to-one-mapped variable, also check whether a representative '
                    'input file\'s vertical dimension matches what the MIP table declares (e.g. '
                    'distinguishing model-level "alevel" output from fixed "plevNN" pressure '
                    'levels), and whether hybrid-sigma variables have their companion .ps.nc '
                    'file present. Only inspects one file\'s header per variable.')
+@click.option('--check-outputs', 'check_output', is_flag=True, default=False,
+              help='For every one-to-one-mapped variable, also report whether CMOR has '
+                   'actually produced matching output file(s) under the yaml\'s outdir, plus '
+                   'a filename-only scan for gaps between output chunks\' date ranges -- i.e. '
+                   'what got parsed and what has successfully landed in outdir. Requires the '
+                   'yaml\'s directories.outdir to be set. Unlike --check-inputs/--check-dims, reports '
+                   'every variable, not just abnormal ones.')
+@click.option('--check-attrs', 'check_attrs', is_flag=True, default=False,
+              help='For every one-to-one-mapped variable, also check whether a representative '
+                   'input file\'s units and cell_methods attributes match what the MIP table '
+                   'declares (e.g. catching a variable mapped from the wrong diagnostic, or an '
+                   'accumulated field mapped where an instantaneous one is expected). Only '
+                   'inspects one file\'s header per variable.')
+@click.option('--check-range', 'check_range', is_flag=True, default=False,
+              help='For every one-to-one-mapped variable, also check whether a representative '
+                   'input file\'s actual data values fall within the MIP table\'s declared '
+                   'valid_min/valid_max/ok_min_mean_abs/ok_max_mean_abs. Unlike every other '
+                   'check, this reads a file\'s full array of data and can be VERY SLOW for '
+                   'large/high-frequency fields. A representative file that is still offline '
+                   '(not staged) is skipped rather than triggering a tape retrieval.')
 @click.option('--dmls_bin', type=str, default=None,
-              help='Path to the dmls binary for the --staging check. If omitted, looks for '
-                   '\'dmls\' on PATH; if not found either, falls back to a stat-only residency '
-                   'heuristic.')
+              help='Path to the dmls binary for the --check-inputs check and for the offline '
+                   'check that gates --check-range. If omitted, looks for \'dmls\' on PATH; if '
+                   'not found either, falls back to a stat-only residency heuristic.')
 @click.option('--json', 'json_output', is_flag=True, default=False,
               help='Print the report as JSON instead of a text summary.')
 @click.option('-o', '--output_report', type=str, default=None,
               help='Optional path to also write the JSON report to.')
-def check(tables, yamlfile, show_mapped, check_staging, check_dims, dmls_bin,
-          json_output, output_report):
+def check(tables, yamlfile, show_mapped, show_unmapped, show_multi_mapped, check_staging,
+          check_dims, check_output, check_attrs, check_range, dmls_bin, json_output, output_report):
     """
     Check variable-mapping coverage of varlist files against MIP tables, and optionally
-    the actual pp_dir input files those mappings resolve to.
+    the actual pp_dir input files those mappings resolve to, and/or the outdir output files
+    those mappings have produced.
 
     For each MIP table in yamlfile's table_targets, reports CMIP variables required
     by the table but not mapped from any component, variables mapped from more than
     one component/diagnostic, and mapped values that don't correspond to any variable
-    actually defined in that table.
+    actually defined in that table. The unmapped/multiply-mapped counts are always shown;
+    pass --show-unmapped/--show-multi-mapped to also spell out every variable.
 
-    Pass --staging and/or --dims to additionally check, for every one-to-one-mapped
+    Pass --check-inputs and/or --check-dims to additionally check, for every one-to-one-mapped
     variable, whether its pp_dir input files are present and staged, and whether their
-    vertical dimension matches what the MIP table expects.
+    vertical dimension matches what the MIP table expects. Pass --check-outputs to report, for
+    every one-to-one-mapped variable, whether CMOR has actually produced output for it
+    under outdir. Pass --check-attrs to check a representative input file's units and
+    cell_methods attributes against what the MIP table declares. Pass --check-range to check a
+    representative input file's actual data values against the MIP table's valid range -- this
+    reads full file contents and can be very slow, so use it sparingly.
 
     TABLES is an optional list of MIP table names to check, e.g. 'Amon' or
     'Lmon'. Shell-style wildcards are supported, e.g. 'AER*'. If omitted,
@@ -410,10 +446,15 @@ def check(tables, yamlfile, show_mapped, check_staging, check_dims, dmls_bin,
         yamlfile=yamlfile,
         table_patterns=tables,
         show_mapped=show_mapped,
+        show_unmapped=show_unmapped,
+        show_multi_mapped=show_multi_mapped,
         json_output=json_output,
         output_report=output_report,
         check_staging=check_staging,
         check_dims=check_dims,
+        check_output=check_output,
+        check_attrs=check_attrs,
+        check_range=check_range,
         dmls_bin=dmls_bin
     )
 

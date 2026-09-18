@@ -9,6 +9,7 @@ Tests the cmor_init_subtool and its helper functions including:
 """
 
 import json
+from pathlib import Path
 
 import pytest
 
@@ -215,6 +216,58 @@ def test_cmor_init_cmip6plus_tables_dir_and_exp_config(tmp_path):
 
     # Verify tables were fetched
     assert tables_dir.exists()
+
+
+def test_cmor_init_cmip6plus_exp_config_points_at_cmip6plus_resources(tmp_path):
+    """
+    The CMIP6Plus template must point CMOR at the CMIP6Plus CV and at the auxiliary tables
+    shipped by PCMDI/mip-cmor-tables (Auxillary_files/MIP_*.json, one level up from Tables/),
+    not at the CMIP6 ones. CMOR resolves all three relative to the MIP table directory, so
+    CMIP6 names here make cmor.load_table fail with 'Could not find file: .../CMIP6_*.json'.
+    """
+    exp_config = tmp_path / 'cmip6plus_experiment.json'
+
+    cmor_init_subtool(mip_era='cmip6plus', exp_config=str(exp_config), tables_dir=None)
+
+    with open(exp_config, encoding='utf-8') as f:
+        config = json.load(f)
+
+    assert config['mip_era'] == 'CMIP6Plus'
+    assert config['_controlled_vocabulary_file'] == 'CMIP6Plus_CV.json'
+    assert config['_AXIS_ENTRY_FILE'] == '../Auxillary_files/MIP_coordinate.json'
+    assert config['_FORMULA_VAR_FILE'] == '../Auxillary_files/MIP_formula_terms.json'
+
+    # CMOR keys off the presence of _cmip6_option, not its value, to enable the CV checks
+    # (source_id/experiment/grids/parent+sub experiment ids) that CMIP6Plus still uses.
+    assert '_cmip6_option' in config
+
+    # the license is validated against a regex in CMIP6Plus_license.json, which differs from
+    # the CMIP6 one: CMIP6Plus wording, and no 'Further information about this data' sentence.
+    assert config['license'].startswith('CMIP6Plus model data produced by')
+    assert 'pcmdi.llnl.gov/CMIP6Plus/TermsOfUse' in config['license']
+    assert 'further_info_url' not in config['license']
+
+
+@pytest.mark.parametrize('mip_era', ['cmip6', 'cmip6plus', 'cmip7'])
+def test_cmor_init_exp_config_outpath_is_relative(tmp_path, mip_era):
+    """
+    Every template must ship a relative, non-empty outpath.
+
+    fremor chdir's into <outdir>/CMOR_tmp/ before running CMOR and recovers the final
+    destination by stripping '/CMOR_tmp/' from the path cmor.close() returns, so an absolute
+    outpath escapes that relocation and --outdir is silently ignored. An empty string is
+    fatal outright: CMOR warns the directory does not exist, then its (non-recursive) mkdir('')
+    fails and cmor.dataset_json raises.
+    """
+    exp_config = tmp_path / f'{mip_era}_experiment.json'
+
+    cmor_init_subtool(mip_era=mip_era, exp_config=str(exp_config), tables_dir=None)
+
+    with open(exp_config, encoding='utf-8') as f:
+        outpath = json.load(f)['outpath']
+
+    assert outpath, 'an empty outpath makes cmor.dataset_json fail on mkdir("")'
+    assert not Path(outpath).is_absolute()
 
 
 def test_cmor_init_tables_dir_only_no_exp_config(tmp_path):

@@ -58,6 +58,13 @@ def _in_year_range(path: Path, start: Optional[int], stop: Optional[int]) -> boo
                 (stop is not None and last_year > stop))
 
 
+def _table_json_prefix(mip_era: str) -> str:
+    """MIP table JSON filename prefix: 'MIP' for cmip6plus, whose mip-cmor-tables repo uses
+    a bare 'MIP_' prefix instead of an era-specific one, else the era itself. Matches
+    _mip_table_paths in cmor_check.py."""
+    return 'MIP' if mip_era == 'CMIP6PLUS' else mip_era
+
+
 def _table_local_variables(table_path: Path, variable_list_path: Path,
                            mip_era: str) -> set[str]:
     """Return local variables whose targets occur in the selected MIP table."""
@@ -176,8 +183,12 @@ def collect_stage_files(yamlfile: str, start: Optional[str] = None,
 
     input_files: set[Path] = set()
     for table_target in stage_config.document.get('table_targets') or []:
+        if table_target.get('disabled'):
+            fre_logger.info('skipping disabled MIP table %s', table_target.get('table_name'))
+            continue
         table_name = table_target['table_name']
-        table_path = stage_config.table_dir / f'{stage_config.mip_era}_{table_name}.json'
+        table_path = (stage_config.table_dir /
+                     f'{_table_json_prefix(stage_config.mip_era)}_{table_name}.json')
         freq = _frequency(table_target, table_path, stage_config.mip_era)
 
         for component in table_target.get('target_components') or []:

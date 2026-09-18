@@ -68,10 +68,10 @@ jobs:
             "netcdf4>=1.7" \
             "numpy>=2" \
             pyyaml \
+            textual \
             pytest \
             pytest-cov \
-            pytest-asyncio \
-            textual
+            pytest-asyncio
 
       - name: Show installed packages
         run: |
