@@ -7,7 +7,6 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
-import textwrap
 import uuid
 
 import pytest
@@ -167,62 +166,69 @@ def _prepare_job_workspace(shell_root):
     shutil.copyfile(EXP_CONFIG, shell_root / 'CMOR_input_example.json')
 
 
-def _write_job_script(shell_name, shell_root, runtime, job_out, job_err):
+def _build_fremor_command(shell_root, command_mode):
+    if command_mode == 'run':
+        return [
+            'fremor -vv run \\',
+            f'  -d "{shell_root / "input"}" \\',
+            f'  -l "{Path(VARLIST)}" \\',
+            f'  -r "{Path(CMIP6_TABLE_CONFIG)}" \\',
+            f'  -p "{shell_root / "CMOR_input_example.json"}" \\',
+            f'  -o "{shell_root / "output"}" \\',
+            '  --run_one \\',
+            '  -g gr \\',
+            '  --grid_desc "regridded to FOO grid from native" \\',
+            '  --nom_res "10000 km" \\',
+            '  --calendar julian',
+        ]
+
+    if command_mode == 'run-help':
+        return ['fremor -vv run --help']
+
+    raise ValueError(f'unsupported command_mode={command_mode}')
+
+
+def _write_job_script(shell_name, shell_root, runtime, job_out, job_err, command_mode='run'):
+    fremor_command = _build_fremor_command(shell_root, command_mode)
     if shell_name == 'bash':
         script_path = shell_root / 'run_script.sh'
-        script_text = textwrap.dedent(f"""\
-            #!/bin/bash
-            #SBATCH --output={job_out}
-            #SBATCH --error={job_err}
-            set -euo pipefail
-            shopt -s expand_aliases
-            source "{runtime['lmod_init']['bash']}"
-            module use "{MODULEFILES_ROOT}"
-            module load fremor/{MODULE_VERSION}
-            command -V fremor
-            cd "{REPO_ROOT}"
-            fremor -vv run \\
-              -d "{shell_root / 'input'}" \\
-              -l "{Path(VARLIST)}" \\
-              -r "{Path(CMIP6_TABLE_CONFIG)}" \\
-              -p "{shell_root / 'CMOR_input_example.json'}" \\
-              -o "{shell_root / 'output'}" \\
-              --run_one \\
-              -g gr \\
-              --grid_desc "regridded to FOO grid from native" \\
-              --nom_res "10000 km" \\
-              --calendar julian
-        """)
+        script_text = '\n'.join(
+            [
+                '#!/bin/bash',
+                f'#SBATCH --output={job_out}',
+                f'#SBATCH --error={job_err}',
+                'set -euo pipefail',
+                'shopt -s expand_aliases',
+                f'source "{runtime["lmod_init"]["bash"]}"',
+                f'module use "{MODULEFILES_ROOT}"',
+                f'module load fremor/{MODULE_VERSION}',
+                'command -V fremor',
+                f'cd "{REPO_ROOT}"',
+                *fremor_command,
+            ]
+        )
     else:
         script_path = shell_root / 'run_script.tcsh'
-        script_text = textwrap.dedent(f"""\
-            #!/usr/bin/env tcsh
-            #SBATCH --output={job_out}
-            #SBATCH --error={job_err}
-            source "{runtime['lmod_init']['tcsh']}"
-            module use "{MODULEFILES_ROOT}"
-            module load fremor/{MODULE_VERSION}
-            which fremor
-            cd "{REPO_ROOT}"
-            fremor -vv run \\
-              -d "{shell_root / 'input'}" \\
-              -l "{Path(VARLIST)}" \\
-              -r "{Path(CMIP6_TABLE_CONFIG)}" \\
-              -p "{shell_root / 'CMOR_input_example.json'}" \\
-              -o "{shell_root / 'output'}" \\
-              --run_one \\
-              -g gr \\
-              --grid_desc "regridded to FOO grid from native" \\
-              --nom_res "10000 km" \\
-              --calendar julian
-        """)
+        script_text = '\n'.join(
+            [
+                '#!/usr/bin/env tcsh',
+                f'#SBATCH --output={job_out}',
+                f'#SBATCH --error={job_err}',
+                f'source "{runtime["lmod_init"]["tcsh"]}"',
+                f'module use "{MODULEFILES_ROOT}"',
+                f'module load fremor/{MODULE_VERSION}',
+                'which fremor',
+                f'cd "{REPO_ROOT}"',
+                *fremor_command,
+            ]
+        )
 
-    script_path.write_text(script_text, encoding='utf-8')
+    script_path.write_text(f'{script_text}\n', encoding='utf-8')
     script_path.chmod(0o755)
     return script_path
 
 
-def _assert_job_artifacts(shell_root, shell_name, job_out, job_err):
+def _assert_job_artifacts(shell_root, shell_name, job_out, job_err, command_mode='run'):
     stdout_text = job_out.read_text(encoding='utf-8')
     stderr_text = job_err.read_text(encoding='utf-8')
     expected_alias_target = str(MODULE_HOOK_SCRIPT)
@@ -230,15 +236,21 @@ def _assert_job_artifacts(shell_root, shell_name, job_out, job_err):
     assert expected_alias_target in stdout_text
     assert 'aliased' in stdout_text
     assert '[DEBUG:' not in stdout_text
-    assert 'cmor is opening: json_exp_config' not in stdout_text
-
     assert '[DEBUG:' in stderr_text
-    assert 'cmor is opening: json_exp_config' in stderr_text
-    assert 'returned by cmor.close: filename =' in stderr_text
     assert expected_alias_target not in stderr_text
 
-    expected_output = shell_root / 'output' / EXPECTED_OUTPUT_RELATIVE
-    assert expected_output.exists()
+    if command_mode == 'run':
+        assert 'cmor is opening: json_exp_config' not in stdout_text
+        assert 'cmor is opening: json_exp_config' in stderr_text
+        assert 'returned by cmor.close: filename =' in stderr_text
+
+        expected_output = shell_root / 'output' / EXPECTED_OUTPUT_RELATIVE
+        assert expected_output.exists()
+    else:
+        assert 'Usage: fremor run' in stdout_text
+        assert '--run_one' in stdout_text
+        assert 'cmor is opening: json_exp_config' not in stderr_text
+        assert 'returned by cmor.close: filename =' not in stderr_text
 
     if shell_name == 'bash':
         assert 'fremor is aliased to' in stdout_text
@@ -265,12 +277,13 @@ def real_slurm_root(tmp_path):
         shutil.rmtree(work_root, ignore_errors=True)
 
 
+@pytest.mark.parametrize('command_mode', ['run', 'run-help'])
 @pytest.mark.parametrize('shell_name', ['bash', 'tcsh'])
-def test_modulefile_sbatch_job_logs_stay_on_stderr(tmp_path, modulefile_runtime, shell_name):
+def test_modulefile_sbatch_job_logs_stay_on_stderr(tmp_path, modulefile_runtime, shell_name, command_mode):
     """
     Run a module-loaded fremor job through an sbatch-style wrapper for both bash and tcsh.
     """
-    shell_root = tmp_path / shell_name
+    shell_root = tmp_path / f'{shell_name}-{command_mode}'
     _prepare_job_workspace(shell_root)
 
     sbatch_dir = shell_root / 'bin'
@@ -279,7 +292,14 @@ def test_modulefile_sbatch_job_logs_stay_on_stderr(tmp_path, modulefile_runtime,
 
     job_out = shell_root / f'{shell_name}.out'
     job_err = shell_root / f'{shell_name}.err'
-    job_script = _write_job_script(shell_name, shell_root, modulefile_runtime, job_out, job_err)
+    job_script = _write_job_script(
+        shell_name,
+        shell_root,
+        modulefile_runtime,
+        job_out,
+        job_err,
+        command_mode=command_mode,
+    )
 
     shell_env = os.environ.copy()
     shell_env['FREMOR_TEST_CONDA_ENV'] = str(modulefile_runtime['conda_env'])
@@ -301,13 +321,13 @@ def test_modulefile_sbatch_job_logs_stay_on_stderr(tmp_path, modulefile_runtime,
     assert job_out.exists()
     assert job_err.exists()
 
-    _assert_job_artifacts(shell_root, shell_name, job_out, job_err)
+    _assert_job_artifacts(shell_root, shell_name, job_out, job_err, command_mode=command_mode)
 
 
 @pytest.mark.parametrize('shell_name', ['bash', 'tcsh'])
-def test_modulefile_real_slurm_job_logs_stay_on_stderr(real_slurm_root, modulefile_runtime, shell_name):
+def test_modulefile_real_slurm_help_logs_stay_on_stderr(real_slurm_root, modulefile_runtime, shell_name):
     """
-    Run the same module-loaded job path through a real Slurm sbatch --wait submission.
+    Run a real Slurm job that isolates module alias stdout and CLI logging stderr behavior.
     """
     _require_binary('sbatch')
     shell_root = real_slurm_root / shell_name
@@ -315,7 +335,14 @@ def test_modulefile_real_slurm_job_logs_stay_on_stderr(real_slurm_root, modulefi
 
     job_out = shell_root / f'{shell_name}.out'
     job_err = shell_root / f'{shell_name}.err'
-    job_script = _write_job_script(shell_name, shell_root, modulefile_runtime, job_out, job_err)
+    job_script = _write_job_script(
+        shell_name,
+        shell_root,
+        modulefile_runtime,
+        job_out,
+        job_err,
+        command_mode='run-help',
+    )
 
     shell_env = os.environ.copy()
     shell_env['FREMOR_TEST_CONDA_ENV'] = str(modulefile_runtime['conda_env'])
@@ -335,4 +362,4 @@ def test_modulefile_real_slurm_job_logs_stay_on_stderr(real_slurm_root, modulefi
     assert job_out.exists()
     assert job_err.exists()
 
-    _assert_job_artifacts(shell_root, shell_name, job_out, job_err)
+    _assert_job_artifacts(shell_root, shell_name, job_out, job_err, command_mode='run-help')

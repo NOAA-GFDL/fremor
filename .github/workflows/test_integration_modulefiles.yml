@@ -19,6 +19,7 @@ env:
   SLURM_TAG: "slurm-25-05-3-1"
   SLURM_IMAGE_TAG: "25.05.3"
   SLURM_CLUSTER_TAG: "0.9.0"
+  SLURM_IMAGE_TAR: /tmp/slurm-cluster-image.tar
 
 jobs:
   modulefile-integration-test:
@@ -75,12 +76,35 @@ jobs:
             https://github.com/giovtorres/slurm-docker-cluster.git \
             /tmp/slurm-docker-cluster
 
+      - name: Restore cached slurm-cluster image
+        id: cache-slurm-cluster
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ env.SLURM_IMAGE_TAR }}
+          key: slurm-cluster-${{ env.SLURM_IMAGE_TAG }}-${{ env.SLURM_TAG }}-v${{ env.SLURM_CLUSTER_TAG }}
+
+      - name: Load cached slurm-cluster image
+        if: steps.cache-slurm-cluster.outputs.cache-hit == 'true'
+        run: docker load -i "${SLURM_IMAGE_TAR}"
+
       - name: Build base slurm-cluster image
+        if: steps.cache-slurm-cluster.outputs.cache-hit != 'true'
         run: |
           docker build --progress=plain \
             --build-arg SLURM_TAG=${SLURM_TAG} \
             -t slurm-cluster:${SLURM_IMAGE_TAG} \
             /tmp/slurm-docker-cluster
+
+      - name: Save slurm-cluster image to tarball
+        if: steps.cache-slurm-cluster.outputs.cache-hit != 'true'
+        run: docker save slurm-cluster:${SLURM_IMAGE_TAG} -o "${SLURM_IMAGE_TAR}"
+
+      - name: Cache slurm-cluster image
+        if: steps.cache-slurm-cluster.outputs.cache-hit != 'true' && github.event_name != 'pull_request'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ env.SLURM_IMAGE_TAR }}
+          key: slurm-cluster-${{ env.SLURM_IMAGE_TAG }}-${{ env.SLURM_TAG }}-v${{ env.SLURM_CLUSTER_TAG }}
 
       - name: Build fremor slurm test image
         run: |
@@ -125,13 +149,17 @@ jobs:
         run: |
           docker exec slurmctld bash -c '
             set -euo pipefail
+            export USER="${USER:-$(id -un)}"
+            export LOGNAME="${LOGNAME:-$USER}"
+            set +u
             source /opt/conda/etc/profile.d/conda.sh
             conda activate /opt/conda/envs/fremor
+            set -u
             cd /opt/fremor
             export FREMOR_TEST_REAL_SLURM=1
             export FREMOR_TEST_SLURM_SHARED_ROOT=/data
             pytest --ignore fremor/tests/test_files/mip-cmor-tables \
-              fremor/tests/test_modulefile_integration.py::test_modulefile_real_slurm_job_logs_stay_on_stderr \
+              fremor/tests/test_modulefile_integration.py::test_modulefile_real_slurm_help_logs_stay_on_stderr \
               -v
           '
 
