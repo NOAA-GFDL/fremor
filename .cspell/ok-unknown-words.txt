@@ -66,6 +66,7 @@ archivcl
 areacella
 argparse
 asdict
+asyncio
 atleast
 autoattribute
 autoclass
@@ -100,6 +101,7 @@ datetimes
 debuglog
 dedup
 dmget
+dmls
 difmxybo
 docstrings
 filenotfound
@@ -140,11 +142,14 @@ levelname
 levhalf
 logfile
 lons
+mapsession
 mentees
 metaclass
 minmax
 modelyaml
 modindex
+modulefile
+modulefiles
 monkeypatching
 monniker
 msvs
@@ -155,6 +160,7 @@ mylog
 nbhome
 ncattrs
 ncgen
+ncinfo
 ncrc
 nctools
 ndarray
@@ -172,6 +178,7 @@ ntimes
 numpy
 oceangrid
 olevel
+olevhalf
 openmp
 optparse
 optvarname
@@ -189,6 +196,7 @@ picontrol
 plev
 ppan
 ppcompdirs
+precip
 pygtk
 pylint
 pylintrc
@@ -205,6 +213,7 @@ renku
 rgxs
 rstcheck
 rtype
+sbatch
 setuptools
 setncatts
 smth
