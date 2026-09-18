@@ -239,7 +239,7 @@ def test_modulefile_sbatch_job_logs_stay_on_stderr(tmp_path, modulefile_runtime,
     assert '[DEBUG:' in stderr_text
     assert 'cmor is opening: json_exp_config' in stderr_text
     assert 'returned by cmor.close: filename =' in stderr_text
-    assert stdout_text not in stderr_text
+    assert expected_alias_target not in stderr_text
 
     expected_output = shell_root / 'output' / EXPECTED_OUTPUT_RELATIVE
     assert expected_output.exists()

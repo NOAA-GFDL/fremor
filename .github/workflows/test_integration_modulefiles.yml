@@ -51,4 +51,4 @@ jobs:
 
       - name: Run modulefile integration pytest
         run: |
-          pytest fremor/tests/test_modulefile_integration.py -v
+          pytest --ignore fremor/tests/test_files/mip-cmor-tables fremor/tests/test_modulefile_integration.py -v
