@@ -5,6 +5,7 @@ Integration tests for modulefile-driven fremor CLI jobs.
 from datetime import date
 import os
 from pathlib import Path
+import shlex
 import shutil
 import subprocess
 import uuid
@@ -21,10 +22,77 @@ MODULEFILE_PATH = MODULEFILES_ROOT / 'fremor' / f'{MODULE_VERSION}.lua'
 MODULE_HOOK_SCRIPT = MODULEFILES_ROOT / 'fremor' / MODULE_VERSION / 'fremor.sh'
 INPUT_CDL = ROOTDIR / 'reduced_ascii_files' / 'reduced_ocean_monthly_1x1deg.199301-199302.sos.cdl'
 INPUT_FILENAME = 'reduced_ocean_monthly_1x1deg.199301-199302.sos.nc'
+CLI_LOGFILE_FRAGMENT = 'fre_file_handler added to base_fre_logger'
+CLI_DEBUG_FRAGMENT = 'click entry-point function call done.'
+CMOR_OPEN_FRAGMENT = 'cmor is opening: json_exp_config'
+CMOR_CLOSE_FRAGMENT = 'returned by cmor.close: filename ='
+CMOR_STDOUT_WARNING = 'Warning: Logfile /dev/stdout already exist.'
+CMOR_STDOUT_CLOSED = 'CMOR is now closed.'
+RUN_USAGE_FRAGMENT = 'Usage: fremor run [OPTIONS]'
+RUN_ERROR_FRAGMENT = "Error: Missing option '-d' / '--indir'."
 EXPECTED_OUTPUT_RELATIVE = Path(
     'CMIP6/CMIP6/ISMIP6/PCMDI/PCMDI-test-1-0/piControl-withism/'
     f'r3i1p1f1/Omon/sos/gr/v{date.today().strftime("%Y%m%d")}/'
     'sos_Omon_PCMDI-test-1-0_piControl-withism_r3i1p1f1_gr_199301-199302.nc'
+)
+MODULEFILE_JOB_CASES = (
+    {
+        'name': 'verbose-info',
+        'cli_args': ['-v', 'run'],
+        'expect_success': True,
+        'expect_output': True,
+        'expect_stderr_contains': ['[ INFO:', CMOR_OPEN_FRAGMENT, CMOR_CLOSE_FRAGMENT],
+        'expect_stderr_not_contains': ['[DEBUG:', CLI_LOGFILE_FRAGMENT],
+        'expect_stdout_not_contains': ['[ INFO:', '[DEBUG:', CMOR_OPEN_FRAGMENT, CMOR_STDOUT_WARNING],
+    },
+    {
+        'name': 'verbose-debug',
+        'cli_args': ['-vv', 'run'],
+        'expect_success': True,
+        'expect_output': True,
+        'expect_stderr_contains': ['[DEBUG:', CLI_DEBUG_FRAGMENT, '[ INFO:', CMOR_OPEN_FRAGMENT, CMOR_CLOSE_FRAGMENT],
+        'expect_stderr_not_contains': [CLI_LOGFILE_FRAGMENT],
+        'expect_stdout_not_contains': ['[ INFO:', '[DEBUG:', CMOR_OPEN_FRAGMENT, CMOR_STDOUT_WARNING],
+    },
+    {
+        'name': 'quiet',
+        'cli_args': ['-q', 'run'],
+        'expect_success': True,
+        'expect_output': True,
+        'expect_stderr_empty': True,
+        'expect_stdout_not_contains': ['[ INFO:', '[DEBUG:', CMOR_OPEN_FRAGMENT, CMOR_STDOUT_WARNING],
+    },
+    {
+        'name': 'logfile',
+        'cli_args': ['-l', '{log_path}', 'run'],
+        'expect_success': True,
+        'expect_output': True,
+        'expect_log_file': True,
+        'expect_stderr_contains': ['[WARNING:', 'run_one_mode is True!!!!'],
+        'expect_stderr_not_contains': ['[ INFO:', '[DEBUG:', CLI_LOGFILE_FRAGMENT],
+        'expect_log_contains': ['[WARNING:', 'cmor_mixer.py', 'run_one_mode is True!!!!'],
+        'expect_log_not_contains': ['[ INFO:', '[DEBUG:', CLI_LOGFILE_FRAGMENT],
+        'expect_stdout_not_contains': ['[ INFO:', '[DEBUG:', CMOR_OPEN_FRAGMENT, CMOR_STDOUT_WARNING],
+    },
+    {
+        'name': 'cmor-stdout',
+        'cli_args': ['-q', 'run'],
+        'expect_success': True,
+        'expect_output': True,
+        'extra_env': {'FREMOR_CMOR_LOGFILE': '/dev/stdout'},
+        'expect_stderr_empty': True,
+        'expect_stdout_contains': ['C Traceback:', CMOR_STDOUT_WARNING, CMOR_STDOUT_CLOSED],
+        'expect_stdout_not_contains': ['[ INFO:', '[DEBUG:', CMOR_OPEN_FRAGMENT],
+    },
+    {
+        'name': 'error',
+        'cli_args': ['-q', 'run'],
+        'expect_success': False,
+        'expect_output': False,
+        'expect_stderr_contains': [RUN_USAGE_FRAGMENT, RUN_ERROR_FRAGMENT],
+        'expect_stderr_not_contains': ['[ INFO:', '[DEBUG:', '[WARNING:', CMOR_OPEN_FRAGMENT, CMOR_CLOSE_FRAGMENT],
+        'expect_stdout_not_contains': ['[ INFO:', '[DEBUG:', CMOR_OPEN_FRAGMENT, CMOR_STDOUT_WARNING],
+    },
 )
 SBATCH_STUB = """#!/usr/bin/env python3
 from pathlib import Path
@@ -166,30 +234,40 @@ def _prepare_job_workspace(shell_root):
     shutil.copyfile(EXP_CONFIG, shell_root / 'CMOR_input_example.json')
 
 
-def _build_fremor_command(shell_root, command_mode):
-    if command_mode == 'run':
-        return [
-            'fremor -vv run \\',
-            f'  -d "{shell_root / "input"}" \\',
-            f'  -l "{Path(VARLIST)}" \\',
-            f'  -r "{Path(CMIP6_TABLE_CONFIG)}" \\',
-            f'  -p "{shell_root / "CMOR_input_example.json"}" \\',
-            f'  -o "{shell_root / "output"}" \\',
-            '  --run_one \\',
-            '  -g gr \\',
-            '  --grid_desc "regridded to FOO grid from native" \\',
-            '  --nom_res "10000 km" \\',
-            '  --calendar julian',
-        ]
-
-    if command_mode == 'run-help':
-        return ['fremor -vv run --help']
-
-    raise ValueError(f'unsupported command_mode={command_mode}')
+def _shell_join(command_args):
+    return ' '.join(shlex.quote(arg) for arg in command_args)
 
 
-def _write_job_script(shell_name, shell_root, runtime, job_out, job_err, command_mode='run'):
-    fremor_command = _build_fremor_command(shell_root, command_mode)
+def _log_path(shell_root):
+    return shell_root / 'LOGFILE.log'
+
+
+def _build_case_command(shell_root, case):
+    cli_args = [
+        arg.format(log_path=_log_path(shell_root))
+        for arg in case['cli_args']
+    ]
+    command_args = ['fremor', *cli_args]
+    if case['expect_success']:
+        command_args.extend(
+            [
+                '--indir', str(shell_root / 'input'),
+                '--varlist', str(Path(VARLIST)),
+                '--table_config', str(Path(CMIP6_TABLE_CONFIG)),
+                '--exp_config', str(shell_root / 'CMOR_input_example.json'),
+                '--outdir', str(shell_root / 'output'),
+                '--run_one',
+                '--grid_label', 'gr',
+                '--grid_desc', 'regridded to FOO grid from native',
+                '--nom_res', '10000 km',
+                '--calendar', 'julian',
+            ]
+        )
+    return _shell_join(command_args)
+
+
+def _write_job_script(shell_name, shell_root, runtime, job_out, job_err, case):
+    fremor_command = _build_case_command(shell_root, case)
     if shell_name == 'bash':
         script_path = shell_root / 'run_script.sh'
         script_text = '\n'.join(
@@ -204,7 +282,7 @@ def _write_job_script(shell_name, shell_root, runtime, job_out, job_err, command
                 f'module load fremor/{MODULE_VERSION}',
                 'command -V fremor',
                 f'cd "{REPO_ROOT}"',
-                *fremor_command,
+                fremor_command,
             ]
         )
     else:
@@ -219,7 +297,7 @@ def _write_job_script(shell_name, shell_root, runtime, job_out, job_err, command
                 f'module load fremor/{MODULE_VERSION}',
                 'which fremor',
                 f'cd "{REPO_ROOT}"',
-                *fremor_command,
+                fremor_command,
             ]
         )
 
@@ -228,29 +306,45 @@ def _write_job_script(shell_name, shell_root, runtime, job_out, job_err, command
     return script_path
 
 
-def _assert_job_artifacts(shell_root, shell_name, job_out, job_err, command_mode='run'):
+def _assert_job_artifacts(shell_root, shell_name, job_out, job_err, case):
     stdout_text = job_out.read_text(encoding='utf-8')
     stderr_text = job_err.read_text(encoding='utf-8')
     expected_alias_target = str(MODULE_HOOK_SCRIPT)
 
     assert expected_alias_target in stdout_text
     assert 'aliased' in stdout_text
-    assert '[DEBUG:' not in stdout_text
-    assert '[DEBUG:' in stderr_text
     assert expected_alias_target not in stderr_text
 
-    if command_mode == 'run':
-        assert 'cmor is opening: json_exp_config' not in stdout_text
-        assert 'cmor is opening: json_exp_config' in stderr_text
-        assert 'returned by cmor.close: filename =' in stderr_text
+    for expected_fragment in case.get('expect_stdout_contains', []):
+        assert expected_fragment in stdout_text
+    for rejected_fragment in case.get('expect_stdout_not_contains', []):
+        assert rejected_fragment not in stdout_text
 
+    if case.get('expect_stderr_empty'):
+        assert stderr_text == ''
+    else:
+        for expected_fragment in case.get('expect_stderr_contains', []):
+            assert expected_fragment in stderr_text
+    for rejected_fragment in case.get('expect_stderr_not_contains', []):
+        assert rejected_fragment not in stderr_text
+
+    if case['expect_output']:
         expected_output = shell_root / 'output' / EXPECTED_OUTPUT_RELATIVE
         assert expected_output.exists()
     else:
-        assert 'Usage: fremor run' in stdout_text
-        assert '--run_one' in stdout_text
-        assert 'cmor is opening: json_exp_config' not in stderr_text
-        assert 'returned by cmor.close: filename =' not in stderr_text
+        expected_output = shell_root / 'output' / EXPECTED_OUTPUT_RELATIVE
+        assert not expected_output.exists()
+
+    log_path = _log_path(shell_root)
+    if case.get('expect_log_file'):
+        assert log_path.exists()
+        log_text = log_path.read_text(encoding='utf-8')
+        for expected_fragment in case.get('expect_log_contains', []):
+            assert expected_fragment in log_text
+        for rejected_fragment in case.get('expect_log_not_contains', []):
+            assert rejected_fragment not in log_text
+    else:
+        assert not log_path.exists()
 
     if shell_name == 'bash':
         assert 'fremor is aliased to' in stdout_text
@@ -277,13 +371,13 @@ def real_slurm_root(tmp_path):
         shutil.rmtree(work_root, ignore_errors=True)
 
 
-@pytest.mark.parametrize('command_mode', ['run', 'run-help'])
+@pytest.mark.parametrize('case', MODULEFILE_JOB_CASES, ids=[case['name'] for case in MODULEFILE_JOB_CASES])
 @pytest.mark.parametrize('shell_name', ['bash', 'tcsh'])
-def test_modulefile_sbatch_job_logs_stay_on_stderr(tmp_path, modulefile_runtime, shell_name, command_mode):
+def test_modulefile_sbatch_job_logs_stay_on_stderr(tmp_path, modulefile_runtime, shell_name, case):
     """
     Run a module-loaded fremor job through an sbatch-style wrapper for both bash and tcsh.
     """
-    shell_root = tmp_path / f'{shell_name}-{command_mode}'
+    shell_root = tmp_path / f'{shell_name}-{case["name"]}'
     _prepare_job_workspace(shell_root)
 
     sbatch_dir = shell_root / 'bin'
@@ -298,14 +392,15 @@ def test_modulefile_sbatch_job_logs_stay_on_stderr(tmp_path, modulefile_runtime,
         modulefile_runtime,
         job_out,
         job_err,
-        command_mode=command_mode,
+        case=case,
     )
 
     shell_env = os.environ.copy()
     shell_env['FREMOR_TEST_CONDA_ENV'] = str(modulefile_runtime['conda_env'])
     shell_env['FREMOR_TEST_CONDA_SH'] = str(modulefile_runtime['conda_sh'])
-    shell_env['FREMOR_TEST_SBATCH_JOB_ID'] = f'42{shell_name}'
+    shell_env['FREMOR_TEST_SBATCH_JOB_ID'] = f'42-{shell_name}-{case["name"]}'
     shell_env['PATH'] = f"{sbatch_dir}{os.pathsep}{shell_env['PATH']}"
+    shell_env.update(case.get('extra_env', {}))
 
     job = subprocess.run(
         ['sbatch', str(job_script)],
@@ -316,21 +411,25 @@ def test_modulefile_sbatch_job_logs_stay_on_stderr(tmp_path, modulefile_runtime,
         text=True,
     )
 
-    assert job.returncode == 0, job.stderr
-    assert job.stdout.strip() == f'Submitted batch job 42{shell_name}'
+    if case['expect_success']:
+        assert job.returncode == 0, job.stderr
+    else:
+        assert job.returncode != 0
+    assert job.stdout.strip() == f'Submitted batch job 42-{shell_name}-{case["name"]}'
     assert job_out.exists()
     assert job_err.exists()
 
-    _assert_job_artifacts(shell_root, shell_name, job_out, job_err, command_mode=command_mode)
+    _assert_job_artifacts(shell_root, shell_name, job_out, job_err, case=case)
 
 
+@pytest.mark.parametrize('case', MODULEFILE_JOB_CASES, ids=[case['name'] for case in MODULEFILE_JOB_CASES])
 @pytest.mark.parametrize('shell_name', ['bash', 'tcsh'])
-def test_modulefile_real_slurm_help_logs_stay_on_stderr(real_slurm_root, modulefile_runtime, shell_name):
+def test_modulefile_real_slurm_jobs_cover_success_and_error_cases(real_slurm_root, modulefile_runtime, shell_name, case):
     """
-    Run a real Slurm job that isolates module alias stdout and CLI logging stderr behavior.
+    Run real Slurm jobs that cover success, CMOR stdout, logfile, quiet, and error stream behavior.
     """
     _require_binary('sbatch')
-    shell_root = real_slurm_root / shell_name
+    shell_root = real_slurm_root / shell_name / case['name']
     _prepare_job_workspace(shell_root)
 
     job_out = shell_root / f'{shell_name}.out'
@@ -341,12 +440,13 @@ def test_modulefile_real_slurm_help_logs_stay_on_stderr(real_slurm_root, modulef
         modulefile_runtime,
         job_out,
         job_err,
-        command_mode='run-help',
+        case=case,
     )
 
     shell_env = os.environ.copy()
     shell_env['FREMOR_TEST_CONDA_ENV'] = str(modulefile_runtime['conda_env'])
     shell_env['FREMOR_TEST_CONDA_SH'] = str(modulefile_runtime['conda_sh'])
+    shell_env.update(case.get('extra_env', {}))
 
     job = subprocess.run(
         ['sbatch', '--wait', str(job_script)],
@@ -357,9 +457,12 @@ def test_modulefile_real_slurm_help_logs_stay_on_stderr(real_slurm_root, modulef
         text=True,
     )
 
-    assert job.returncode == 0, job.stderr
+    if case['expect_success']:
+        assert job.returncode == 0, job.stderr
+    else:
+        assert job.returncode != 0
     assert 'Submitted batch job ' in job.stdout
     assert job_out.exists()
     assert job_err.exists()
 
-    _assert_job_artifacts(shell_root, shell_name, job_out, job_err, command_mode='run-help')
+    _assert_job_artifacts(shell_root, shell_name, job_out, job_err, case=case)

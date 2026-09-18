@@ -159,7 +159,7 @@ jobs:
             export FREMOR_TEST_REAL_SLURM=1
             export FREMOR_TEST_SLURM_SHARED_ROOT=/data
             pytest --ignore fremor/tests/test_files/mip-cmor-tables \
-              fremor/tests/test_modulefile_integration.py::test_modulefile_real_slurm_help_logs_stay_on_stderr \
+              fremor/tests/test_modulefile_integration.py::test_modulefile_real_slurm_jobs_cover_success_and_error_cases \
               -v
           '
 

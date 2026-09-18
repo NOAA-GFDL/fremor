@@ -274,7 +274,9 @@ def rewrite_netcdf_file_var( mip_var_cfgs: dict = None,
     # initialize CMOR
     # CMOR's own error messages (e.g. "Problem with 'cmor.variable'.") are content-free unless
     # a logfile is configured; without one, the real reason for a CMORError is discarded.
-    cmor_logfile = CMOR_LOG if CMOR_LOG is not None else f'cmor_{target_var}.log'
+    cmor_logfile = os.environ.get('FREMOR_CMOR_LOGFILE')
+    if cmor_logfile is None:
+        cmor_logfile = CMOR_LOG if CMOR_LOG is not None else f'cmor_{target_var}.log'
     cmor.setup(
         netcdf_file_action=CMOR_NC_FILE_ACTION,
         set_verbosity=CMOR_VERBOSITY,
