@@ -36,11 +36,6 @@ jobs:
           git submodule update --init --force --depth 1 fremor/tests/test_files/cmip6-cmor-tables
           git -C fremor/tests/test_files/cmip6-cmor-tables reset --hard HEAD
 
-      - name: Install Lmod and tcsh
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y lmod tcsh
-
       - name: Set up Miniforge environment from environment.yaml
         uses: conda-incubator/setup-miniconda@v4
         with:
@@ -50,6 +45,10 @@ jobs:
           conda-remove-defaults: true
           environment-file: environment.yaml
           activate-environment: fremor
+
+      - name: Install newer Lmod and tcsh
+        run: |
+          conda install -y -c conda-forge "lmod>=8.7,<9" tcsh
 
       - name: Install fremor editable
         run: |

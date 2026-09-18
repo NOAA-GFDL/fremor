@@ -16,7 +16,7 @@ RUN source /opt/conda/etc/profile.d/conda.sh \
     && conda config --remove channels defaults || true \
     && conda config --set channel_priority strict \
     && conda env create -p /opt/conda/envs/fremor -f /opt/fremor/environment.yaml \
-    && conda install -y -p /opt/conda/envs/fremor -c conda-forge lmod tcsh \
+    && conda install -y -p /opt/conda/envs/fremor -c conda-forge "lmod>=8.7,<9" tcsh \
     && conda activate /opt/conda/envs/fremor \
     && pip install -e /opt/fremor \
     && conda clean -afy
