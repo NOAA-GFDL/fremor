@@ -1,0 +1,54 @@
+name: test_integration_modulefiles
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+
+# cancel running jobs if theres a newer push
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  modulefile-integration-test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash -l {0}
+    steps:
+      - name: Checkout Files
+        uses: actions/checkout@v7
+
+      - name: Set up required test submodule
+        run: |
+          git submodule update --init --force --depth 1 fremor/tests/test_files/cmip6-cmor-tables
+          git -C fremor/tests/test_files/cmip6-cmor-tables reset --hard HEAD
+
+      - name: Install Lmod and tcsh
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y lmod tcsh
+
+      - name: Set up Miniforge environment from environment.yaml
+        uses: conda-incubator/setup-miniconda@v4
+        with:
+          miniforge-version: latest
+          channels: conda-forge,noaa-gfdl
+          python-version: "3.11"
+          conda-remove-defaults: true
+          environment-file: environment.yaml
+          activate-environment: fremor
+
+      - name: Install fremor editable
+        run: |
+          pip install -e .
+
+      - name: Run modulefile integration pytest
+        run: |
+          pytest fremor/tests/test_modulefile_integration.py -v
