@@ -39,6 +39,7 @@ MODULEFILE_JOB_CASES = (
     {
         'name': 'verbose-info',
         'cli_args': ['-v', 'run'],
+        'include_required_run_args': True,
         'expect_success': True,
         'expect_output': True,
         'expect_stderr_contains': ['[ INFO:', CMOR_OPEN_FRAGMENT, CMOR_CLOSE_FRAGMENT],
@@ -48,6 +49,7 @@ MODULEFILE_JOB_CASES = (
     {
         'name': 'verbose-debug',
         'cli_args': ['-vv', 'run'],
+        'include_required_run_args': True,
         'expect_success': True,
         'expect_output': True,
         'expect_stderr_contains': ['[DEBUG:', CLI_DEBUG_FRAGMENT, '[ INFO:', CMOR_OPEN_FRAGMENT, CMOR_CLOSE_FRAGMENT],
@@ -57,14 +59,17 @@ MODULEFILE_JOB_CASES = (
     {
         'name': 'quiet',
         'cli_args': ['-q', 'run'],
+        'include_required_run_args': True,
         'expect_success': True,
         'expect_output': True,
-        'expect_stderr_empty': True,
+        'expect_stderr_empty': False,
+        'expect_stderr_contains': ['\n', '! ------\n', '! All files were closed successfully. \n','! ------\n', '! \n'],
         'expect_stdout_not_contains': ['[ INFO:', '[DEBUG:', CMOR_OPEN_FRAGMENT, CMOR_CLOSE_FRAGMENT],
     },
     {
         'name': 'logfile',
         'cli_args': ['-l', '{log_path}', 'run'],
+        'include_required_run_args': True,
         'expect_success': True,
         'expect_output': True,
         'expect_log_file': True,
@@ -77,6 +82,7 @@ MODULEFILE_JOB_CASES = (
     {
         'name': 'error',
         'cli_args': ['-q', 'run'],
+        'include_required_run_args': False,
         'expect_success': False,
         'expect_output': False,
         'expect_stderr_contains': [RUN_USAGE_FRAGMENT, RUN_ERROR_FRAGMENT],
@@ -254,7 +260,7 @@ def _build_case_command(shell_root, case):
         for arg in case['cli_args']
     ]
     command_args = ['fremor', *cli_args]
-    if case['expect_success']:
+    if case['include_required_run_args']:
         command_args.extend(
             [
                 '--indir', str(shell_root / 'input'),
@@ -362,6 +368,30 @@ def _assert_job_artifacts(shell_root, shell_name, job_out, job_err, case):
         assert 'fremor:' in stdout_text
 
 
+def test_build_case_command_includes_required_run_args_for_success_case(tmp_path):
+    """Successful modulefile cases build a complete `fremor run` invocation."""
+    shell_root = tmp_path / 'success'
+    command = _build_case_command(shell_root, MODULEFILE_JOB_CASES[0])
+
+    assert '--indir' in command
+    assert '--varlist' in command
+    assert '--table_config' in command
+    assert '--exp_config' in command
+    assert '--outdir' in command
+
+
+def test_build_case_command_omits_required_run_args_for_error_case(tmp_path):
+    """The intentional error case stays incomplete without relying on `expect_success`."""
+    shell_root = tmp_path / 'error'
+    command = _build_case_command(shell_root, MODULEFILE_JOB_CASES[-1])
+
+    assert '--indir' not in command
+    assert '--varlist' not in command
+    assert '--table_config' not in command
+    assert '--exp_config' not in command
+    assert '--outdir' not in command
+
+
 @pytest.fixture
 def real_slurm_root(tmp_path):
     """Return a Slurm-shared workspace root when real Slurm testing is enabled."""
@@ -433,7 +463,8 @@ def test_modulefile_sbatch_job_logs_stay_on_stderr(tmp_path, modulefile_runtime,
 
 @pytest.mark.parametrize('case', MODULEFILE_JOB_CASES, ids=[case['name'] for case in MODULEFILE_JOB_CASES])
 @pytest.mark.parametrize('shell_name', ['bash', 'tcsh'])
-def test_modulefile_real_slurm_jobs_cover_success_and_error_cases(real_slurm_root, modulefile_runtime, shell_name, case):
+def test_modulefile_real_slurm_jobs_cover_success_and_error_cases(
+        real_slurm_root, modulefile_runtime, shell_name, case):
     """
     Run real Slurm jobs that cover normal success, logfile, quiet, and error stream behavior.
     """

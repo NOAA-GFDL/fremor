@@ -236,19 +236,19 @@ def cmor_yaml_subtool( yamlfile: str = None,
             if dry_run_mode:
                 if print_cli_call:
                     fre_logger.info( '%s', '--DRY RUN CLI CALL---\n' + \
-                                           'fremor run -v -v \\ \n' + \
-                                          f'    --indir {indir} \\ \n' + \
-                                          f'    --varlist {json_var_list} \\ \n' + \
-                                          f'    --table_config {json_mip_table_config} \\ \n' + \
-                                          f'    --exp_config {json_exp_config} \\ \n' + \
-                                          f'    --outdir {cmor_run_call_outdir} \\ \n' + \
+                                           'fremor run -v -v \\'+'\n' + \
+                                          f'    --indir {indir} \\'+'\n' + \
+                                          f'    --varlist {json_var_list} \\'+'\n' + \
+                                          f'    --table_config {json_mip_table_config} \\'+'\n' + \
+                                          f'    --exp_config {json_exp_config} \\'+'\n' + \
+                                          f'    --outdir {cmor_run_call_outdir} \\'+'\n' + \
                                            '    --run_one \\ \n' + \
-                                          f'    --opt_var_name {opt_var_name} \\ \n' + \
-                                          f'    --grid_desc "{grid_desc}" \\ \n' + \
-                                          f'    --grid_label {grid_label} \\ \n' + \
-                                          f'    --nom_res "{nom_res}" \\ \n' + \
-                                          f'    --start {start} \\ \n' + \
-                                          f'    --stop {stop} \\ \n' + \
+                                          f'    --opt_var_name {opt_var_name} \\'+'\n' + \
+                                          f'    --grid_desc "{grid_desc}" \\'+'\n' + \
+                                          f'    --grid_label {grid_label} \\'+'\n' + \
+                                          f'    --nom_res "{nom_res}" \\'+'\n' + \
+                                          f'    --start {start} \\'+'\n' + \
+                                          f'    --stop {stop} \\'+'\n' + \
                                           f'    --calendar {calendar_type}'
                                            '\n' )
                 else:
