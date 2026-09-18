@@ -95,56 +95,56 @@ def _ncgen_for_case(testfile_dir, opt_var_name):
         pytest.param(
             f'{MOCK_ARCHIVE_ROOT}/{ESM4_DECK_PP_DIR}'
             '/atmos_plev39_cmip/ts/monthly/5yr/zonavg/',
-            'CMIP7_atmos', 'ta', 'g999', '1850', 'noleap',
-            id='atmos_ta_g999',
+            'CMIP7_atmos', 'ta', 'g010', '1850', 'noleap',
+            id='atmos_ta_g010',
         ),
         pytest.param(
             f'{MOCK_ARCHIVE_ROOT}/{ESM4_DECK_PP_DIR}'
             '/atmos_scalar/ts/monthly/5yr/',
-            'CMIP7_atmosChem', 'ch4global', 'g999', '1850', 'noleap',
-            id='atmosChem_ch4global_g999',
+            'CMIP7_atmosChem', 'ch4global', 'g010', '1850', 'noleap',
+            id='atmosChem_ch4global_g010',
         ),
         pytest.param(
             f'{MOCK_ARCHIVE_ROOT}/{ESM4_DECK_PP_DIR}'
             '/LUmip_refined/ts/monthly/5yr/',
-            'CMIP7_land', 'gppLut', 'g999', '1850', 'noleap',
-            id='land_gppLut_g999',
+            'CMIP7_land', 'gppLut', 'g010', '1850', 'noleap',
+            id='land_gppLut_g010',
         ),
         pytest.param(
             f'{MOCK_ARCHIVE_ROOT}/{ESM4_DECK_PP_DIR}'
             '/atmos_level_cmip/ts/monthly/5yr/',
-            'CMIP7_atmos', 'cl', 'g999', '1850', 'noleap',
-            id='atmos_cl_g999',
+            'CMIP7_atmos', 'cl', 'g010', '1850', 'noleap',
+            id='atmos_cl_g010',
         ),
         pytest.param(
             f'{MOCK_ARCHIVE_ROOT}/{ESM4_DECK_PP_DIR}'
             '/atmos_level_cmip/ts/monthly/5yr/',
-            'CMIP7_atmos', 'mc', 'g999', '1850', 'noleap',
-            id='atmos_mc_g999',
+            'CMIP7_atmos', 'mc', 'g010', '1850', 'noleap',
+            id='atmos_mc_g010',
         ),
         pytest.param(
             f'{MOCK_ARCHIVE_ROOT}/{ESM4_DEV_PP_DIR}'
             '/ocean_monthly_z_1x1deg/ts/monthly/5yr/',
-            'CMIP7_ocean', 'so', 'g999', '0001', 'noleap',
-            id='ocean_so_g999',
+            'CMIP7_ocean', 'so', 'g010', '0001', 'noleap',
+            id='ocean_so_g010',
         ),
         pytest.param(
             f'{MOCK_ARCHIVE_ROOT}/{ESM4_DEV_PP_DIR}'
             '/ocean_monthly/ts/monthly/5yr/',
-            'CMIP7_ocean', 'sos', 'g999', '0001', 'noleap',
-            id='ocean_sos_g999',
+            'CMIP7_ocean', 'sos', 'g010', '0001', 'noleap',
+            id='ocean_sos_g010',
         ),
         pytest.param(
             f'{MOCK_ARCHIVE_ROOT}/{ESM4_DEV_PP_DIR}'
             '/land/ts/monthly/5yr/',
-            'CMIP7_land', 'lai', 'g999', '0001', 'noleap',
-            id='land_lai_g999',
+            'CMIP7_land', 'lai', 'g010', '0001', 'noleap',
+            id='land_lai_g010',
         ),
         pytest.param(
             f'{MOCK_ARCHIVE_ROOT}/{ESM4_DEV_PP_DIR}'
             '/atmos_cmip/ts/monthly/5yr/',
-            'CMIP7_atmos', 'tas', 'g999', '0001', 'noleap',
-            id='atmos_tas_g999',
+            'CMIP7_atmos', 'tas', 'g010', '0001', 'noleap',
+            id='atmos_tas_g010',
         ),
     ],
 )
@@ -178,7 +178,7 @@ def test_case_cmip7(  # pylint: disable=too-many-arguments,too-many-positional-a
         opt_var_name=opt_var_name,
         grid='FOO_PLACEHOLDER',
         grid_label=grid_label,
-        nom_res='10000 km',
+        nom_res='100 km',
         start=start,
         calendar_type=calendar,
     )

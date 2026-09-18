@@ -77,7 +77,7 @@ jobs:
 
       - name: Restore cached slurm-cluster image
         id: cache-slurm-cluster
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v5
         with:
           path: ${{ env.SLURM_IMAGE_TAR }}
           key: slurm-cluster-${{ env.SLURM_IMAGE_TAG }}-${{ env.SLURM_TAG }}-v${{ env.SLURM_CLUSTER_TAG }}
@@ -100,7 +100,7 @@ jobs:
 
       - name: Cache slurm-cluster image
         if: steps.cache-slurm-cluster.outputs.cache-hit != 'true' && github.event_name != 'pull_request'
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v5
         with:
           path: ${{ env.SLURM_IMAGE_TAR }}
           key: slurm-cluster-${{ env.SLURM_IMAGE_TAG }}-${{ env.SLURM_TAG }}-v${{ env.SLURM_CLUSTER_TAG }}
