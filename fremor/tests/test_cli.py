@@ -887,6 +887,53 @@ def test_cli_fremor_init_cmip7_default_name(tmp_path):
         assert config['mip_era'] == 'CMIP7'
 
 
+@patch('fremor.cli.cmor_init_subtool')
+def test_cli_fremor_init_exp_config_and_tables_dir_fast(mock_subtool, tmp_path):
+    """The init CLI forwards both --exp_config and --tables_dir for curl-based retrieval."""
+    exp_config = tmp_path / 'experiment.json'
+    tables_dir = tmp_path / 'tables'
+
+    result = runner.invoke(fremor, args=[
+        'init',
+        '--mip_era', 'cmip6',
+        '--exp_config', str(exp_config),
+        '--tables_dir', str(tables_dir),
+        '--fast',
+    ])
+
+    assert result.exit_code == 0
+    mock_subtool.assert_called_once_with(
+        mip_era='cmip6',
+        exp_config=str(exp_config),
+        tables_dir=str(tables_dir),
+        tag=None,
+        fast=True,
+    )
+
+
+@patch('fremor.cli.cmor_init_subtool')
+def test_cli_fremor_init_exp_config_and_tables_dir_git(mock_subtool, tmp_path):
+    """The init CLI forwards both --exp_config and --tables_dir for git-based retrieval."""
+    exp_config = tmp_path / 'experiment.json'
+    tables_dir = tmp_path / 'tables'
+
+    result = runner.invoke(fremor, args=[
+        'init',
+        '--mip_era', 'cmip7',
+        '--exp_config', str(exp_config),
+        '--tables_dir', str(tables_dir),
+    ])
+
+    assert result.exit_code == 0
+    mock_subtool.assert_called_once_with(
+        mip_era='cmip7',
+        exp_config=str(exp_config),
+        tables_dir=str(tables_dir),
+        tag=None,
+        fast=False,
+    )
+
+
 
 # ── fremor run: logfile + omission tracking ───────────────────────────────
 
