@@ -199,10 +199,10 @@ def _cmip7_exp_config_template():
         'parent_time_units': '',
         'calendar': '',
         'grid': 'PLACEHOLD',
-        'grid_label': 'g010',
+        'grid_label': 'g999',
         'frequency': '',
         'region': '',
-        'nominal_resolution': '100 km',
+        'nominal_resolution': '',
         'history': '',
         '_history_template': (
             '%s ;rewrote data to be consistent with '
