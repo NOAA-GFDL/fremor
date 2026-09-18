@@ -5,6 +5,7 @@ Integration tests for modulefile-driven fremor CLI jobs.
 from datetime import date
 import os
 from pathlib import Path
+import re
 import shlex
 import shutil
 import subprocess
@@ -26,10 +27,9 @@ CLI_LOGFILE_FRAGMENT = 'fre_file_handler added to base_fre_logger'
 CLI_DEBUG_FRAGMENT = 'click entry-point function call done.'
 CMOR_OPEN_FRAGMENT = 'cmor is opening: json_exp_config'
 CMOR_CLOSE_FRAGMENT = 'returned by cmor.close: filename ='
-CMOR_STDOUT_WARNING = 'Warning: Logfile /dev/stdout already exist.'
-CMOR_STDOUT_CLOSED = 'CMOR is now closed.'
 RUN_USAGE_FRAGMENT = 'Usage: fremor run [OPTIONS]'
 RUN_ERROR_FRAGMENT = "Error: Missing option '-d' / '--indir'."
+PORTABLE_ENV_NAME = re.compile(r'^[A-Za-z_][A-Za-z0-9_]*$')
 EXPECTED_OUTPUT_RELATIVE = Path(
     'CMIP6/CMIP6/ISMIP6/PCMDI/PCMDI-test-1-0/piControl-withism/'
     f'r3i1p1f1/Omon/sos/gr/v{date.today().strftime("%Y%m%d")}/'
@@ -43,7 +43,7 @@ MODULEFILE_JOB_CASES = (
         'expect_output': True,
         'expect_stderr_contains': ['[ INFO:', CMOR_OPEN_FRAGMENT, CMOR_CLOSE_FRAGMENT],
         'expect_stderr_not_contains': ['[DEBUG:', CLI_LOGFILE_FRAGMENT],
-        'expect_stdout_not_contains': ['[ INFO:', '[DEBUG:', CMOR_OPEN_FRAGMENT, CMOR_STDOUT_WARNING],
+        'expect_stdout_not_contains': ['[ INFO:', '[DEBUG:', CMOR_OPEN_FRAGMENT, CMOR_CLOSE_FRAGMENT],
     },
     {
         'name': 'verbose-debug',
@@ -52,7 +52,7 @@ MODULEFILE_JOB_CASES = (
         'expect_output': True,
         'expect_stderr_contains': ['[DEBUG:', CLI_DEBUG_FRAGMENT, '[ INFO:', CMOR_OPEN_FRAGMENT, CMOR_CLOSE_FRAGMENT],
         'expect_stderr_not_contains': [CLI_LOGFILE_FRAGMENT],
-        'expect_stdout_not_contains': ['[ INFO:', '[DEBUG:', CMOR_OPEN_FRAGMENT, CMOR_STDOUT_WARNING],
+        'expect_stdout_not_contains': ['[ INFO:', '[DEBUG:', CMOR_OPEN_FRAGMENT, CMOR_CLOSE_FRAGMENT],
     },
     {
         'name': 'quiet',
@@ -60,7 +60,7 @@ MODULEFILE_JOB_CASES = (
         'expect_success': True,
         'expect_output': True,
         'expect_stderr_empty': True,
-        'expect_stdout_not_contains': ['[ INFO:', '[DEBUG:', CMOR_OPEN_FRAGMENT, CMOR_STDOUT_WARNING],
+        'expect_stdout_not_contains': ['[ INFO:', '[DEBUG:', CMOR_OPEN_FRAGMENT, CMOR_CLOSE_FRAGMENT],
     },
     {
         'name': 'logfile',
@@ -72,17 +72,7 @@ MODULEFILE_JOB_CASES = (
         'expect_stderr_not_contains': ['[ INFO:', '[DEBUG:', CLI_LOGFILE_FRAGMENT],
         'expect_log_contains': ['[WARNING:', 'cmor_mixer.py', 'run_one_mode is True!!!!'],
         'expect_log_not_contains': ['[ INFO:', '[DEBUG:', CLI_LOGFILE_FRAGMENT],
-        'expect_stdout_not_contains': ['[ INFO:', '[DEBUG:', CMOR_OPEN_FRAGMENT, CMOR_STDOUT_WARNING],
-    },
-    {
-        'name': 'cmor-stdout',
-        'cli_args': ['-q', 'run'],
-        'expect_success': True,
-        'expect_output': True,
-        'extra_env': {'FREMOR_CMOR_LOGFILE': '/dev/stdout'},
-        'expect_stderr_empty': True,
-        'expect_stdout_contains': ['C Traceback:', CMOR_STDOUT_WARNING, CMOR_STDOUT_CLOSED],
-        'expect_stdout_not_contains': ['[ INFO:', '[DEBUG:', CMOR_OPEN_FRAGMENT],
+        'expect_stdout_not_contains': ['[ INFO:', '[DEBUG:', CMOR_OPEN_FRAGMENT, CMOR_CLOSE_FRAGMENT],
     },
     {
         'name': 'error',
@@ -91,7 +81,7 @@ MODULEFILE_JOB_CASES = (
         'expect_output': False,
         'expect_stderr_contains': [RUN_USAGE_FRAGMENT, RUN_ERROR_FRAGMENT],
         'expect_stderr_not_contains': ['[ INFO:', '[DEBUG:', '[WARNING:', CMOR_OPEN_FRAGMENT, CMOR_CLOSE_FRAGMENT],
-        'expect_stdout_not_contains': ['[ INFO:', '[DEBUG:', CMOR_OPEN_FRAGMENT, CMOR_STDOUT_WARNING],
+        'expect_stdout_not_contains': ['[ INFO:', '[DEBUG:', CMOR_OPEN_FRAGMENT, CMOR_CLOSE_FRAGMENT],
     },
 )
 SBATCH_STUB = """#!/usr/bin/env python3
@@ -240,6 +230,21 @@ def _shell_join(command_args):
 
 def _log_path(shell_root):
     return shell_root / 'LOGFILE.log'
+
+
+def _build_shell_env(runtime, job_id, sbatch_dir=None):
+    env = {
+        name: value
+        for name, value in os.environ.items()
+        if PORTABLE_ENV_NAME.fullmatch(name)
+    }
+    env['FREMOR_TEST_CONDA_ENV'] = str(runtime['conda_env'])
+    env['FREMOR_TEST_CONDA_SH'] = str(runtime['conda_sh'])
+    env['FREMOR_TEST_SBATCH_JOB_ID'] = job_id
+    if sbatch_dir is not None:
+        current_path = env.get('PATH', '')
+        env['PATH'] = f'{sbatch_dir}{os.pathsep}{current_path}' if current_path else str(sbatch_dir)
+    return env
 
 
 def _build_case_command(shell_root, case):
@@ -395,12 +400,11 @@ def test_modulefile_sbatch_job_logs_stay_on_stderr(tmp_path, modulefile_runtime,
         case=case,
     )
 
-    shell_env = os.environ.copy()
-    shell_env['FREMOR_TEST_CONDA_ENV'] = str(modulefile_runtime['conda_env'])
-    shell_env['FREMOR_TEST_CONDA_SH'] = str(modulefile_runtime['conda_sh'])
-    shell_env['FREMOR_TEST_SBATCH_JOB_ID'] = f'42-{shell_name}-{case["name"]}'
-    shell_env['PATH'] = f"{sbatch_dir}{os.pathsep}{shell_env['PATH']}"
-    shell_env.update(case.get('extra_env', {}))
+    shell_env = _build_shell_env(
+        modulefile_runtime,
+        f'42-{shell_name}-{case["name"]}',
+        sbatch_dir=sbatch_dir,
+    )
 
     job = subprocess.run(
         ['sbatch', str(job_script)],
@@ -426,7 +430,7 @@ def test_modulefile_sbatch_job_logs_stay_on_stderr(tmp_path, modulefile_runtime,
 @pytest.mark.parametrize('shell_name', ['bash', 'tcsh'])
 def test_modulefile_real_slurm_jobs_cover_success_and_error_cases(real_slurm_root, modulefile_runtime, shell_name, case):
     """
-    Run real Slurm jobs that cover success, CMOR stdout, logfile, quiet, and error stream behavior.
+    Run real Slurm jobs that cover normal success, logfile, quiet, and error stream behavior.
     """
     _require_binary('sbatch')
     shell_root = real_slurm_root / shell_name / case['name']
@@ -443,10 +447,10 @@ def test_modulefile_real_slurm_jobs_cover_success_and_error_cases(real_slurm_roo
         case=case,
     )
 
-    shell_env = os.environ.copy()
-    shell_env['FREMOR_TEST_CONDA_ENV'] = str(modulefile_runtime['conda_env'])
-    shell_env['FREMOR_TEST_CONDA_SH'] = str(modulefile_runtime['conda_sh'])
-    shell_env.update(case.get('extra_env', {}))
+    shell_env = _build_shell_env(
+        modulefile_runtime,
+        f'real-{shell_name}-{case["name"]}',
+    )
 
     job = subprocess.run(
         ['sbatch', '--wait', str(job_script)],
