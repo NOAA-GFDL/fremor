@@ -96,7 +96,7 @@ jobs:
             /tmp/slurm-docker-cluster
 
       - name: Save slurm-cluster image to tarball
-        if: steps.cache-slurm-cluster.outputs.cache-hit != 'true'
+        if: steps.cache-slurm-cluster.outputs.cache-hit != 'true' && github.event_name != 'pull_request'
         run: docker save slurm-cluster:${SLURM_IMAGE_TAG} -o "${SLURM_IMAGE_TAR}"
 
       - name: Cache slurm-cluster image
