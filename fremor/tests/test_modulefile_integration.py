@@ -178,7 +178,7 @@ def _require_binary(binary_name):
 def modulefile_runtime():
     """Return the shell/runtime paths required by the modulefile integration tests."""
     _require_binary('ncgen3')
-    _require_binary('tcsh')
+    tcsh_path = _require_binary('tcsh')
     conda_exe = _require_binary('conda')
 
     conda_env = os.environ.get('CONDA_PREFIX')
@@ -208,6 +208,7 @@ def modulefile_runtime():
         'conda_env': Path(conda_env),
         'conda_sh': conda_sh,
         'lmod_init': lmod_init,
+        'tcsh': tcsh_path,
     }
 
 
@@ -294,7 +295,7 @@ def _write_job_script(shell_name, shell_root, runtime, job_out, job_err, case):
         script_path = shell_root / 'run_script.tcsh'
         script_text = '\n'.join(
             [
-                '#!/usr/bin/env tcsh',
+                f'#!{runtime["tcsh"]} -f',
                 f'#SBATCH --output={job_out}',
                 f'#SBATCH --error={job_err}',
                 f'source "{runtime["lmod_init"]["tcsh"]}"',
