@@ -1,37 +1,60 @@
 #!/bin/bash -u
-# this script should be sourced
-
-# piControl results --> /net2/inl/Working/fremor_testing_June8_2026_piControl_output
-# piControl script/config --> /net2/inl/Working/fremor_testing_June8_2026_piControl_output
-
-# for historical, we are going to test targeting archive files for e.g. variable list, configuration writing, etc.
-
+# this script should be sourced. It's slightly biased towards the fremor author's workflow- mainly the "Working" dir.
 
 #### INPUT CONFIG
 #### ------------
 ## check flags, 0 --> yes, 1 --> no
-CHECK_INIT=1 # GOOD / DONE / GREAT (no surprise)
-CHECK_VARLIST=1 # GOOD / DONE / GREAT (no surprise)
-CHECK_FIND=1 # GOOD / DONE / GREAT (no surprise)
-CHECK_CONFIG=0 # looks like the strict mode thing isn't working?
-CHECK_YAML=1 #
-CHECK_RUN=1 # TODO
-CHECK_RESOLVE=1 # TODO
+CHECK_INIT=0
+CHECK_VARLIST=0
+CHECK_FIND=0
+CHECK_CONFIG=0
+CHECK_YAML=1
+CHECK_RUN=1
+CHECK_RESOLVE=1
+
+echo_and_run() {
+	local i=0
+	for arg in "$@"; do
+		((i++))
+
+		# For display: wrap the argument in quotes if it contains spaces
+		local display_arg="$arg"
+		if [[ "$display_arg" == *[[:space:]]* ]]; then
+			display_arg="\"$display_arg\""
+		fi
+
+		if [[ $i -eq 1 ]]; then
+			# First argument (the command itself)
+			printf "%s" "$display_arg"
+		elif [[ "$display_arg" == -* ]]; then
+			# If it's a flag (starts with '-'), wrap to a new line with a backslash
+			printf " \\\\\n    %s" "$display_arg"
+		else
+			# Otherwise, append it to the current line (e.g., subcommand or flag value)
+			printf " %s" "$display_arg"
+		fi
+	done
+	printf "\n"
+
+	# Execute the actual command safely preserving all elements
+	#"$@"
+}
+
 
 
 ## FYI which fremor i'm using, not strictly used nor necessary.
-FREMOR_INSTALL_E=/home/inl/Working/fremor
+FREMOR_INSTALL_E=/home/$USER/Working/fremor
 echo "fremor installed (with -e) in ${FREMOR_INSTALL_E}"
 
 ## starting directory
-WORKING_CWD=/home/inl/Working/fremor_testing_June8_2026
+WORKING_CWD=$PWD
 
 ## output for CMORized data, do not use home nor nbhome as it's a lot
-OUTPUT_CMORIZED_DATA_DIR=/net2/inl/Working/fremor_testing_June8_2026
+OUTPUT_CMORIZED_DATA_DIR=/net2/$USER/Working/fremor_testing_cmip7
 
 ## input directory stuff
 BASE_SRC_DIR=/archive/oar.gfdl.bgrp-account/ # full original targets
-#BASE_SRC_DIR=/work/inl/ # copied over, first five years, in my area, "shakedown test"
+#BASE_SRC_DIR=/work/$USER/ # copied over, first five years, in my area, "shakedown test"
 CMIP7_ESM_DECK_PATH_GUTS=CMIP7/ESM4/DECK/ESM4.5-
 ESM_KIND=historical #picontrol #
 TAIL_TARG_DIR=/gfdl.ncrc6-intel25-prod-openmp/pp/ ## platform x target / pp /
@@ -62,23 +85,22 @@ FREMOR_INIT_OUTDIR=${WORKING_CWD}/fremor_init_outdir
 USER_CONFIG=${FREMOR_INIT_OUTDIR}/CMIP7_user_input.json
 CMIP7_TABLES=${FREMOR_INIT_OUTDIR}/cmip7-cmor-tables-main/tables
 if [[ "${CHECK_INIT}" -eq 1 ]]; then
-    echo "not checking fremor init"
+	echo "not checking fremor init"
 else
-    # fremor init - works, check!
-    echo "setting up fremor init check, clobbering any prev made output"
-    rm -rf "${FREMOR_INIT_OUTDIR}" || echo "no init output to remove, OK!" && mkdir "${FREMOR_INIT_OUTDIR}"
+	# fremor init - works, check!
+	echo "setting up fremor init check, clobbering any prev made output"
+	rm -rf "${FREMOR_INIT_OUTDIR}" || echo "no init output to remove, OK!" && mkdir "${FREMOR_INIT_OUTDIR}"
 
-    echo "running fremor init"
-    echo "fremor init --mip_era cmip7 --exp_config ${USER_CONFIG} -t ${FREMOR_INIT_OUTDIR} --fast"
-    fremor -v init \
-           --mip_era cmip7 \
-           --exp_config "${USER_CONFIG}" \
-           -t "${FREMOR_INIT_OUTDIR}" \
-           --fast
+	echo "running fremor init"
+	echo_and_run fremor -v init \
+				 --mip_era cmip7 \
+				 --exp_config "${USER_CONFIG}" \
+				 -t "${FREMOR_INIT_OUTDIR}" \
+				 --fast
 
-    echo "checking that fremor init's output exists, return if not"
-    ls -l "${USER_CONFIG}" || return
-    ls -l "${CMIP7_TABLES}" || return
+	#echo "checking that fremor init's output exists, return if not"
+	#ls -l "${USER_CONFIG}" || return
+	#ls -l "${CMIP7_TABLES}" || return
 fi
 
 
@@ -87,21 +109,20 @@ fi
 FREMOR_VARLIST_OUTDIR=${WORKING_CWD}/fremor_varlist_outdir #DIRECTORY
 FREMOR_VARLIST_OUTPUT=${FREMOR_VARLIST_OUTDIR}/foo.list #FULL FILEPATH
 if [[ "${CHECK_VARLIST}" -eq 1 ]]; then
-    echo "not checking fremor varlist"
+	echo "not checking fremor varlist"
 else
-    # fremor varlist
-    echo "setting up fremor varlist check, clobbering any prev made output"
-    rm -rf "${FREMOR_VARLIST_OUTDIR}" || echo "no varlist output to remove, OK!" && mkdir "${FREMOR_VARLIST_OUTDIR}"
+	# fremor varlist
+	echo "setting up fremor varlist check, clobbering any prev made output"
+	rm -rf "${FREMOR_VARLIST_OUTDIR}" || echo "no varlist output to remove, OK!" && mkdir "${FREMOR_VARLIST_OUTDIR}"
 
-    echo "running fremor varlist"
-    echo "fremor -vv varlist --dir_targ ${TARG_FREBRONX_PPDIR} -o ${FREMOR_VARLIST_OUTPUT}"
-    fremor -vv varlist \
-           --dir_targ "${TEST_COMPONENT_DIR}" \
-           -o "${FREMOR_VARLIST_OUTPUT}"
+	echo "running fremor varlist"
+	echo_and_run fremor -vv varlist \
+				 --dir_targ "${TEST_COMPONENT_DIR}" \
+				 -o "${FREMOR_VARLIST_OUTPUT}"
 
-    echo "checking that fremor varlist's output exists, return if not"
-    ls -l "${FREMOR_VARLIST_OUTPUT}" || return
-    #ls -ld
+	#echo "checking that fremor varlist's output exists, return if not"
+	#ls -l "${FREMOR_VARLIST_OUTPUT}" || return
+	#ls -ld
 fi
 
 
@@ -109,15 +130,14 @@ fi
 #### FIND
 #### ----
 if [[ "${CHECK_FIND}" -eq 1 ]]; then
-    echo "not checking fremor find"
+	echo "not checking fremor find"
 else
-    echo "setting up fremor find check, which does not produce any output (no dir setup necessary)"
+	echo "setting up fremor find check, which does not produce any output (no dir setup necessary)"
 
-    echo "running fremor find"
-    echo "fremor -v find --table_config_dir ${CMIP7_TABLES} --varlist ${FREMOR_VARLIST_OUTPUT}"
-    fremor -v find \
-           --table_config_dir "${CMIP7_TABLES}" \
-           --varlist "${FREMOR_VARLIST_OUTPUT}"
+	echo "running fremor find"
+	echo_and_run fremor -v find \
+				 --table_config_dir "${CMIP7_TABLES}" \
+				 --varlist "${FREMOR_VARLIST_OUTPUT}"
 fi
 
 
@@ -127,34 +147,34 @@ fi
 FREMOR_CONFIG_OUTDIR=${WORKING_CWD}/fremor_config_outdir
 FREMOR_CONFIG_OUTYAML=${FREMOR_CONFIG_OUTDIR}/cmor.yaml
 if [[ "${CHECK_CONFIG}" -eq 1 ]]; then
-    echo "not checking fremor config"
+	echo "not checking fremor config"
 else
-    echo "setting up fremor config check, clobbering any prev made output"
-    rm -rf "${FREMOR_CONFIG_OUTDIR}" || echo "no config output to remove, OK!" && mkdir "${FREMOR_CONFIG_OUTDIR}"
-    rm -rf "${FREMOR_VARLIST_OUTDIR}" || echo "no varlist output to remove, OK!" && mkdir "${FREMOR_VARLIST_OUTDIR}"
+	echo "setting up fremor config check, clobbering any prev made output"
+	rm -rf "${FREMOR_CONFIG_OUTDIR}" || echo "no config output to remove, OK!" && mkdir "${FREMOR_CONFIG_OUTDIR}"
+	rm -rf "${FREMOR_VARLIST_OUTDIR}" || echo "no varlist output to remove, OK!" && mkdir "${FREMOR_VARLIST_OUTDIR}"
 
-    echo "running fremor config"
-    echo "fremor -v config --pp_dir ${TARG_FREBRONX_PPDIR} --mip_tables_dir ${CMIP7_TABLES} --exp_config ${USER_CONFIG} --mip_era cmip7 --freq monthly --chunk 5yr --grid g999 --calendar noleap --output_yaml ${FREMOR_CONFIG_OUTYAML} --output_dir ${OUTPUT_CMORIZED_DATA_DIR} --varlist_dir ${FREMOR_VARLIST_OUTDIR} --strict_varlist --overwrite"
+	echo "running fremor config"
+	echo "fremor -v config --pp_dir ${TARG_FREBRONX_PPDIR} --mip_tables_dir ${CMIP7_TABLES} --exp_config ${USER_CONFIG} --mip_era cmip7 --freq monthly --chunk 5yr --grid g999 --calendar noleap --output_yaml ${FREMOR_CONFIG_OUTYAML} --output_dir ${OUTPUT_CMORIZED_DATA_DIR} --varlist_dir ${FREMOR_VARLIST_OUTDIR} --strict_varlist --overwrite"
 
-    fremor -v config \
-           --pp_dir "${TARG_FREBRONX_PPDIR}" \
-           --mip_tables_dir "${CMIP7_TABLES}" \
-           --exp_config "${USER_CONFIG}" \
-           --mip_era "cmip7" \
-           --freq "monthly" \
-           --chunk "5yr" \
-           --grid "g999" \
-           --calendar "noleap" \
-           --output_yaml "${FREMOR_CONFIG_OUTYAML}" \
-           --output_dir "${OUTPUT_CMORIZED_DATA_DIR}" \
-           --varlist_dir "${FREMOR_VARLIST_OUTDIR}" \
-           --strict_varlist \
-           --pp_comp_glob "*land*" \
-           --overwrite
+	echo_and_run fremor -v config \
+				 --pp_dir "${TARG_FREBRONX_PPDIR}" \
+				 --mip_tables_dir "${CMIP7_TABLES}" \
+				 --exp_config "${USER_CONFIG}" \
+				 --mip_era "cmip7" \
+				 --freq "monthly" \
+				 --chunk "5yr" \
+				 --grid "g999" \
+				 --calendar "noleap" \
+				 --output_yaml "${FREMOR_CONFIG_OUTYAML}" \
+				 --output_dir "${OUTPUT_CMORIZED_DATA_DIR}" \
+				 --varlist_dir "${FREMOR_VARLIST_OUTDIR}" \
+				 --strict_varlist \
+				 --pp_comp_glob "*land*" \
+				 --overwrite
 
 
-    echo "checking that fremor config's output exists, return if not"
-    ls -l "${FREMOR_CONFIG_OUTYAML}" || return
+	#echo "checking that fremor config's output exists, return if not"
+	#ls -l "${FREMOR_CONFIG_OUTYAML}" || return
 fi
 
 
@@ -164,71 +184,64 @@ fi
 # that output directory is passed through the yaml to fremor run
 #FREMOR_YAML_OUTDIR=${OUTPUT_CMORIZED_DATA_DIR}/fremor_yaml_outdir
 if [[ "${CHECK_YAML}" -eq 1 ]]; then
-    echo "not checking fremor yaml"
+	echo "not checking fremor yaml"
 else
-    ## lets not do this for this part yet
-    #echo "setting up fremor yaml check, clobbering any prev made output"
-    #rm -rf "${FREMOR_YAML_OUTDIR}" || echo "no yaml output to remove, OK!" && mkdir "${FREMOR_YAML_OUTDIR}"
 
+	#echo "setting up fremor yaml check, clobbering any prev made output"
+	rm -rf "${FREMOR_YAML_OUTDIR}" || echo "no yaml output to remove, OK!" && mkdir "${FREMOR_YAML_OUTDIR}"
 
-    echo "running fremor yaml"
-    echo "fremor -vv yaml --yamlfile ${FREMOR_CONFIG_OUTYAML} --start ${PP_START} --stop ${PP_STOP} --print_cli_call --run_strict --run_one --dry_run"
-    fremor -vv yaml \
-           --yamlfile "${FREMOR_CONFIG_OUTYAML}" \
-           --start "${PP_START}" \
-           --stop "${PP_STOP}"
-#           --run_strict \
-#           --run_one \
-#           --dry_run
+	echo "running fremor yaml"
+	echo "fremor -vv yaml --yamlfile ${FREMOR_CONFIG_OUTYAML} --start ${PP_START} --stop ${PP_STOP} --print_cli_call --run_strict --run_one --dry_run"
+	echo_and_run fremor -vv yaml \
+				 --yamlfile "${FREMOR_CONFIG_OUTYAML}" \
+				 --start "${PP_START}" \
+				 --stop "${PP_STOP}" \
+				 --print_cli_call \
+	             --dry_run
+	#           --run_strict
+	#           --run_one
 
-    echo "checking the output cmorized data directory for successfully created output"
-    tree ${OUTPUT_CMORIZED_DATA_DIR}/*/*/CMIP/
+	echo "checking the output cmorized data directory for successfully created output"
+	tree ${OUTPUT_CMORIZED_DATA_DIR}/*/*/CMIP/
 
-    echo "checking the output cmorized data directory for created output"
-    echo "number of left-behind tmp outputs (without interpolated pressure style coordinate vars is:"
-    ls ${OUTPUT_CMORIZED_DATA_DIR}/*/*/CMOR_tmp/*nc  | grep -v '\.ps\.' | grep -v '\.phalf\.' | grep -v -c '\.pfull\.'
+	echo "checking the output cmorized data directory for created output"
+	echo "number of left-behind tmp outputs (without interpolated pressure style coordinate vars is:"
+	ls ${OUTPUT_CMORIZED_DATA_DIR}/*/*/CMOR_tmp/*nc  | grep -v '\.ps\.' | grep -v '\.phalf\.' | grep -v -c '\.pfull\.'
 fi
-
-
-
-#### RESOLVE
-#### -------
-FREMOR_RESOLVE_OUTDIR=${WORKING_CWD}/fremor_resolve_outdir
-if [[ "${CHECK_RESOLVE}" -eq 1 ]]; then
-    echo "not checking fremor resolve"
-else
-    echo "setting up fremor resolve check, clobbering any prev made output"
-    rm -rf "${FREMOR_RESOLVE_OUTDIR}" || echo "no resolve output to remove, OK!" && mkdir "${FREMOR_RESOLVE_OUTDIR}"
-
-    echo "running fremor resolve"
-    echo "fremor resolve <ARGS>"
-
-    #echo "checking that fremor resolve's output exists"
-    #ls -l
-fi
-
-
-
-
-#### RUN
-#### ---
-FREMOR_RUN_OUTDIR=${WORKING_CWD}/fremor_run_outdir
-if [[ "${CHECK_RUN}" -eq 1 ]]; then
-    echo "not checking fremor run"
-else
-    echo "setting up fremor run check, clobbering any prev made output"
-    rm -rf "${FREMOR_RUN_OUTDIR}" || echo "no run output to remove, OK!" && mkdir "${FREMOR_RUN_OUTDIR}"
-
-    echo "running fremor run"
-    echo "fremor run <ARGS>"
-
-    #echo "checking that fremor run's output exists"
-    #ls -l
-fi
-
-
-
 
 
 # end where we began
 cd "${WORKING_CWD}" || return
+
+
+##### RUN - NOT NEEDED HERE, use `fremor yaml --print-cli-call --dry-run` and copy-paste the output
+##### ---
+#FREMOR_RUN_OUTDIR=${WORKING_CWD}/fremor_run_outdir
+#if [[ "${CHECK_RUN}" -eq 1 ]]; then
+#	echo "not checking fremor run"
+#else
+#	echo "setting up fremor run check, clobbering any prev made output"
+#	rm -rf "${FREMOR_RUN_OUTDIR}" || echo "no run output to remove, OK!" && mkdir "${FREMOR_RUN_OUTDIR}"
+#
+#	echo "running fremor run"
+#	echo "fremor run <ARGS>"
+#
+#	#echo "checking that fremor run's output exists"
+#	#ls -l
+#fi
+
+##### RESOLVE - FOR A FUTURE UPDATE TO FRE-CLI TODOTODOTODOTODOTODO
+##### -------
+#FREMOR_RESOLVE_OUTDIR=${WORKING_CWD}/fremor_resolve_outdir
+#if [[ "${CHECK_RESOLVE}" -eq 1 ]]; then
+#	echo "not checking fremor resolve"
+#else
+#	echo "setting up fremor resolve check, clobbering any prev made output"
+#	rm -rf "${FREMOR_RESOLVE_OUTDIR}" || echo "no resolve output to remove, OK!" && mkdir "${FREMOR_RESOLVE_OUTDIR}"
+#
+#	echo "running fremor resolve"
+#	echo "fremor resolve <ARGS>"
+#
+#	#echo "checking that fremor resolve's output exists"
+#	#ls -l
+#fi
