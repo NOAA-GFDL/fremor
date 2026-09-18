@@ -8,6 +8,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import textwrap
+import uuid
 
 import pytest
 
@@ -78,10 +79,16 @@ if __name__ == '__main__':
 """
 
 
+def _skip_or_fail(message):
+    if os.environ.get('FREMOR_TEST_REAL_SLURM') == '1':
+        pytest.fail(message)
+    pytest.skip(message)
+
+
 def _require_binary(binary_name):
     binary_path = shutil.which(binary_name)
     if binary_path is None:
-        pytest.skip(f'modulefile integration test requires {binary_name}')
+        _skip_or_fail(f'modulefile integration test requires {binary_name}')
     return Path(binary_path)
 
 
@@ -94,7 +101,7 @@ def modulefile_runtime():
 
     conda_env = os.environ.get('CONDA_PREFIX')
     if conda_env is None:
-        pytest.skip('modulefile integration test requires an activated conda environment')
+        _skip_or_fail('modulefile integration test requires an activated conda environment')
 
     conda_base = subprocess.run(
         [str(conda_exe), 'info', '--base'],
@@ -104,7 +111,7 @@ def modulefile_runtime():
     ).stdout.strip()
     conda_sh = Path(conda_base) / 'etc' / 'profile.d' / 'conda.sh'
     if not conda_sh.exists():
-        pytest.skip(f'modulefile integration test could not find conda.sh at {conda_sh}')
+        _skip_or_fail(f'modulefile integration test could not find conda.sh at {conda_sh}')
 
     lmod_init = {
         'bash': Path('/usr/share/lmod/lmod/init/bash'),
@@ -112,11 +119,11 @@ def modulefile_runtime():
     }
     for shell_name, init_path in lmod_init.items():
         if not init_path.exists():
-            pytest.skip(f'modulefile integration test requires Lmod init script for {shell_name}')
+            _skip_or_fail(f'modulefile integration test requires Lmod init script for {shell_name}')
 
     for required_path in (MODULEFILE_PATH, MODULE_HOOK_SCRIPT, Path(CMIP6_TABLE_CONFIG)):
         if not required_path.exists():
-            pytest.skip(f'modulefile integration test requires {required_path}')
+            _skip_or_fail(f'modulefile integration test requires {required_path}')
 
     return {
         'conda_env': Path(conda_env),
@@ -128,6 +135,14 @@ def modulefile_runtime():
 def _write_sbatch_stub(sbatch_path):
     sbatch_path.write_text(SBATCH_STUB, encoding='utf-8')
     sbatch_path.chmod(0o755)
+
+
+def _prepare_job_workspace(shell_root):
+    shell_root.mkdir(parents=True, exist_ok=True)
+    (shell_root / 'input').mkdir(exist_ok=True)
+    (shell_root / 'output').mkdir(exist_ok=True)
+    ncgen(INPUT_CDL, shell_root / 'input' / INPUT_FILENAME)
+    shutil.copyfile(EXP_CONFIG, shell_root / 'CMOR_input_example.json')
 
 
 def _write_job_script(shell_name, shell_root, runtime, job_out, job_err):
@@ -185,19 +200,56 @@ def _write_job_script(shell_name, shell_root, runtime, job_out, job_err):
     return script_path
 
 
+def _assert_job_artifacts(shell_root, shell_name, job_out, job_err):
+    stdout_text = job_out.read_text(encoding='utf-8')
+    stderr_text = job_err.read_text(encoding='utf-8')
+    expected_alias_target = str(MODULE_HOOK_SCRIPT)
+
+    assert expected_alias_target in stdout_text
+    assert 'aliased' in stdout_text
+    assert '[DEBUG:' not in stdout_text
+    assert 'cmor is opening: json_exp_config' not in stdout_text
+
+    assert '[DEBUG:' in stderr_text
+    assert 'cmor is opening: json_exp_config' in stderr_text
+    assert 'returned by cmor.close: filename =' in stderr_text
+    assert expected_alias_target not in stderr_text
+
+    expected_output = shell_root / 'output' / EXPECTED_OUTPUT_RELATIVE
+    assert expected_output.exists()
+
+    if shell_name == 'bash':
+        assert 'fremor is aliased to' in stdout_text
+    else:
+        assert 'fremor:' in stdout_text
+
+
+@pytest.fixture
+def real_slurm_root(tmp_path):
+    """Return a Slurm-shared workspace root when real Slurm testing is enabled."""
+    if os.environ.get('FREMOR_TEST_REAL_SLURM') != '1':
+        pytest.skip('real Slurm integration test not requested')
+
+    shared_root = Path(os.environ.get('FREMOR_TEST_SLURM_SHARED_ROOT', '/data'))
+    if not shared_root.exists():
+        _skip_or_fail(f'modulefile integration test requires shared Slurm root {shared_root}')
+
+    work_root = shared_root / 'pytest-modulefile-integration' / f'{tmp_path.name}-{uuid.uuid4().hex}'
+    shutil.rmtree(work_root, ignore_errors=True)
+    work_root.mkdir(parents=True, exist_ok=True)
+    try:
+        yield work_root
+    finally:
+        shutil.rmtree(work_root, ignore_errors=True)
+
+
 @pytest.mark.parametrize('shell_name', ['bash', 'tcsh'])
 def test_modulefile_sbatch_job_logs_stay_on_stderr(tmp_path, modulefile_runtime, shell_name):
     """
     Run a module-loaded fremor job through an sbatch-style wrapper for both bash and tcsh.
     """
     shell_root = tmp_path / shell_name
-    shell_root.mkdir()
-    (shell_root / 'input').mkdir()
-    (shell_root / 'output').mkdir()
-
-    input_file = shell_root / 'input' / INPUT_FILENAME
-    ncgen(INPUT_CDL, input_file)
-    shutil.copyfile(EXP_CONFIG, shell_root / 'CMOR_input_example.json')
+    _prepare_job_workspace(shell_root)
 
     sbatch_dir = shell_root / 'bin'
     sbatch_dir.mkdir()
@@ -227,19 +279,38 @@ def test_modulefile_sbatch_job_logs_stay_on_stderr(tmp_path, modulefile_runtime,
     assert job_out.exists()
     assert job_err.exists()
 
-    stdout_text = job_out.read_text(encoding='utf-8')
-    stderr_text = job_err.read_text(encoding='utf-8')
-    expected_alias_target = str(MODULE_HOOK_SCRIPT)
+    _assert_job_artifacts(shell_root, shell_name, job_out, job_err)
 
-    assert expected_alias_target in stdout_text
-    assert 'aliased' in stdout_text
-    assert '[DEBUG:' not in stdout_text
-    assert 'cmor is opening: json_exp_config' not in stdout_text
 
-    assert '[DEBUG:' in stderr_text
-    assert 'cmor is opening: json_exp_config' in stderr_text
-    assert 'returned by cmor.close: filename =' in stderr_text
-    assert expected_alias_target not in stderr_text
+@pytest.mark.parametrize('shell_name', ['bash', 'tcsh'])
+def test_modulefile_real_slurm_job_logs_stay_on_stderr(real_slurm_root, modulefile_runtime, shell_name):
+    """
+    Run the same module-loaded job path through a real Slurm sbatch --wait submission.
+    """
+    _require_binary('sbatch')
+    shell_root = real_slurm_root / shell_name
+    _prepare_job_workspace(shell_root)
 
-    expected_output = shell_root / 'output' / EXPECTED_OUTPUT_RELATIVE
-    assert expected_output.exists()
+    job_out = shell_root / f'{shell_name}.out'
+    job_err = shell_root / f'{shell_name}.err'
+    job_script = _write_job_script(shell_name, shell_root, modulefile_runtime, job_out, job_err)
+
+    shell_env = os.environ.copy()
+    shell_env['FREMOR_TEST_CONDA_ENV'] = str(modulefile_runtime['conda_env'])
+    shell_env['FREMOR_TEST_CONDA_SH'] = str(modulefile_runtime['conda_sh'])
+
+    job = subprocess.run(
+        ['sbatch', '--wait', str(job_script)],
+        capture_output=True,
+        check=False,
+        cwd=shell_root,
+        env=shell_env,
+        text=True,
+    )
+
+    assert job.returncode == 0, job.stderr
+    assert 'Submitted batch job ' in job.stdout
+    assert job_out.exists()
+    assert job_err.exists()
+
+    _assert_job_artifacts(shell_root, shell_name, job_out, job_err)

@@ -15,6 +15,11 @@ concurrency:
 permissions:
   contents: read
 
+env:
+  SLURM_TAG: "slurm-25-05-3-1"
+  SLURM_IMAGE_TAG: "25.05.3"
+  SLURM_CLUSTER_TAG: "0.9.0"
+
 jobs:
   modulefile-integration-test:
     runs-on: ubuntu-latest
@@ -52,3 +57,92 @@ jobs:
       - name: Run modulefile integration pytest
         run: |
           pytest --ignore fremor/tests/test_files/mip-cmor-tables fremor/tests/test_modulefile_integration.py -v
+
+  modulefile-real-slurm-integration-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Files
+        uses: actions/checkout@v7
+
+      - name: Set up required test submodule
+        run: |
+          git submodule update --init --force --depth 1 fremor/tests/test_files/cmip6-cmor-tables
+          git -C fremor/tests/test_files/cmip6-cmor-tables reset --hard HEAD
+
+      - name: Clone slurm-docker-cluster
+        run: |
+          git clone --branch "${SLURM_CLUSTER_TAG}" --depth 1 \
+            https://github.com/giovtorres/slurm-docker-cluster.git \
+            /tmp/slurm-docker-cluster
+
+      - name: Build base slurm-cluster image
+        run: |
+          docker build --progress=plain \
+            --build-arg SLURM_TAG=${SLURM_TAG} \
+            -t slurm-cluster:${SLURM_IMAGE_TAG} \
+            /tmp/slurm-docker-cluster
+
+      - name: Build fremor slurm test image
+        run: |
+          docker build --progress=plain \
+            --build-arg BASE_IMAGE=slurm-cluster:${SLURM_IMAGE_TAG} \
+            -t slurm-docker-cluster:${SLURM_IMAGE_TAG} \
+            -f .github/docker/slurm-modulefile-tests/Dockerfile \
+            .
+
+      - name: Start Slurm cluster
+        run: |
+          cd /tmp/slurm-docker-cluster
+          SLURM_VERSION=${SLURM_IMAGE_TAG} docker compose up -d --no-build
+
+      - name: Register and wait for Slurm
+        run: |
+          set -euo pipefail
+          cd /tmp/slurm-docker-cluster
+
+          for _ in $(seq 1 30); do
+            if docker exec slurmctld bash -lc "scontrol ping" > /dev/null 2>&1; then
+              break
+            fi
+            sleep 5
+          done
+
+          docker exec slurmctld bash -lc "/usr/bin/sacctmgr --immediate add cluster name=linux || /usr/bin/sacctmgr list cluster | grep -q linux"
+          SLURM_VERSION=${SLURM_IMAGE_TAG} docker compose restart slurmdbd slurmctld c1 c2
+
+          for _ in $(seq 1 30); do
+            if docker exec slurmctld bash -lc "sinfo --noheader | grep -q 'idle'" > /dev/null 2>&1; then
+              break
+            fi
+            sleep 5
+          done
+
+          docker exec slurmctld bash -lc "scontrol ping"
+          docker exec slurmctld bash -lc "sinfo"
+          docker exec slurmctld bash -lc "sinfo --noheader | grep -q 'idle'"
+
+      - name: Run real Slurm modulefile integration pytest
+        run: |
+          docker exec slurmctld bash -lc '
+            set -euo pipefail
+            source /opt/conda/etc/profile.d/conda.sh
+            conda activate /opt/conda/envs/fremor
+            cd /opt/fremor
+            export FREMOR_TEST_REAL_SLURM=1
+            export FREMOR_TEST_SLURM_SHARED_ROOT=/data
+            pytest --ignore fremor/tests/test_files/mip-cmor-tables \
+              fremor/tests/test_modulefile_integration.py::test_modulefile_real_slurm_job_logs_stay_on_stderr \
+              -v
+          '
+
+      - name: Show Slurm logs
+        if: always()
+        run: |
+          cd /tmp/slurm-docker-cluster
+          SLURM_VERSION=${SLURM_IMAGE_TAG} docker compose logs --no-color || true
+
+      - name: Stop Slurm cluster
+        if: always()
+        run: |
+          cd /tmp/slurm-docker-cluster
+          SLURM_VERSION=${SLURM_IMAGE_TAG} docker compose down -v
