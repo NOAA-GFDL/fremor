@@ -295,7 +295,7 @@ def rewrite_netcdf_file_var( mip_var_cfgs: dict = None,
     cmor_exit_ctl = CMOR_EXIT_CTL_BY_ERA.get(exp_cfg_mip_era, CMOR_EXIT_CTL)
     fre_logger.debug('cmor exit_control for %s = %s', exp_cfg_mip_era, cmor_exit_ctl)
     cmor.setup(
-        # CMOR falls back to inpath when a table's neighbours are not where it first looks.
+        # CMOR falls back to inpath when a table's neighbors are not where it first looks.
         # The CMIP6Plus auxiliary tables sit in Auxillary_files/, so loading one from there
         # would otherwise leave CMOR hunting for the CV in the wrong directory.
         inpath=str(Path(json_table_config).parent),

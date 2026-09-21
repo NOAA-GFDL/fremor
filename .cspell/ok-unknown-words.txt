@@ -26,6 +26,7 @@ Laflotte
 Lmod
 LMOD
 Lmon
+LOGNAME
 NOAA
 Nikonov
 OUTPUTDIR
@@ -60,6 +61,7 @@ Umip
 WCRP
 YAMLFILE
 abstractproperty
+aermon
 alevel
 alevhalf
 allclose
@@ -79,6 +81,7 @@ autouse
 automethod
 automodule
 badyaml
+backgrounded
 basetemp
 bgrp
 bnds
@@ -186,6 +189,7 @@ noppdir
 noqa
 nosec
 notabledir
+notadaterange
 notinmip
 ntimes
 numpy
@@ -193,6 +197,7 @@ oceangrid
 olevel
 olevhalf
 openmp
+opping
 optparse
 optvarname
 orcid
@@ -236,6 +241,7 @@ sosv
 spinup
 subhr
 subtool
+subtools
 tabledir
 targ
 targetfile
@@ -246,6 +252,7 @@ toctree
 tripolar
 typealias
 typevar
+unkillable
 unparseable
 valerr
 varlist

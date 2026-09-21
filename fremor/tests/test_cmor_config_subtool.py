@@ -232,7 +232,7 @@ def test_bronx_to_iso_chunk_cases():
         _bronx_to_iso_chunk('999999')
 
 
-def test_cmor_config_subtool_nocmip6plus_tables_err(temp_dir): # pylint: disable=redefined-outer-name
+def test_cmor_config_subtool_no_cmip6plus_tables_err(temp_dir): # pylint: disable=redefined-outer-name
     ''' cmip6plus filters on the MIP_*.json glob, distinct from the CMIP6/CMIP7 <era>_*.json one '''
     pp_dir_targ = Path(temp_dir) / 'foobar'
     mip_tables_targ = Path(temp_dir) / 'tables'
