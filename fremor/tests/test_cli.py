@@ -242,7 +242,7 @@ def test_cli_fremor_check_renamed_flags(mock_subtool, tmp_path):
 
     result = runner.invoke(
         fremor,
-        args=['check', '-y', str(yamlfile), '--show-mapped', '--check-inputs',
+        args=['check', '-y', str(yamlfile), '--show-mapped', '--show-unmapped', '--check-inputs',
               '--check-dims', '--check-outputs', '--check-attrs', '--check-range'],
     )
 
@@ -251,7 +251,7 @@ def test_cli_fremor_check_renamed_flags(mock_subtool, tmp_path):
         yamlfile=str(yamlfile),
         table_patterns=(),
         show_mapped=True,
-        show_unmapped=False,
+        show_unmapped=True,
         show_multi_mapped=False,
         json_output=False,
         output_report=None,
@@ -260,6 +260,35 @@ def test_cli_fremor_check_renamed_flags(mock_subtool, tmp_path):
         check_output=True,
         check_attrs=True,
         check_range=True,
+        dmls_bin=None,
+    )
+
+
+@patch('fremor.cli.cmor_check_subtool')
+def test_cli_fremor_check_rejects_bare_show_unmapped(mock_subtool, tmp_path):
+    """The check CLI requires the leading `--` for show-unmapped."""
+    yamlfile = tmp_path / 'cmor.yaml'
+    yamlfile.touch()
+
+    result = runner.invoke(
+        fremor,
+        args=['check', '-y', str(yamlfile), 'show-unmapped'],
+    )
+
+    assert result.exit_code == 0
+    mock_subtool.assert_called_once_with(
+        yamlfile=str(yamlfile),
+        table_patterns=('show-unmapped',),
+        show_mapped=False,
+        show_unmapped=False,
+        show_multi_mapped=False,
+        json_output=False,
+        output_report=None,
+        check_staging=False,
+        check_dims=False,
+        check_output=False,
+        check_attrs=False,
+        check_range=False,
         dmls_bin=None,
     )
 
@@ -885,6 +914,53 @@ def test_cli_fremor_init_cmip7_default_name(tmp_path):
         with open(default_path, 'r', encoding='utf-8') as f:
             config = json.load(f)
         assert config['mip_era'] == 'CMIP7'
+
+
+@patch('fremor.cli.cmor_init_subtool')
+def test_cli_fremor_init_exp_config_and_tables_dir_fast(mock_subtool, tmp_path):
+    """The init CLI forwards both --exp_config and --tables_dir for curl-based retrieval."""
+    exp_config = tmp_path / 'experiment.json'
+    tables_dir = tmp_path / 'tables'
+
+    result = runner.invoke(fremor, args=[
+        'init',
+        '--mip_era', 'cmip6',
+        '--exp_config', str(exp_config),
+        '--tables_dir', str(tables_dir),
+        '--fast',
+    ])
+
+    assert result.exit_code == 0
+    mock_subtool.assert_called_once_with(
+        mip_era='cmip6',
+        exp_config=str(exp_config),
+        tables_dir=str(tables_dir),
+        tag=None,
+        fast=True,
+    )
+
+
+@patch('fremor.cli.cmor_init_subtool')
+def test_cli_fremor_init_exp_config_and_tables_dir_git(mock_subtool, tmp_path):
+    """The init CLI forwards both --exp_config and --tables_dir for git-based retrieval."""
+    exp_config = tmp_path / 'experiment.json'
+    tables_dir = tmp_path / 'tables'
+
+    result = runner.invoke(fremor, args=[
+        'init',
+        '--mip_era', 'cmip7',
+        '--exp_config', str(exp_config),
+        '--tables_dir', str(tables_dir),
+    ])
+
+    assert result.exit_code == 0
+    mock_subtool.assert_called_once_with(
+        mip_era='cmip7',
+        exp_config=str(exp_config),
+        tables_dir=str(tables_dir),
+        tag=None,
+        fast=False,
+    )
 
 
 

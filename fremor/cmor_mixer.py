@@ -27,6 +27,7 @@ import json
 import logging
 import os
 from pathlib import Path
+from pprint import pformat
 import shutil
 import subprocess
 from typing import Optional, List, Dict, Any
@@ -49,6 +50,21 @@ from .cmor_constants import ( ACCEPTED_VERT_DIMS, NON_HYBRID_SIGMA_COORDS, ALT_H
                               CMOR_LAT_AXIS_NAME, CMOR_LON_AXIS_NAME )
 
 fre_logger = logging.getLogger(__name__)
+
+
+def _pprint_cmor_logfile(cmor_logfile: Optional[str]) -> None:
+    """Print CMOR's logfile path and contents for verbose runs once CMOR is fully torn down."""
+    if cmor_logfile is None or fre_logger.getEffectiveLevel() > logging.INFO:
+        return
+
+    logfile_path = Path(cmor_logfile)
+    if not logfile_path.exists():
+        fre_logger.warning('cmor logfile requested for screen output but not found: %s', logfile_path)
+        return
+
+    print(f'CMOR logfile: {logfile_path.resolve()}')
+    with open(logfile_path, encoding='utf-8') as handle:
+        print(pformat(handle.read().splitlines()))
 
 def rewrite_netcdf_file_var( mip_var_cfgs: dict = None,
                              local_var: str = None,
@@ -274,14 +290,12 @@ def rewrite_netcdf_file_var( mip_var_cfgs: dict = None,
 
     # now we set up the cmor module object
     # initialize CMOR
-    # CMOR's own error messages (e.g. "Problem with 'cmor.variable'.") are content-free unless
-    # a logfile is configured; without one, the real reason for a CMORError is discarded.
-    cmor_logfile = CMOR_LOG if CMOR_LOG is not None else f'cmor_{target_var}.log'
+    cmor_logfile = CMOR_LOG
     # exit control is per-era: CMIP6Plus tables always warn (see CMOR_EXIT_CTL_BY_ERA)
     cmor_exit_ctl = CMOR_EXIT_CTL_BY_ERA.get(exp_cfg_mip_era, CMOR_EXIT_CTL)
     fre_logger.debug('cmor exit_control for %s = %s', exp_cfg_mip_era, cmor_exit_ctl)
     cmor.setup(
-        # CMOR falls back to inpath when a table's neighbours are not where it first looks.
+        # CMOR falls back to inpath when a table's neighbors are not where it first looks.
         # The CMIP6Plus auxiliary tables sit in Auxillary_files/, so loading one from there
         # would otherwise leave CMOR hunting for the CV in the wrong directory.
         inpath=str(Path(json_table_config).parent),
@@ -590,6 +604,7 @@ def rewrite_netcdf_file_var( mip_var_cfgs: dict = None,
     ds.close()
     fre_logger.info('tearing-down the cmor module instance')
     cmor.close()
+    _pprint_cmor_logfile(cmor_logfile)
 
     fre_logger.info('-------------------------- END rewrite_netcdf_file_var call -----\n\n')
     return filename

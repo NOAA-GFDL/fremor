@@ -21,6 +21,8 @@ Sections
 - **MIP-table filtering** – suffixes used to exclude non-variable-entry
   tables when scanning a MIP-tables directory.
 - **Output / display flags** – behavioral toggles for CLI and finder output.
+- **Archive residency / reporting** – shared dmls state handling and summary
+  layout constants used across multiple subtools.
 """
 
 import cmor
@@ -179,6 +181,14 @@ EXCLUDED_TABLE_SUFFIXES = [
 # ---------------------------------------------------------------------------
 # Output / display flags
 # ---------------------------------------------------------------------------
+# dmls states that mean a file is already disk-resident (rather than still
+# offline on tape). Shared by `fremor check` and `fremor map`.
+DMLS_DISK_RESIDENT_STATES = {'REG', 'DUL'}
+
+# Width the category label + count column is padded to in `fremor check`, so
+# every trailing note starts in the same column regardless of label length.
+CMOR_CHECK_CATEGORY_WIDTH = 20
+
 # cmor_finder: variable-entry keys to suppress when printing variable info.
 DO_NOT_PRINT_LIST = [
     'comment',

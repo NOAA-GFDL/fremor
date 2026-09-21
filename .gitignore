@@ -166,3 +166,4 @@ wcrp_compliance_reports/
 docs/fremor.*
 docs/modules.rst
 docs/build/
+scripts/*_outdir/
