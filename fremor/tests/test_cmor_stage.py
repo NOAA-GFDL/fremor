@@ -325,7 +325,7 @@ def test_collect_stage_files_derives_freq_from_table_for_cmip6(tmp_path):
     ])
 
 
-def test_collect_stage_files_rejects_undrivable_freq(tmp_path):
+def test_collect_stage_files_rejects_freq_w_no_bronx_equivalent(tmp_path):
     """A MIP table frequency with no FRE-bronx equivalent can't be derived."""
     yamlfile, _ = _stage_case(tmp_path)
     yaml_doc = yaml.safe_load(yamlfile.read_text(encoding='utf-8'))
