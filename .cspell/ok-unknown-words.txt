@@ -1,4 +1,5 @@
 AOGCM
+Auxillary
 BNDS
 Blanton
 CHDIR
@@ -22,6 +23,8 @@ ISMIP
 Intercomparison
 Koder
 Laflotte
+Lmod
+LMOD
 Lmon
 NOAA
 Nikonov
@@ -80,8 +83,10 @@ basetemp
 bgrp
 bnds
 booleaness
+cand
 capfd
 caplog
+capsys
 ceresmip
 cfgs
 chdir
@@ -104,10 +109,13 @@ dmget
 dmls
 difmxybo
 docstrings
+excinfo
 filenotfound
 forcmip
 fremake
 fremor
+freq
+freqs
 fullvar
 geolat
 geolon
@@ -124,6 +132,7 @@ ilaflott
 indir
 infolog
 inlinevar
+inpath
 intercomparison
 intercomparisons
 interp
@@ -141,6 +150,8 @@ keyerr
 landuse
 levelname
 levhalf
+llnl
+lmod
 logfile
 lons
 mapsession
@@ -153,6 +164,7 @@ modulefile
 modulefiles
 monkeypatching
 monniker
+mrso
 msvs
 mymodule
 mypackage
@@ -194,6 +206,7 @@ pcmdi
 pfull
 phalf
 picontrol
+pipefail
 plev
 ppan
 ppcompdirs
@@ -217,6 +230,7 @@ rtype
 sbatch
 setuptools
 setncatts
+shopt
 smth
 sosv
 spinup
@@ -226,11 +240,13 @@ tabledir
 targ
 targetfile
 tavg
+tcsh
 tmax
 toctree
 tripolar
 typealias
 typevar
+unparseable
 valerr
 varlist
 varlists
