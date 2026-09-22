@@ -433,7 +433,7 @@ def rewrite_netcdf_file_var( mip_var_cfgs: dict = None,
         elif vert_dim.lower() in DEPTH_COORDS:
             fre_logger.info('vert_dim is DEPTH_COORDS')
             try:
-                lev_bnds = create_lev_bnds(bound_these=lev, with_these=ds['z_i'])
+                lev_bnds = create_lev_bnds(bound_these = lev)
                 fre_logger.info('created lev_bnds...')
             except Exception as exc:
                 fre_logger.error('the cmor module always requires vertical levels to have bounds.')

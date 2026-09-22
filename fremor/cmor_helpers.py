@@ -21,7 +21,7 @@ Functions
 - ``print_data_minmax(ds_variable, desc)``
 - ``from_ds_get_this(from_ds, var_name)``
 - ``find_statics_file(bronx_file_path)``
-- ``create_lev_bnds(bound_these, with_these)``
+- ``create_lev_bnds(bound_these)``
 - ``get_iso_datetime_ranges(var_filenames, iso_daterange_arr, start, stop)``
 - ``check_dataset_for_ocean_grid(ds)``
 - ``get_vertical_dimension(ds, target_var)``
@@ -286,34 +286,43 @@ def find_statics_file( bronx_file_path: str) -> Optional[str]:
     fre_logger.warning('no statics file found, returning None')
     return None
 
-
-def create_lev_bnds( bound_these: Variable = None,
-                     with_these: Variable = None) -> np.ndarray:
+def create_lev_bnds(bound_these: Variable) -> np.ndarray:
     """
-    Create a vertical level bounds array for a set of levels.
+    Create a vertical level bounds array dynamically from a set of midpoints.
+
+    Assumes the first lower bound starts at 0, and that subsequent bounds can be
+    calculated using the midpoint formula.
 
     :param bound_these: netCDF4 Variable with a numpy array representing vertical levels
     :type bound_these: netCDF4.Variable
-    :param with_these: netCDF4 Variable with a numpy array representing level bounds, one longer than bound_these
-    :type with_these: netCDF4.Variable
-    :raises ValueError: If the length of with_these is not len(bound_these) + 1.
     :return: Array of shape (len(bound_these), 2), where each row gives the bounds for a level.
     :rtype: np.ndarray
 
     .. note:: Logs debug information about the input and output arrays.
     """
-    if len(with_these) != (len(bound_these) + 1):
-        raise ValueError('failed creating bnds on-the-fly :-(')
     fre_logger.debug('bound_these = \n%s', bound_these)
-    fre_logger.debug('with_these = \n%s', with_these)
 
-    the_bnds = np.arange(len(bound_these)*2).reshape(len(bound_these), 2)
-    for i in range(0, len(bound_these)):
-        the_bnds[i][0] = with_these[i]
-        the_bnds[i][1] = with_these[i+1]
+    # Initialize a float array to prevent decimal truncation
+    the_bnds = np.zeros((len(bound_these), 2), dtype=float)
+
+    for i in range(len(bound_these)):
+        z_l = bound_these[i]
+
+        if i == 0:
+            z_l_lo = 0.0
+            z_l_hi = 2.0 * z_l
+        else:
+            # Lower bound is the upper bound of the previous interval
+            z_l_lo = the_bnds[i-1][1]
+            # Upper bound is derived from the midpoint formula
+            z_l_hi = (2.0 * z_l) - z_l_lo
+
+        the_bnds[i][0] = z_l_lo
+        the_bnds[i][1] = z_l_hi
+
     fre_logger.info('the_bnds = \n%s', the_bnds)
-    return the_bnds
 
+    return the_bnds
 
 def get_iso_datetime_ranges( var_filenames: List[str],
                              iso_daterange_arr: Optional[List[str]] = None,

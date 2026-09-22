@@ -14,12 +14,12 @@ import cmor
 
 from fremor.cmor_constants import CMOR_EXIT_CTL, CMOR_EXIT_CTL_BY_ERA
 from fremor.cmor_helpers import ( find_statics_file, print_data_minmax,
-                                    find_gold_ocean_statics_file,
-                                    create_lev_bnds, get_iso_datetime_ranges, iso_to_bronx_chunk,
-                                    create_tmp_dir, get_json_file_data,
-                                    update_grid_and_label, get_bronx_freq_from_mip_table, #update_outpath,
-                                    filter_brands, get_vertical_dimension,
-                                    from_ds_get_this, resolve_mip_era_table_resource )
+                                  find_gold_ocean_statics_file,
+                                  create_lev_bnds, get_iso_datetime_ranges, iso_to_bronx_chunk,
+                                  create_tmp_dir, get_json_file_data,
+                                  update_grid_and_label, get_bronx_freq_from_mip_table,
+                                  filter_brands, get_vertical_dimension,
+                                  from_ds_get_this, resolve_mip_era_table_resource )
 
 def test_iso_to_bronx_chunk():
     """ tests value error raising by iso_to_bronx_chunk """
@@ -129,24 +129,6 @@ def test_find_gold_ocean_statics_file_mock_copy(tmp_path):
     assert result is not None
     assert Path(result).is_file()
     assert 'ocean_static_no_basin.nc' in result
-
-
-# ---- create_lev_bnds failure case ----
-
-def test_create_lev_bnds_length_mismatch():
-    """ create_lev_bnds should raise ValueError when len(with_these) != len(bound_these)+1 """
-    bound_these = np.array([10.0, 20.0, 30.0])
-    with_these = np.array([5.0, 15.0])  # wrong: should be len 4 (=3+1)
-    with pytest.raises(ValueError, match='failed creating bnds'):
-        create_lev_bnds(bound_these=bound_these, with_these=with_these)
-
-
-def test_create_lev_bnds_length_mismatch_too_long():
-    """ same check, but with_these is too long instead of too short """
-    bound_these = np.array([10.0, 20.0])
-    with_these = np.array([5.0, 15.0, 25.0, 35.0])  # wrong: should be len 3 (=2+1)
-    with pytest.raises(ValueError, match='failed creating bnds'):
-        create_lev_bnds(bound_these=bound_these, with_these=with_these)
 
 
 # ---- get_iso_datetime_ranges with stop_yr ----
