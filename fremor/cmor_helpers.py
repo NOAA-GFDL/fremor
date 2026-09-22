@@ -838,7 +838,8 @@ def filter_brands( brands: list,
                    mip_var_cfgs: dict,
                    has_time_bnds: bool,
                    input_vert_dim: Union[str, int],
-                   cell_methods: Optional[str] = None ) -> str:
+                   cell_methods: Optional[str] = None,
+                   standard_name: Optional[str] = None) -> str:
     """
     Disambiguate multiple CMIP7 variable brands by comparing input data
     properties against each candidate brand's MIP dimension list.
@@ -877,8 +878,10 @@ def filter_brands( brands: list,
 
     filtered_brands = []
     for brand in brands:
+        
         mip_key = f'{target_var}_{brand}'
         mip_dims = mip_var_cfgs['variable_entry'][mip_key]['dimensions']
+        mip_standard_name = mip_var_cfgs['variable_entry'][mip_key]['standard_name']
 
         # time filter
         if has_time_bnds and 'time1' in mip_dims:
@@ -916,6 +919,11 @@ def filter_brands( brands: list,
                                      brand, brand_temporal, cell_methods)
                     continue
 
+        if standard_name is not None and standard_name != mip_standard_name:
+            fre_logger.debug("filtering out brand %s: input var standard_name does not match mip table's", brand )
+            continue
+
+        fre_logger.debug(f'appending %s to list of possible brands', brand)
         filtered_brands.append(brand)
 
     if len(filtered_brands) == 1:
