@@ -347,9 +347,22 @@ def test_get_bronx_freq_from_mip_table_invalid_freq(tmp_path):
 
 # ---- filter_brands tests ----
 
-def _make_mip_var_cfgs(var_brands_dims):
-    """helper: build a minimal mip_var_cfgs dict from {mip_key: dims_string} pairs"""
-    return {'variable_entry': {k: {'dimensions': v} for k, v in var_brands_dims.items()}}
+def _make_mip_var_cfgs(var_brands_dims, standard_names=None):
+    """helper: build a minimal mip_var_cfgs dict from {mip_key: dims_string} pairs
+
+    ``standard_names`` is an optional {mip_key: standard_name} dict; entries not
+    present there default to a placeholder that won't match any input standard_name.
+    """
+    standard_names = standard_names or {}
+    return {
+        'variable_entry': {
+            k: {
+                'dimensions': v,
+                'standard_name': standard_names.get(k, 'unset_standard_name'),
+            }
+            for k, v in var_brands_dims.items()
+        }
+    }
 
 
 def test_filter_brands_time_filter_selects_mean():
@@ -429,6 +442,54 @@ def test_filter_brands_multiple_remain():
             mip_var_cfgs=mip,
             has_time_bnds=True,
             input_vert_dim=0,
+        )
+
+
+def test_filter_brands_standard_name_filter():
+    """ standard_name filter should select the brand whose MIP standard_name matches the input's """
+    mip = _make_mip_var_cfgs(
+        {
+            'ts_tavg-u-hxy-is':  'longitude latitude time',
+            'ts_tavg-u-hxy-lnd': 'longitude latitude time',
+            'ts_tavg-u-hxy-u':   'longitude latitude time',
+        },
+        standard_names={
+            'ts_tavg-u-hxy-is':  'sea_ice_surface_temperature',
+            'ts_tavg-u-hxy-lnd': 'surface_temperature_where_land',
+            'ts_tavg-u-hxy-u':   'surface_temperature',
+        },
+    )
+    result = filter_brands(
+        brands=['tavg-u-hxy-is', 'tavg-u-hxy-lnd', 'tavg-u-hxy-u'],
+        target_var='ts',
+        mip_var_cfgs=mip,
+        has_time_bnds=True,
+        input_vert_dim=0,
+        standard_name='surface_temperature',
+    )
+    assert result == 'tavg-u-hxy-u'
+
+
+def test_filter_brands_standard_name_filter_none_match():
+    """ should raise ValueError when standard_name filter eliminates all remaining brands """
+    mip = _make_mip_var_cfgs(
+        {
+            'ts_tavg-u-hxy-is':  'longitude latitude time',
+            'ts_tavg-u-hxy-lnd': 'longitude latitude time',
+        },
+        standard_names={
+            'ts_tavg-u-hxy-is':  'sea_ice_surface_temperature',
+            'ts_tavg-u-hxy-lnd': 'surface_temperature_where_land',
+        },
+    )
+    with pytest.raises(ValueError, match='none survived'):
+        filter_brands(
+            brands=['tavg-u-hxy-is', 'tavg-u-hxy-lnd'],
+            target_var='ts',
+            mip_var_cfgs=mip,
+            has_time_bnds=True,
+            input_vert_dim=0,
+            standard_name='surface_temperature',
         )
 
 
