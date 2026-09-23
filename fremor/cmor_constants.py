@@ -30,12 +30,13 @@ import cmor
 # ---------------------------------------------------------------------------
 # Vertical-coordinate classification (used by cmor_mixer)
 # ---------------------------------------------------------------------------
-ACCEPTED_VERT_DIMS = [
-    'z_l', 'landuse',
-    'plev39', 'plev30', 'plev19', 'plev8',
-    'height2m',
-    'level', 'lev', 'levhalf',
-]
+#ACCEPTED_VERT_DIMS = [
+#    'landuse',
+#    'plev39', 'plev30', 'plev19', 'plev8',
+#    'height2m',
+#    'level', 'lev', 'levhalf',
+#    'z_l',
+#]
 
 NON_HYBRID_SIGMA_COORDS = [
     'landuse',
@@ -45,7 +46,9 @@ NON_HYBRID_SIGMA_COORDS = [
 
 ALT_HYBRID_SIGMA_COORDS = ['level', 'lev', 'levhalf']
 
-DEPTH_COORDS = ['z_l']
+DEPTH_COORDS = ['z_l', 'zl', 'rho2_l']
+
+ACCEPTED_VERT_DIMS = NON_HYBRID_SIGMA_COORDS + ALT_HYBRID_SIGMA_COORDS + DEPTH_COORDS
 
 # ---------------------------------------------------------------------------
 # Horizontal-coordinate axis names (used by cmor_mixer for cmor.axis calls)
@@ -86,10 +89,34 @@ CMOR_EXIT_CTL_BY_ERA = {
 # equivalents.  Dimensions whose names already match (e.g. plev39, height2m)
 # need no entry; the look-up falls back to using the input name directly.
 INPUT_TO_MIP_VERT_DIM = {
-    'z_l':      'olevel',
-    'level':    'alevel',
-    'lev':      'alevel',
-    'levhalf':  'alevhalf',
+    'z_l'     : 'olevel'  , # z_l, zl, and rho2_l are interchangeable in MOM6
+    'zl'      : 'olevel'  , #
+    'rho2_l'  : 'olevel'  , #
+
+    'level'   : 'alevel'  , # double check that these are interchangeable
+    'lev'     : 'alevel'  , #
+
+    'levhalf' : 'alevhalf',
+}
+
+ACCEPTED_CELL_METHODS = {
+    "point",
+    "sum",
+    "maximum",
+    "maximum_absolute_value",
+    "median",
+    "mid_range",
+    "minimum",
+    "minimum_absolute_value",
+    "mean",
+    "mean_absolute_value",
+    "mean_of_upper_decile",
+    "mode",
+    "range",
+    "root_mean_square",
+    "standard_deviation",
+    "sum_of_squares",
+    "variance",
 }
 
 

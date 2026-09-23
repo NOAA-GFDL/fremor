@@ -244,12 +244,11 @@ def _cmip7_exp_config_template():
         ),
         'outpath': '.',
         'output_path_template': (
-            '<activity_id><source_id><experiment_id><member_id>'
-            '<variable_id><branding_suffix><grid_label>'
+            '<drs_specs><mip_era><activity_id><institution_id><source_id><experiment_id><variant_label>'
+            '<region><frequency><variable_id><branding_suffix><grid_label><version>'
         ),
         'output_file_template': (
-            '<variable_id><branding_suffix><frequency><region>'
-            '<grid_label><source_id><experiment_id><variant_label>'
+            '<variable_id><branding_suffix><frequency><region><grid_label><source_id><experiment_id><variant_label>'
         ),
         '_controlled_vocabulary_file': MIP_ERA_RESOURCES['CMIP7']['cv'],
         '_AXIS_ENTRY_FILE': MIP_ERA_RESOURCES['CMIP7']['coordinate'],
