@@ -40,7 +40,7 @@ from .cmor_helpers import ( from_ds_get_this, create_lev_bnds,
                             create_tmp_dir, get_json_file_data, update_grid_and_label,
                             update_calendar_type, filter_brands,
                             normalize_calendar, get_time_calendar_value, calendars_are_equivalent,
-                            resolve_mip_era_table_resource )
+                            resolve_mip_era_table_resource, find_ps_companion, table_declares_ps )
 from .cmor_tripolar import load_tripolar_grid
 from .cmor_validate import check_exp_config_required_attributes
 from .cmor_constants import ( ACCEPTED_VERT_DIMS, NON_HYBRID_SIGMA_COORDS, ALT_HYBRID_SIGMA_COORDS,
@@ -56,7 +56,10 @@ def rewrite_netcdf_file_var( mip_var_cfgs: dict = None,
                              target_var: str = None,
                              json_exp_config: str = None,
                              json_table_config: str = None,
-                             prev_path: Optional[str] = None ) -> str:
+                             prev_path: Optional[str] = None,
+                             ps_file: Optional[str] = None,
+                             ps_var: str = 'ps',
+                             ps_searched: Optional[List[str]] = None ) -> str:
     """
     Rewrite the input NetCDF file for a target variable in a CMIP-compliant manner and write output using CMOR.
 
@@ -74,8 +77,16 @@ def rewrite_netcdf_file_var( mip_var_cfgs: dict = None,
     :type json_table_config: str
     :param prev_path: Path to previous file (used for finding statics file for tripolar grids).
     :type prev_path: str, optional
+    :param ps_file: Path to the surface-pressure file for hybrid-sigma data, see ``find_ps_companion``.
+                    If None, the ``.ps.nc`` file next to ``netcdf_file`` is used when present.
+    :type ps_file: str, optional
+    :param ps_var: Name of the surface-pressure variable inside ``ps_file``.
+    :type ps_var: str
+    :param ps_searched: Places already searched for ``ps_file``, reported if it is required but missing.
+    :type ps_searched: list of str, optional
     :raises ValueError: If unsupported vertical dimensions or inconsistent grid dimensions are found.
-    :raises FileNotFoundError: If required statics file for tripolar ocean grid is missing.
+    :raises FileNotFoundError: If required statics file for tripolar ocean grid is missing, or if
+                               hybrid-sigma data has no surface-pressure file.
     :raises Exception: For other errors in the metadata, file IO, or CMOR calls.
     :return: Absolute path to the output file written by cmor.close.
     :rtype: str
@@ -433,10 +444,25 @@ def rewrite_netcdf_file_var( mip_var_cfgs: dict = None,
 
         elif vert_dim in ALT_HYBRID_SIGMA_COORDS:
             fre_logger.info('vert_dim is ALT_HYBRID_SIGMA_COORDS')
-            # find the ps file nearby
-            ps_file = netcdf_file.replace(f'.{local_var}.nc', '.ps.nc')
-            ds_ps = nc.Dataset(ps_file)
-            ps = from_ds_get_this(ds_ps, 'ps')
+            # find the surface-pressure file, see find_ps_companion for where it may come from
+            if ps_file is None and ps_searched is None:
+                ps_file, ps_var, ps_searched = find_ps_companion(netcdf_file, local_var)
+            if ps_file is None:
+                raise FileNotFoundError(
+                    f'no surface-pressure (ps) file found for hybrid-sigma variable {local_var} '
+                    f'in {netcdf_file}.\n'
+                    '  searched:\n    ' + '\n    '.join(ps_searched or []) + '\n'
+                    '  map a ps variable in this MIP table\'s variable list, provide the companion '
+                    '.ps.nc file alongside the input, or set ps_component for the table in the cmor yaml.')
+            fre_logger.info('reading surface pressure %s from %s', ps_var, ps_file)
+            with nc.Dataset(ps_file) as ds_ps:
+                ps = from_ds_get_this(ds_ps, ps_var)
+            if ps is None:
+                raise KeyError(f'surface-pressure variable {ps_var} not found in {ps_file}')
+            if ps.shape[0] != var.shape[0]:
+                raise ValueError(
+                    f'surface-pressure time length {ps.shape[0]} in {ps_file} does not match '
+                    f'{local_var} time length {var.shape[0]} in {netcdf_file}')
 
             # assign lev_half specifics
             if vert_dim == 'levhalf':
@@ -604,7 +630,9 @@ def cmorize_target_var_files(indir: str = None,
                              outdir: str = None,
                              mip_var_cfgs: Dict[str, Any] = None,
                              json_table_config: str = None,
-                             run_one_mode: bool = False):
+                             run_one_mode: bool = False,
+                             ps_source: Optional[Dict[str, str]] = None,
+                             ps_fallback: Optional[Dict[str, str]] = None):
     """
     CMORize a target variable across all NetCDF files in a directory.
 
@@ -628,6 +656,12 @@ def cmorize_target_var_files(indir: str = None,
     :type json_table_config: str
     :param run_one_mode: If True, processes only one file and exits.
     :type run_one_mode: bool, optional
+    :param ps_source: Optional ``{'indir': ..., 'local_var': ...}`` locating the table's mapped ps variable,
+                      searched before the companion ``.ps.nc`` file. See ``find_ps_companion``.
+    :type ps_source: dict, optional
+    :param ps_fallback: Optional ``{'indir': ..., 'local_var': ...}`` locating the cmor yaml's ``ps_component``,
+                        searched after the companion ``.ps.nc`` file.
+    :type ps_fallback: dict, optional
     :raises ValueError: See function body for details.
     :raises OSError: See function body for details.
     :raises Exception: See function body for details.
@@ -665,10 +699,12 @@ def cmorize_target_var_files(indir: str = None,
         fre_logger.info('nc_file_work = %s', nc_file_work)
         shutil.copy(nc_fls[i], nc_file_work)
 
-        # if the ps file exists, we'll copy it to the work directory too
-        nc_ps_file = nc_fls[i].replace(f'.{local_var}.nc', '.ps.nc')
-        nc_ps_file_work = nc_file_work.replace(f'.{local_var}.nc', '.ps.nc')
-        if Path(nc_ps_file).exists():
+        # if a ps file is found, we'll copy it to the work directory too
+        nc_ps_file, ps_var, ps_searched = find_ps_companion(nc_fls[i], local_var,
+                                                                ps_source, ps_fallback)
+        nc_ps_file_work = None
+        if nc_ps_file is not None and Path(nc_ps_file).resolve() != Path(nc_fls[i]).resolve():
+            nc_ps_file_work = f'{tmp_dir}{Path(nc_ps_file).name}'
             fre_logger.info('nc_ps_file_work = %s', nc_ps_file_work)
             shutil.copy(nc_ps_file, nc_ps_file_work)
 
@@ -694,7 +730,10 @@ def cmorize_target_var_files(indir: str = None,
                                                       target_var,
                                                       json_exp_config,
                                                       json_table_config,
-                                                      prev_path=nc_fls[i] )
+                                                      prev_path=nc_fls[i],
+                                                      ps_file=nc_ps_file_work,
+                                                      ps_var=ps_var,
+                                                      ps_searched=ps_searched )
         except Exception as exc:
             raise Exception(
                 'problem with rewrite_netcdf_file_var. '
@@ -753,7 +792,7 @@ def cmorize_target_var_files(indir: str = None,
         if Path(nc_file_work).exists():
             Path(nc_file_work).unlink()
 
-        if Path(nc_ps_file_work).exists():
+        if nc_ps_file_work is not None and Path(nc_ps_file_work).exists():
             Path(nc_ps_file_work).unlink()
 
         if run_one_mode:
@@ -770,7 +809,9 @@ def cmorize_all_variables_in_dir(vars_to_run: Dict[str, Any],
                                  outdir: str,
                                  mip_var_cfgs: Dict[str, Any],
                                  json_table_config: str,
-                                 run_one_mode: bool) -> int:
+                                 run_one_mode: bool,
+                                 ps_source: Optional[Dict[str, str]] = None,
+                                 ps_fallback: Optional[Dict[str, str]] = None) -> int:
     """
     CMORize all variables in a directory according to a variable mapping.
 
@@ -792,6 +833,10 @@ def cmorize_all_variables_in_dir(vars_to_run: Dict[str, Any],
     :type json_table_config: str
     :param run_one_mode: If True, process only one file per variable.
     :type run_one_mode: bool
+    :param ps_source: Optional ``{'indir': ..., 'local_var': ...}`` locating the table's mapped ps variable.
+    :type ps_source: dict, optional
+    :param ps_fallback: Optional ``{'indir': ..., 'local_var': ...}`` locating the cmor yaml's ``ps_component``.
+    :type ps_fallback: dict, optional
     :return: 0 if last file processed was successful, 1 if last file processed failed, -1 if no files were processed.
     :rtype: int
 
@@ -814,7 +859,8 @@ def cmorize_all_variables_in_dir(vars_to_run: Dict[str, Any],
         try:
             cmorize_target_var_files(indir, target_var, local_var, iso_datetime_range_arr,
                                      name_of_set, json_exp_config, outdir,
-                                     mip_var_cfgs, json_table_config, run_one_mode)
+                                     mip_var_cfgs, json_table_config, run_one_mode,
+                                     ps_source=ps_source, ps_fallback=ps_fallback)
             return_status = 0
         except Exception as exc:
             return_status = 1
@@ -859,7 +905,9 @@ def cmor_run_subtool(indir: str = None,
                      nom_res: Optional[str] = None,
                      start: Optional[str] = None,
                      stop: Optional[str] = None,
-                     calendar_type: Optional[str] = None) -> int:
+                     calendar_type: Optional[str] = None,
+                     ps_source: Optional[Dict[str, str]] = None,
+                     ps_fallback: Optional[Dict[str, str]] = None) -> int:
     """
     Main entry point for CMORization workflow, steering all routines in this file.
 
@@ -889,6 +937,13 @@ def cmor_run_subtool(indir: str = None,
     :type stop: str, optional
     :param calendar_type: CF-compliant calendar type.
     :type calendar_type: str, optional
+    :param ps_source: Optional ``{'indir': ..., 'local_var': ...}`` locating the table's mapped ps variable,
+                      used as the surface-pressure companion for hybrid-sigma variables. If None and
+                      ``json_var_list`` maps a local variable to the table's ps, that one is used.
+    :type ps_source: dict, optional
+    :param ps_fallback: Optional ``{'indir': ..., 'local_var': ...}`` locating the cmor yaml's ``ps_component``,
+                        searched after the companion ``.ps.nc`` file.
+    :type ps_fallback: dict, optional
     :raises ValueError: If required parameters are missing or inconsistent.
     :raises FileNotFoundError: If required files do not exist.
     :return: 0 if successful.
@@ -1019,6 +1074,20 @@ def cmor_run_subtool(indir: str = None,
                           '... but the variable is not contained in the target mip table'
                           '... there\'s nothing to process, exit')
 
+    # if the table maps a ps variable, CMORize it first and use it as the surface-pressure
+    # companion for the table's hybrid-sigma variables. the user is responsible for the mapping.
+    if table_declares_ps(mip_var_cfgs):
+        ps_local_vars = [local_var for local_var, target in var_list.items() if target == 'ps']
+        if ps_source is None and ps_local_vars:
+            if len(ps_local_vars) > 1:
+                fre_logger.warning('multiple local variables map to ps: %s, using %s',
+                                   ps_local_vars, ps_local_vars[0])
+            ps_source = {'indir': str(indir), 'local_var': ps_local_vars[0]}
+        vars_to_run = dict(sorted(vars_to_run.items(), key=lambda item: item[1] != 'ps'))
+    if ps_source is not None:
+        fre_logger.info('using table-mapped ps variable %s in %s as the surface-pressure companion',
+                        ps_source['local_var'], ps_source['indir'])
+
     fre_logger.info('runnable variable list formed, it is vars_to_run=\n%s', vars_to_run)
 
     # make list of target files within targeted indir here
@@ -1045,4 +1114,5 @@ def cmor_run_subtool(indir: str = None,
     # now we descend into more CPU-heavy work here
     return cmorize_all_variables_in_dir( vars_to_run,
                                          indir, iso_datetime_range_arr, name_of_set, json_exp_config,
-                                         outdir, mip_var_cfgs, json_table_config, run_one_mode        )
+                                         outdir, mip_var_cfgs, json_table_config, run_one_mode,
+                                         ps_source=ps_source, ps_fallback=ps_fallback )

@@ -91,7 +91,8 @@ from netCDF4 import Dataset
 
 from .cmor_config import _load_config_yaml
 from .cmor_constants import ACCEPTED_VERT_DIMS, INPUT_TO_MIP_VERT_DIM
-from .cmor_helpers import get_json_file_data, get_vertical_dimension, iso_to_bronx_chunk
+from .cmor_helpers import ( find_ps_companion, get_json_file_data, get_vertical_dimension,
+                            iso_to_bronx_chunk, resolve_named_ps_source )
 from .cmor_stage import _year_bound
 
 fre_logger = logging.getLogger(__name__)
@@ -573,9 +574,21 @@ def _ps_companion_path(path: Path) -> Path:
     return path.with_name('.'.join((*parts[:-2], 'ps', 'nc')))
 
 
-def _vertical_dim_finding(mip_vert_tokens: list, files: list) -> dict:
+def _ps_file_for(path: Path, ps_source: Optional[dict],
+                 ps_fallback: Optional[dict] = None) -> Optional[Path]:
+    """The surface-pressure file fremor run would use for `path`, see ``find_ps_companion``."""
+    ps_file, _ps_var, _searched = find_ps_companion(path, path.name.split('.')[-2],
+                                                    ps_source, ps_fallback)
+    return None if ps_file is None else Path(ps_file)
+
+
+def _vertical_dim_finding(mip_vert_tokens: list, files: list,
+                          ps_source: Optional[dict] = None,
+                          ps_fallback: Optional[dict] = None) -> dict:
     """Build the dims report entry for one variable, comparing its MIP-table-declared
-    vertical dim(s) against the actual vertical dim found in a representative input file."""
+    vertical dim(s) against the actual vertical dim found in a representative input file.
+    `ps_source` locates the table's mapped ps variable, searched before the companion
+    '.ps.nc' file; `ps_fallback` locates the yaml's ps_component, searched after it."""
     if not files:
         return {'status': 'unknown', 'reason': 'no input files found to inspect'}
 
@@ -611,10 +624,13 @@ def _vertical_dim_finding(mip_vert_tokens: list, files: list) -> dict:
     else:
         finding['status'] = 'vertical_dim_mismatch'
 
-    if input_vert in ('alevel', 'alevhalf'):
-        ps_path = _ps_companion_path(representative)
-        if not ps_path.is_file():
-            finding['missing_ps_file'] = str(ps_path)
+    if input_vert in ('alevel', 'alevhalf') and \
+            _ps_file_for(representative, ps_source, ps_fallback) is None:
+        finding['missing_ps_file'] = str(_ps_companion_path(representative))
+        if ps_source is not None:
+            finding['missing_mapped_ps_in'] = ps_source['indir']
+        if ps_fallback is not None:
+            finding['missing_ps_component_in'] = ps_fallback['indir']
 
     return finding
 
@@ -825,7 +841,8 @@ def _build_files_report(table_path: str, table_data: Optional[dict], mip_era: st
                         check_staging: bool, check_dims: bool, check_output: bool = False,
                         check_attrs: bool = False, check_range: bool = False,
                         output_files_index: Sequence[Path] = (), dmls_bin: Optional[str] = None,
-                        start: Optional[int] = None, stop: Optional[int] = None) -> dict:
+                        start: Optional[int] = None, stop: Optional[int] = None,
+                        ps_fallback: Optional[dict] = None) -> dict:
     """Per one-to-one-mapped variable: staging status, vertical-dim consistency, units/
     cell_methods consistency, and/or actual-value range (all resolved straight from pp_dir),
     and/or whether CMOR has produced matching output (resolved from `output_files_index`, see
@@ -839,6 +856,14 @@ def _build_files_report(table_path: str, table_data: Optional[dict], mip_era: st
     }
     table_name = table_target['table_name']
 
+    # the table's own mapped ps, which fremor run uses as the hybrid-sigma surface-pressure companion
+    ps_source = None
+    if 'ps' in one_to_one_mapped and one_to_one_mapped['ps'][0] in components_by_name:
+        ps_component_name, ps_key = one_to_one_mapped['ps']
+        ps_indir = _component_input_dir(pp_dir, table_target, components_by_name[ps_component_name])
+        if ps_indir is not None:
+            ps_source = {'indir': str(ps_indir), 'local_var': ps_key}
+
     files_report = {}
     for var, (component_name, gfdl_key) in sorted(one_to_one_mapped.items()):
         component = components_by_name.get(component_name)
@@ -850,11 +875,12 @@ def _build_files_report(table_path: str, table_data: Optional[dict], mip_era: st
 
         var_entry = {}
         if check_staging:
-            companions = [p for p in (_ps_companion_path(f) for f in files) if p.is_file()]
+            companions = [p for p in (_ps_file_for(f, ps_source, ps_fallback) for f in files)
+                          if p is not None and p not in files]
             var_entry['staging'] = _staging_status(files, dmls_bin, companion_files=companions)
         if check_dims:
             mip_vert_tokens = _mip_variable_vertical_tokens(table_data or {}, var, mip_era)
-            var_entry['dims'] = _vertical_dim_finding(mip_vert_tokens, files)
+            var_entry['dims'] = _vertical_dim_finding(mip_vert_tokens, files, ps_source, ps_fallback)
         if check_output:
             prefixes = _expected_output_prefixes(table_data, var, table_name, mip_era)
             output_files = _matching_output_files(output_files_index, prefixes, start, stop)
@@ -879,7 +905,8 @@ def _build_table_report(table_path: str, mip_era: str, varlists_by_table: dict,
                         check_output: bool = False, check_attrs: bool = False,
                         check_range: bool = False, output_files_index: Sequence[Path] = (),
                         dmls_bin: Optional[str] = None,
-                        start: Optional[int] = None, stop: Optional[int] = None) -> dict:
+                        start: Optional[int] = None, stop: Optional[int] = None,
+                        ps_fallback: Optional[dict] = None) -> dict:
     """Build the unmapped / multiply-mapped / unknown-mapped report for one MIP table."""
     table_name = Path(table_path).stem.split('.')[0].split('_')[1]
     reference_vars = _reference_vars_for_table(table_path, mip_era)
@@ -920,7 +947,7 @@ def _build_table_report(table_path: str, mip_era: str, varlists_by_table: dict,
         report_entry['files'] = _build_files_report(
             table_path, table_data, mip_era, table_target, pp_dir, one_to_one_mapped,
             check_staging, check_dims, check_output, check_attrs, check_range,
-            output_files_index, dmls_bin, start, stop
+            output_files_index, dmls_bin, start, stop, ps_fallback
         )
 
     return report_entry
@@ -1016,7 +1043,12 @@ def _print_report(report: dict, show_mapped: bool = False,
                                  f'input has {dims.get("input_vertical_dim")})')
                     findings.append((color, text))
                     if dims.get('missing_ps_file'):
-                        findings.append((color, f'missing companion ps file: {dims["missing_ps_file"]}'))
+                        where = dims['missing_ps_file']
+                        if dims.get('missing_mapped_ps_in'):
+                            where = f'{dims["missing_mapped_ps_in"]} (mapped ps) or {where}'
+                        if dims.get('missing_ps_component_in'):
+                            where = f'{where} or {dims["missing_ps_component_in"]} (ps_component)'
+                        findings.append((color, f'missing companion ps file: {where}'))
 
                 output = var_entry.get('output')
                 if output is not None:
@@ -1265,13 +1297,18 @@ def cmor_check_subtool(
             err=True,
         )
         table_started_at = time.monotonic()
+        table_target = table_targets_by_name.get(table_name)
+        ps_fallback = None
+        if table_target is not None and table_target.get('freq'):
+            ps_fallback = resolve_named_ps_source(table_target, table_targets, pp_dir,
+                                                  table_target['freq'])
         table_entry = _build_table_report(
             table_paths[table_name], mip_era, varlists_by_table, show_mapped=show_mapped,
-            pp_dir=pp_dir, table_target=table_targets_by_name.get(table_name),
+            pp_dir=pp_dir, table_target=table_target,
             check_staging=check_staging, check_dims=check_dims,
             check_output=check_output, check_attrs=check_attrs, check_range=check_range,
             output_files_index=output_files_index,
-            dmls_bin=dmls_bin, start=start, stop=stop
+            dmls_bin=dmls_bin, start=start, stop=stop, ps_fallback=ps_fallback
         )
         report[table_entry.pop('table_name')] = table_entry
         click.echo(
