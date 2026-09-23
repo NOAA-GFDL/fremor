@@ -89,6 +89,7 @@ def _load_config_yaml(yamlfile: str) -> dict:
         CMORized-output root, as written in the yaml -- None if absent, and never checked for
         existence here since a run may simply not have happened yet), ``table_targets``,
         ``start``/``stop`` (the run's year bounds, as written in the yaml -- None if absent),
+        ``exp_json`` (the experiment configuration path, env vars expanded -- None if absent),
         ``yaml_doc`` (the fully parsed yaml document, for callers that need to write changes
         -- e.g. a disabled flag toggled in ``fremor map`` -- back to ``yamlfile``).
     :rtype: dict
@@ -126,6 +127,8 @@ def _load_config_yaml(yamlfile: str) -> dict:
         'table_targets': cmor_yaml_dict.get('table_targets') or [],
         'start': cmor_yaml_dict.get('start'),
         'stop': cmor_yaml_dict.get('stop'),
+        'exp_json': (os.path.expandvars(cmor_yaml_dict['exp_json'])
+                     if cmor_yaml_dict.get('exp_json') else None),
         'yaml_doc': yaml_doc,
     }
 

@@ -288,6 +288,7 @@ def test_cli_fremor_check_case(mock_subtool, tmp_path):
         check_attrs=False,
         check_range=False,
         dmls_bin=None,
+        check_exp_config=False,
     )
 
 
@@ -300,7 +301,7 @@ def test_cli_fremor_check_renamed_flags(mock_subtool, tmp_path):
     result = runner.invoke(
         fremor,
         args=['check', '-y', str(yamlfile), '--show-mapped', '--show-unmapped', '--check-inputs',
-              '--check-dims', '--check-outputs', '--check-attrs', '--check-range'],
+              '--check-dims', '--check-outputs', '--check-attrs', '--check-range', '--check-exp-config'],
     )
 
     assert result.exit_code == 0
@@ -318,6 +319,7 @@ def test_cli_fremor_check_renamed_flags(mock_subtool, tmp_path):
         check_attrs=True,
         check_range=True,
         dmls_bin=None,
+        check_exp_config=True,
     )
 
 
