@@ -387,7 +387,10 @@ def config(pp_dir, mip_tables_dir, mip_era, exp_config, output_yaml,
                    'input file\'s vertical dimension matches what the MIP table declares (e.g. '
                    'distinguishing model-level "alevel" output from fixed "plevNN" pressure '
                    'levels), and whether hybrid-sigma variables have their companion .ps.nc '
-                   'file present. Only inspects one file\'s header per variable.')
+                   'file present. For CMIP7, also checks that lat-lon input grids match the grid '
+                   'label CMOR will write, as registered in the Essential Model Documentation (e.g. '
+                   'g225: global 1.25 x 1 degree, first cell centre 0.625E, 89.5S). Only inspects '
+                   'one file\'s header per variable.')
 @click.option('--check-outputs', 'check_output', is_flag=True, default=False,
               help='For every one-to-one-mapped variable, also report whether CMOR has '
                    'actually produced matching output file(s) under the yaml\'s outdir, plus '
@@ -408,6 +411,12 @@ def config(pp_dir, mip_tables_dir, mip_era, exp_config, output_yaml,
                    'check, this reads a file\'s full array of data and can be VERY SLOW for '
                    'large/high-frequency fields. A representative file that is still offline '
                    '(not staged) is skipped rather than triggering a tape retrieval.')
+@click.option('--check-exp-config', 'check_exp_config', is_flag=True, default=False,
+              help='Also check the yaml\'s exp_json experiment configuration against the '
+                   'controlled vocabulary CMOR will load: required attributes, CV terms '
+                   '(activity_id, experiment_id, source_id, grid_label, ...), consistency with the '
+                   'CV\'s experiment and source entries, license, calendar, and whether '
+                   'further_info_url can be written.')
 @click.option('--dmls_bin', type=str, default=None,
               help='Path to the dmls binary for the --check-inputs check and for the offline '
                    'check that gates --check-range. If omitted, looks for \'dmls\' on PATH; if '
@@ -417,7 +426,8 @@ def config(pp_dir, mip_tables_dir, mip_era, exp_config, output_yaml,
 @click.option('-o', '--output_report', type=str, default=None,
               help='Optional path to also write the JSON report to.')
 def check(tables, yamlfile, show_mapped, show_unmapped, show_multi_mapped, check_staging,
-          check_dims, check_output, check_attrs, check_range, dmls_bin, json_output, output_report):
+          check_dims, check_output, check_attrs, check_range, check_exp_config, dmls_bin, json_output,
+          output_report):
     """
     Check variable-mapping coverage of varlist files against MIP tables, and optionally
     the actual pp_dir input files those mappings resolve to, and/or the outdir output files
@@ -436,7 +446,8 @@ def check(tables, yamlfile, show_mapped, show_unmapped, show_multi_mapped, check
     under outdir. Pass --check-attrs to check a representative input file's units and
     cell_methods attributes against what the MIP table declares. Pass --check-range to check a
     representative input file's actual data values against the MIP table's valid range -- this
-    reads full file contents and can be very slow, so use it sparingly.
+    reads full file contents and can be very slow, so use it sparingly. Pass --check-exp-config
+    to check the yaml's experiment configuration JSON against the controlled vocabulary.
 
     TABLES is an optional list of MIP table names to check, e.g. 'Amon' or
     'Lmon'. Shell-style wildcards are supported, e.g. 'AER*'. If omitted,
@@ -455,7 +466,8 @@ def check(tables, yamlfile, show_mapped, show_unmapped, show_multi_mapped, check
         check_output=check_output,
         check_attrs=check_attrs,
         check_range=check_range,
-        dmls_bin=dmls_bin
+        dmls_bin=dmls_bin,
+        check_exp_config=check_exp_config
     )
 
 

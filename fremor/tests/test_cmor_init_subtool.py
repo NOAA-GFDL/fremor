@@ -109,6 +109,12 @@ def test_cmor_init_tables_dir_with_git(tmp_path):
         found_tables = True
         break
 
+    # the EMD grid-label definitions fremor check uses are saved alongside
+    assert result['grid_cells_dir'] == str(tables_dir / 'emd_horizontal_grid_cell')
+    with open(tables_dir / 'emd_horizontal_grid_cell' / 'g225.json', encoding='utf-8') as f:
+        g225 = json.load(f)
+    assert (g225['westernmost_longitude'], g225['southernmost_latitude']) == (0.625, -89.5)
+
     assert found_tables, 'No CMIP7 table JSON files found in cloned repository'
 
 
@@ -334,3 +340,46 @@ def test_fetch_tables_git_with_tag(tmp_path):
     # Verify content was cloned
     json_files = list(tables_dir.rglob('*.json'))
     assert len(json_files) > 0, 'No JSON files found in cloned repository'
+
+
+def _fake_emd_tarball(tar_path):
+    """ a tarball shaped like the EMD src-data branch archive """
+    import io  # pylint: disable=import-outside-toplevel
+    import tarfile  # pylint: disable=import-outside-toplevel
+    members = {
+        'Essential-Model-Documentation-src-data/horizontal_grid_cell/g225.json': b'{"id": "g225"}',
+        'Essential-Model-Documentation-src-data/horizontal_grid_cell/README.md': b'readme',
+        'Essential-Model-Documentation-src-data/model/GFDL-CM4.json': b'{}',
+        'Essential-Model-Documentation-src-data/horizontal_grid_cell/nested/x.json': b'{}',
+    }
+    with tarfile.open(tar_path, 'w:gz') as tar:
+        for name, data in members.items():
+            info = tarfile.TarInfo(name)
+            info.size = len(data)
+            tar.addfile(info, io.BytesIO(data))
+
+
+def test_fetch_emd_grid_cells_offline(tmp_path, monkeypatch):
+    """ only the top-level horizontal_grid_cell/*.json files are saved, by basename """
+    from fremor import cmor_init  # pylint: disable=import-outside-toplevel
+
+    def fake_run(cmd, check):  # pylint: disable=unused-argument
+        _fake_emd_tarball(cmd[cmd.index('-o') + 1])
+
+    monkeypatch.setattr(cmor_init.subprocess, 'run', fake_run)
+    written = cmor_init._fetch_emd_grid_cells(str(tmp_path))  # pylint: disable=protected-access
+
+    assert written == str(tmp_path / 'emd_horizontal_grid_cell')
+    assert sorted(p.name for p in (tmp_path / 'emd_horizontal_grid_cell').iterdir()) == ['g225.json']
+
+
+def test_fetch_emd_grid_cells_failure(tmp_path, monkeypatch):
+    """ a failed download is a warning, not an error """
+    import subprocess  # pylint: disable=import-outside-toplevel
+    from fremor import cmor_init  # pylint: disable=import-outside-toplevel
+
+    def fake_run(cmd, check):  # pylint: disable=unused-argument
+        raise subprocess.CalledProcessError(22, cmd)
+
+    monkeypatch.setattr(cmor_init.subprocess, 'run', fake_run)
+    assert cmor_init._fetch_emd_grid_cells(str(tmp_path)) is None  # pylint: disable=protected-access

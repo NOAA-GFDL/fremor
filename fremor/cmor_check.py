@@ -68,6 +68,16 @@ pp_dir input files for every cleanly (one-to-one) mapped variable:
   large/high-frequency fields; a representative file that is still offline
   (archived, not staged) is skipped rather than triggering a tape retrieval.
 
+For CMIP7, ``check_dims=True`` also checks that each lat-lon variable's input grid matches the
+grid label CMOR will write (the table target's gridding ``grid_label``, else the experiment
+config's), as registered in the Essential Model Documentation -- e.g. that ``g225`` data really
+is a global 1.25 x 1 degree grid whose first cell centre is at 0.625E, 89.5S. See
+``cmor_check_exp``.
+
+A separate ``check_exp_config=True`` checks the experiment configuration JSON (the yaml's
+``exp_json``) against the controlled vocabulary CMOR will load, reported under the
+``_exp_config`` key -- see ``cmor_check_exp.check_exp_config``.
+
 Functions
 ---------
 - ``cmor_check_subtool(...)``
@@ -89,6 +99,8 @@ import click
 import numpy as np
 from netCDF4 import Dataset
 
+from .cmor_check_exp import ( check_exp_config as _check_exp_config, find_emd_grid_cells_dir, grid_finding,
+                              grid_label_spec, load_cv )
 from .cmor_config import _load_config_yaml
 from .cmor_constants import ACCEPTED_VERT_DIMS, INPUT_TO_MIP_VERT_DIM
 from .cmor_helpers import ( find_ps_companion, get_json_file_data, get_vertical_dimension,
@@ -508,6 +520,17 @@ def _mip_variable_field_values(table_data: dict, var: str, mip_era: str, field: 
     return values
 
 
+def _mip_variable_is_lat_lon(table_data: dict, var: str, mip_era: str) -> bool:
+    """Whether any of `var`'s MIP-table entries is on a longitude/latitude grid."""
+    variable_entry = table_data.get('variable_entry', {})
+    for key in _matching_variable_keys(variable_entry, var, mip_era):
+        dims = variable_entry[key].get('dimensions', '')
+        tokens = dims.split() if isinstance(dims, str) else (dims or [])
+        if 'longitude' in tokens and 'latitude' in tokens:
+            return True
+    return False
+
+
 # sentinel distinguishing "file exists but couldn't be opened/read" (status should be
 # reported as unknown -- the check never actually ran) from a cleanly-read file that simply
 # has no vertical dimension (int 0, an actual finding).
@@ -842,7 +865,8 @@ def _build_files_report(table_path: str, table_data: Optional[dict], mip_era: st
                         check_attrs: bool = False, check_range: bool = False,
                         output_files_index: Sequence[Path] = (), dmls_bin: Optional[str] = None,
                         start: Optional[int] = None, stop: Optional[int] = None,
-                        ps_fallback: Optional[dict] = None) -> dict:
+                        ps_fallback: Optional[dict] = None,
+                        grid_check: Optional[dict] = None) -> dict:
     """Per one-to-one-mapped variable: staging status, vertical-dim consistency, units/
     cell_methods consistency, and/or actual-value range (all resolved straight from pp_dir),
     and/or whether CMOR has produced matching output (resolved from `output_files_index`, see
@@ -881,6 +905,10 @@ def _build_files_report(table_path: str, table_data: Optional[dict], mip_era: st
         if check_dims:
             mip_vert_tokens = _mip_variable_vertical_tokens(table_data or {}, var, mip_era)
             var_entry['dims'] = _vertical_dim_finding(mip_vert_tokens, files, ps_source, ps_fallback)
+            if grid_check is not None and files and \
+                    _mip_variable_is_lat_lon(table_data or {}, var, mip_era):
+                var_entry['grid'] = grid_finding(str(files[0]), gfdl_key,
+                                                 grid_check['grid_label'], grid_check['spec'])
         if check_output:
             prefixes = _expected_output_prefixes(table_data, var, table_name, mip_era)
             output_files = _matching_output_files(output_files_index, prefixes, start, stop)
@@ -906,7 +934,8 @@ def _build_table_report(table_path: str, mip_era: str, varlists_by_table: dict,
                         check_range: bool = False, output_files_index: Sequence[Path] = (),
                         dmls_bin: Optional[str] = None,
                         start: Optional[int] = None, stop: Optional[int] = None,
-                        ps_fallback: Optional[dict] = None) -> dict:
+                        ps_fallback: Optional[dict] = None,
+                        grid_check: Optional[dict] = None) -> dict:
     """Build the unmapped / multiply-mapped / unknown-mapped report for one MIP table."""
     table_name = Path(table_path).stem.split('.')[0].split('_')[1]
     reference_vars = _reference_vars_for_table(table_path, mip_era)
@@ -947,7 +976,7 @@ def _build_table_report(table_path: str, mip_era: str, varlists_by_table: dict,
         report_entry['files'] = _build_files_report(
             table_path, table_data, mip_era, table_target, pp_dir, one_to_one_mapped,
             check_staging, check_dims, check_output, check_attrs, check_range,
-            output_files_index, dmls_bin, start, stop, ps_fallback
+            output_files_index, dmls_bin, start, stop, ps_fallback, grid_check
         )
 
     return report_entry
@@ -966,9 +995,31 @@ def _category_line(label: str, count: int, note: str, nonzero_fg: str = 'yellow'
     return f'  {head}  {click.style(note, dim=True)}'
 
 
+# report key holding the experiment-config findings, alongside the per-table entries
+EXP_CONFIG_REPORT_KEY = '_exp_config'
+
+
+def _print_exp_config_report(exp_report: dict) -> None:
+    color = {'ok': 'green', 'warning': 'yellow', 'error': 'red'}[exp_report['status']]
+    click.echo()
+    click.echo(click.style('[EXPERIMENT CONFIG]', bold=True, fg='cyan') +
+               click.style(f'  {exp_report["file"]}', dim=True))
+    if exp_report.get('cv'):
+        click.echo(click.style(f'  checked against {exp_report["cv"]}', dim=True))
+    click.echo('  ' + click.style(f'status={exp_report["status"]}', fg=color))
+    for finding in exp_report['findings']:
+        finding_color = 'red' if finding['level'] == 'error' else 'yellow'
+        click.echo('    ' + click.style(f'{finding["level"].upper()} {finding["attribute"]}: ',
+                                        fg=finding_color, bold=True) + finding['message'])
+
+
 def _print_report(report: dict, show_mapped: bool = False,
                   show_unmapped: bool = False, show_multi_mapped: bool = False) -> None:
+    if EXP_CONFIG_REPORT_KEY in report:
+        _print_exp_config_report(report[EXP_CONFIG_REPORT_KEY])
     for table_name in sorted(report):
+        if table_name == EXP_CONFIG_REPORT_KEY:
+            continue
         entry = report[table_name]
         click.echo()
         click.echo(click.style(f'[{table_name}]', bold=True, fg='cyan') +
@@ -1050,6 +1101,13 @@ def _print_report(report: dict, show_mapped: bool = False,
                             where = f'{where} or {dims["missing_ps_component_in"]} (ps_component)'
                         findings.append((color, f'missing companion ps file: {where}'))
 
+                grid = var_entry.get('grid')
+                if grid is not None and grid['status'] == 'mismatch':
+                    findings.append(('red', f'grid={grid["grid_label"]} mismatch: ' +
+                                     '; '.join(grid['problems'])))
+                elif grid is not None and grid['status'] == 'unknown':
+                    findings.append(('yellow', f'grid=unknown ({grid.get("reason")})'))
+
                 output = var_entry.get('output')
                 if output is not None:
                     if output['status'] != 'produced' or bool(output['gaps']):
@@ -1103,7 +1161,8 @@ def cmor_check_subtool(
         check_output: bool = False,
         check_attrs: bool = False,
         check_range: bool = False,
-        dmls_bin: Optional[str] = None
+        dmls_bin: Optional[str] = None,
+        check_exp_config: bool = False
 ) -> dict:
     """
     Cross-reference per-component varlist files against MIP table JSON files
@@ -1140,6 +1199,11 @@ def cmor_check_subtool(
     :type json_output: bool
     :param output_report: optional path to also write the JSON report to.
     :type output_report: str or None
+    :param check_exp_config: if True, also check the yaml's ``exp_json`` experiment configuration
+        against the controlled vocabulary CMOR will load (required attributes, CV terms, the
+        experiment/source entries' activity/parent/institution, license, calendar, and whether
+        further_info_url can be written), reported under the ``_exp_config`` key.
+    :type check_exp_config: bool
     :param check_staging: if True, for every one-to-one-mapped variable also check whether its
         input files exist under pp_dir and whether they're staged/disk-resident (best-effort,
         via ``dmls`` if available else a stat-only heuristic), plus a filename-only scan for
@@ -1148,8 +1212,10 @@ def cmor_check_subtool(
     :param check_dims: if True, for every one-to-one-mapped variable also check whether a
         representative input file's vertical dimension matches what the MIP table declares
         (e.g. distinguishing ``alevel`` model-level output from ``plevNN`` pressure levels),
-        and whether hybrid-sigma variables have their companion ``.ps.nc`` file present. The
-        human-readable output omits normal results.
+        and whether hybrid-sigma variables have their companion ``.ps.nc`` file present. For
+        CMIP7, also check that each lat-lon variable's input grid matches the grid label CMOR
+        will write (see ``cmor_check_exp.grid_label_spec``). The human-readable output omits
+        normal results.
     :type check_dims: bool
     :param check_output: if True (CLI: ``--check-outputs``), for every one-to-one-mapped variable
         also report whether CMOR has actually produced matching output file(s) under the
@@ -1185,7 +1251,8 @@ def cmor_check_subtool(
     :return: enabled table_name -> report dict, with keys 'reference_var_count', 'unmapped',
              'multiply_mapped', 'unknown_mapped', (if show_mapped) 'one_to_one_mapped', and
              (if check_staging or check_dims or check_output or check_attrs or check_range)
-             'files'. Disabled table targets are omitted.
+             'files'. Disabled table targets are omitted. With check_exp_config, the extra key
+             '_exp_config' holds the experiment-config findings.
     :rtype: dict
     """
     started_at = time.monotonic()
@@ -1267,6 +1334,26 @@ def cmor_check_subtool(
             f'fremor check: found {len(output_files_index)} existing output file(s) under {outdir}',
             err=True,
         )
+    report = {}
+    exp_json = cmor_yaml_ctx.get('exp_json')
+    if check_exp_config:
+        click.echo(f'fremor check: checking experiment config {exp_json}...', err=True)
+        report[EXP_CONFIG_REPORT_KEY] = _check_exp_config(exp_json, mip_tables_dir, mip_era)
+
+    # CMIP7 grid-label check, run alongside the dims check: the label CMOR will write comes from
+    # each table target's gridding block, else from the experiment config
+    exp_grid_label, grid_cv, grid_cells_dir = None, None, None
+    check_grid = check_dims and str(mip_era).upper() == 'CMIP7'
+    if check_grid:
+        exp_config_data = {}
+        try:
+            exp_config_data = get_json_file_data(exp_json) if exp_json else {}
+        except Exception:  # pylint: disable=broad-except
+            fre_logger.warning('could not read exp_json %s for the grid-label check', exp_json)
+        exp_grid_label = exp_config_data.get('grid_label')
+        grid_cv, _cv_path = load_cv(mip_tables_dir, exp_config_data, mip_era)
+        grid_cells_dir = find_emd_grid_cells_dir(mip_tables_dir)
+
     table_paths = _mip_table_paths(mip_tables_dir, mip_era, table_names)
     # Restrict reads to selected tables. On archive/network filesystems, loading unrelated
     # varlists was a significant and entirely avoidable part of startup time.
@@ -1275,7 +1362,6 @@ def cmor_check_subtool(
         table_target['table_name']: table_target for table_target in selected_table_targets
     }
 
-    report = {}
     for index, table_name in enumerate(table_names, start=1):
         check_detail = 'mapping coverage'
         if check_staging or check_dims or check_output or check_attrs or check_range:
@@ -1302,13 +1388,20 @@ def cmor_check_subtool(
         if table_target is not None and table_target.get('freq'):
             ps_fallback = resolve_named_ps_source(table_target, table_targets, pp_dir,
                                                   table_target['freq'])
+        grid_check = None
+        if check_grid:
+            grid_label = ((table_target or {}).get('gridding') or {}).get('grid_label') or exp_grid_label
+            if grid_label:
+                grid_check = {'grid_label': grid_label,
+                              'spec': grid_label_spec(grid_label, grid_cv, grid_cells_dir)}
         table_entry = _build_table_report(
             table_paths[table_name], mip_era, varlists_by_table, show_mapped=show_mapped,
             pp_dir=pp_dir, table_target=table_target,
             check_staging=check_staging, check_dims=check_dims,
             check_output=check_output, check_attrs=check_attrs, check_range=check_range,
             output_files_index=output_files_index,
-            dmls_bin=dmls_bin, start=start, stop=stop, ps_fallback=ps_fallback
+            dmls_bin=dmls_bin, start=start, stop=stop, ps_fallback=ps_fallback,
+            grid_check=grid_check
         )
         report[table_entry.pop('table_name')] = table_entry
         click.echo(

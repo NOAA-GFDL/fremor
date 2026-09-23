@@ -25,6 +25,11 @@ CMIP6Plus controlled vocabulary (not shipped with its tables)
 -------------------------------------------------------------
 - https://github.com/WCRP-CMIP/CMIP6Plus_CVs
 
+CMIP7 grid-label definitions (for ``fremor check --check-dims``)
+----------------------------------------------------------------
+- https://github.com/WCRP-CMIP/Essential-Model-Documentation (``src-data`` branch,
+  ``horizontal_grid_cell/``), saved to ``<tables_dir>/emd_horizontal_grid_cell/``
+
 Functions
 ---------
 - ``cmor_init_subtool(...)``
@@ -37,7 +42,8 @@ import tarfile
 import tempfile
 from pathlib import Path
 
-from .cmor_constants import MIP_ERA_RESOURCES, CMIP6PLUS_CV_URL
+from .cmor_constants import ( MIP_ERA_RESOURCES, CMIP6PLUS_CV_URL, EMD_REPO_URL, EMD_DATA_BRANCH,
+                              EMD_GRID_CELL_DIRNAME )
 
 fre_logger = logging.getLogger(__name__)
 
@@ -370,6 +376,55 @@ def _fetch_cmip6plus_cv(tables_dir):
     fre_logger.info('CMIP6Plus controlled vocabulary written to %s', target)
     return str(target)
 
+def _fetch_emd_grid_cells(tables_dir):
+    """
+    Save the Essential Model Documentation (EMD) horizontal grid cell definitions -- one JSON
+    file per CMIP7 grid label, with its grid type, resolution, first cell centres and cell
+    count -- to ``<tables_dir>/emd_horizontal_grid_cell/``, where ``fremor check`` finds them
+    for its CMIP7 grid-label check without needing network access.
+
+    Parameters
+    ----------
+    tables_dir : str
+        Directory the MIP tables were fetched into.
+
+    Returns
+    -------
+    str or None
+        The directory written, or *None* if the definitions could not be fetched.
+    """
+    target_dir = Path(tables_dir) / EMD_GRID_CELL_DIRNAME
+    tarball_url = f'{EMD_REPO_URL}/archive/refs/heads/{EMD_DATA_BRANCH}.tar.gz'
+
+    with tempfile.NamedTemporaryFile(suffix='.tar.gz', delete=False) as tmp:
+        tmp_path = tmp.name
+    try:
+        curl_cmd = ['curl', '-L', '--fail', '-o', tmp_path, tarball_url]
+        fre_logger.info('fetching the EMD horizontal grid cells: %s', ' '.join(curl_cmd))
+        subprocess.run(curl_cmd, check=True)
+
+        target_dir.mkdir(parents=True, exist_ok=True)
+        count = 0
+        with tarfile.open(tmp_path, 'r:gz') as tar:
+            for member in tar.getmembers():
+                parts = Path(member.name).parts
+                # <repo>-<branch>/horizontal_grid_cell/<label>.json -- written by basename only
+                if (member.isfile() and len(parts) == 3 and parts[1] == 'horizontal_grid_cell'
+                        and parts[2].endswith('.json')):
+                    (target_dir / parts[2]).write_bytes(tar.extractfile(member).read())
+                    count += 1
+    except (subprocess.CalledProcessError, OSError, tarfile.TarError) as exc:
+        fre_logger.warning(
+            'could not fetch the EMD horizontal grid cells (%s); fremor check will download '
+            'each grid label\'s definition on demand instead', exc)
+        return None
+    finally:
+        Path(tmp_path).unlink(missing_ok=True)
+
+    fre_logger.info('wrote %d EMD horizontal grid cell definitions to %s', count, target_dir)
+    return str(target_dir)
+
+
 # ---------------------------------------------------------------------------
 # Main subtool entry-point
 # ---------------------------------------------------------------------------
@@ -392,7 +447,8 @@ def cmor_init_subtool(
       filename is used).
     * Clone / download the official MIP tables into *tables_dir* when that
       argument is provided. For CMIP6Plus the controlled vocabulary, which the
-      table repo does not ship, is fetched alongside them.
+      table repo does not ship, is fetched alongside them; for CMIP7 the EMD
+      horizontal grid cell definitions, used by ``fremor check`` to verify grid labels.
 
     Parameters
     ----------
@@ -413,14 +469,15 @@ def cmor_init_subtool(
     -------
     dict
         A dictionary with keys ``'exp_config'`` (path written or *None*),
-        ``'tables_dir'`` (path written or *None*) and ``'cv_file'`` (path of the
-        CMIP6Plus CV fetched alongside the tables, or *None*).
+        ``'tables_dir'`` (path written or *None*), ``'cv_file'`` (path of the
+        CMIP6Plus CV fetched alongside the tables, or *None*) and ``'grid_cells_dir'``
+        (directory of the CMIP7 EMD grid cell definitions, or *None*).
     """
     mip_era_lower = mip_era.lower()
     if mip_era_lower not in ('cmip6', 'cmip6plus', 'cmip7'):
         raise ValueError(f'mip_era must be cmip6, cmip6plus, or cmip7, got {mip_era}')
 
-    result = {'exp_config': None, 'tables_dir': None, 'cv_file': None}
+    result = {'exp_config': None, 'tables_dir': None, 'cv_file': None, 'grid_cells_dir': None}
 
     if exp_config is None and tables_dir is None: # create a default user exp json
         exp_config = f'CMOR_{mip_era_lower}_template.json'
@@ -438,6 +495,9 @@ def cmor_init_subtool(
         # _controlled_vocabulary_file written into the config template resolves.
         if mip_era_lower == 'cmip6plus':
             result['cv_file'] = _fetch_cmip6plus_cv(tables_dir)
+        # the exact layout of each CMIP7 grid label is only in the EMD, not the CV
+        if mip_era_lower == 'cmip7':
+            result['grid_cells_dir'] = _fetch_emd_grid_cells(tables_dir)
 
     # -- experiment config --
     # Write config when explicitly requested OR when tables_dir is not given
