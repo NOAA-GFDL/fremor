@@ -462,6 +462,38 @@ Prepare the CMOR YAML (``cmor_yamls/ocean_cmor.yaml``):
              data_series_type: "ts"
              chunk: "P1Y"
 
+Surface pressure for hybrid-sigma variables
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Variables on hybrid-sigma model levels (e.g. ``cl``, ``ta`` on ``alevel``) need surface pressure
+from a file whose filename has the same date range. ``fremor`` looks for it in three places, in order:
+
+1. **The table's own mapped ps.** If the MIP table has a ``ps`` entry and one of the table target's
+   variable lists maps a local variable to ``ps``, that variable is used, read by its local name.
+   Its component is CMORized first. Making sure the mapping is correct is up to you.
+2. **The companion** ``.ps.nc`` **file** next to the variable's input file.
+3. **The table target's** ``ps_component``, for tables with no ``ps`` entry of their own
+   (e.g. CMIP6Plus ``APmonLev``, whose ``ps`` lives in ``APmon``):
+
+.. code-block:: yaml
+
+   table_targets:
+     - table_name: "APmonLev"
+       freq: "monthly"
+       ps_component: "atmos"     # optional: component whose time series holds surface pressure
+       ps_local_name: "ps"       # optional: variable name in that component's files, default "ps"
+       target_components:
+         - component_name: "atmos_level_cmip"
+           variable_list: "/path/to/atmos_level_varlist.json"
+           data_series_type: "ts"
+           chunk: "P5Y"
+
+The ``ps_component`` directory uses the table target's ``freq``. Its ``chunk`` and ``data_series_type``
+come from that component's entry in this table target or, failing that, in any other table target;
+if it is listed nowhere, those of the table target's first component are assumed. If none of the three
+places has the file, ``fremor`` stops with an error listing every place it searched.
+``fremor check --check-dims`` and ``fremor stage`` search the same places.
+
 Test with dry run:
 
 .. code-block:: bash

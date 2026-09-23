@@ -676,6 +676,97 @@ def test_cmor_check_subtool_dims_missing_ps_file(temp_dir, capsys): # pylint: di
     assert 'missing companion ps file' in output
 
 
+def _write_mapped_ps_setup(temp_dir): # pylint: disable=redefined-outer-name
+    """ Amon with 'ta' in component atmos_level and 'ps' mapped from 'pres' in component atmos """
+    temp_root = Path(temp_dir)
+    tables_dir = temp_root / 'tables'
+    tables_dir.mkdir()
+    _write_table_with_dims(tables_dir, 'Amon', {'ta': 'longitude latitude alevel time',
+                                                'ps': 'longitude latitude time'})
+
+    varlist_dir = temp_root / 'varlists'
+    varlist_dir.mkdir()
+    level_list = varlist_dir / 'CMIP6_Amon_atmos_level.list'
+    level_list.write_text(json.dumps({'ta': 'ta'}), encoding='utf-8')
+    atmos_list = varlist_dir / 'CMIP6_Amon_atmos.list'
+    atmos_list.write_text(json.dumps({'pres': 'ps'}), encoding='utf-8')
+
+    pp_dir = temp_root / 'pp'
+    yamlfile = _write_yaml(temp_dir, [
+        _table_target('Amon', [_component_entry('atmos_level', level_list),
+                               _component_entry('atmos', atmos_list)])
+    ], table_dir=tables_dir, pp_dir=pp_dir)
+
+    level_dir = _input_dir(pp_dir, 'atmos_level')
+    _write_input_nc(level_dir / 'atmos_level.197901-198312.ta.nc', 'ta', vertical_dim='lev')
+    return yamlfile, pp_dir, level_dir
+
+
+def test_cmor_check_subtool_dims_mapped_ps_in_other_component(temp_dir, capsys): # pylint: disable=redefined-outer-name
+    ''' check_dims: the table-mapped ps in another component counts as the companion ps file '''
+    yamlfile, pp_dir, _level_dir = _write_mapped_ps_setup(temp_dir)
+    _write_input_nc(_input_dir(pp_dir, 'atmos') / 'atmos.197901-198312.pres.nc', 'pres')
+
+    report = cmor_check_subtool(yamlfile=yamlfile, check_dims=True)
+    dims = report['Amon']['files']['ta']['dims']
+    assert dims['status'] == 'ok'
+    assert 'missing_ps_file' not in dims
+    assert 'missing companion ps file' not in capsys.readouterr().out
+
+
+def test_cmor_check_subtool_dims_mapped_ps_missing(temp_dir, capsys): # pylint: disable=redefined-outer-name
+    ''' check_dims: neither the mapped ps nor the adjacent .ps.nc file exists '''
+    yamlfile, pp_dir, level_dir = _write_mapped_ps_setup(temp_dir)
+
+    report = cmor_check_subtool(yamlfile=yamlfile, check_dims=True)
+    dims = report['Amon']['files']['ta']['dims']
+    assert dims['missing_ps_file'] == str(level_dir / 'atmos_level.197901-198312.ps.nc')
+    assert dims['missing_mapped_ps_in'] == str(_input_dir(pp_dir, 'atmos'))
+    assert '(mapped ps) or' in capsys.readouterr().out
+
+
+def _write_ps_component_setup(temp_dir): # pylint: disable=redefined-outer-name
+    """ Amon with only 'ta' in component atmos_level, and ps_component: atmos on the table target """
+    temp_root = Path(temp_dir)
+    tables_dir = temp_root / 'tables'
+    tables_dir.mkdir()
+    _write_table_with_dims(tables_dir, 'Amon', {'ta': 'longitude latitude alevel time'})
+
+    varlist_dir = temp_root / 'varlists'
+    varlist_dir.mkdir()
+    level_list = varlist_dir / 'CMIP6_Amon_atmos_level.list'
+    level_list.write_text(json.dumps({'ta': 'ta'}), encoding='utf-8')
+
+    pp_dir = temp_root / 'pp'
+    table_target = _table_target('Amon', [_component_entry('atmos_level', level_list)])
+    table_target['ps_component'] = 'atmos'
+    yamlfile = _write_yaml(temp_dir, [table_target], table_dir=tables_dir, pp_dir=pp_dir)
+
+    level_dir = _input_dir(pp_dir, 'atmos_level')
+    _write_input_nc(level_dir / 'atmos_level.197901-198312.ta.nc', 'ta', vertical_dim='lev')
+    return yamlfile, pp_dir
+
+
+def test_cmor_check_subtool_dims_ps_component(temp_dir, capsys): # pylint: disable=redefined-outer-name
+    ''' check_dims: the table target's ps_component counts as the companion ps file '''
+    yamlfile, pp_dir = _write_ps_component_setup(temp_dir)
+    _write_input_nc(_input_dir(pp_dir, 'atmos') / 'atmos.197901-198312.ps.nc', 'ps')
+
+    report = cmor_check_subtool(yamlfile=yamlfile, check_dims=True)
+    assert 'missing_ps_file' not in report['Amon']['files']['ta']['dims']
+    assert 'missing companion ps file' not in capsys.readouterr().out
+
+
+def test_cmor_check_subtool_dims_ps_component_missing(temp_dir, capsys): # pylint: disable=redefined-outer-name
+    ''' check_dims: the ps_component directory is reported when no ps file is found '''
+    yamlfile, pp_dir = _write_ps_component_setup(temp_dir)
+
+    report = cmor_check_subtool(yamlfile=yamlfile, check_dims=True)
+    dims = report['Amon']['files']['ta']['dims']
+    assert dims['missing_ps_component_in'] == str(_input_dir(pp_dir, 'atmos'))
+    assert '(ps_component)' in capsys.readouterr().out
+
+
 def test_cmor_check_subtool_dims_ok_cmip7_list_dimensions(temp_dir): # pylint: disable=redefined-outer-name
     ''' check_dims: CMIP7 tables declare 'dimensions' as a JSON list (not a space-delimited
     string like CMIP6/CMIP6Plus) -- _mip_table_vertical_token must handle both. '''
