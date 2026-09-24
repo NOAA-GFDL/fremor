@@ -16,6 +16,7 @@ Migrated from NOAA-GFDL/fre-cli fre/tests/test_fre_cmor_cli.py.
 """
 
 import json
+import logging
 import os
 from pathlib import Path
 import shutil
@@ -23,6 +24,7 @@ import tempfile
 from unittest.mock import patch
 
 from click.testing import CliRunner
+import pytest
 import yaml
 
 from fremor.cli import fremor
@@ -41,6 +43,37 @@ LOG_INFO_LINE = '[ INFO:                  cli.py:                  fremor] ' + \
                 'fre_file_handler added to base_fre_logger\n'
 LOG_DEBUG_LINE = '[DEBUG:                  cli.py:                  fremor] ' + \
                  'click entry-point function call done.\n'
+
+
+@pytest.fixture(autouse=True)
+def _restore_base_fre_logger_state():
+    """
+    Every `runner.invoke(fremor, ...)` call runs the `fremor` group callback (cli.py)
+    before any subcommand-level argument parsing/errors are even considered -- click
+    invokes the group's callback, then builds the subcommand context -- so it
+    unconditionally mutates the shared, module-level 'fremor' logger: it calls
+    `base_fre_logger.setLevel(...)` and, when `-l/--log_file` is given, permanently
+    attaches a new FileHandler to it.
+
+    That logger is the common ancestor of every `fremor.*` module logger, so without
+    resetting it here, whichever invocation happens to run last in this file decides the
+    effective log level (and leaves stray file handlers attached) for every other test
+    module that runs afterwards in the same pytest session -- e.g. caplog-based tests
+    elsewhere expecting INFO/DEBUG records go silently empty if the last CLI invocation
+    here left the level at logging.WARNING (see issue where test_cmor_find_subtool.py and
+    test_cmor_yamler_subtool.py caplog assertions failed only when run after this file).
+    """
+    base_fre_logger = logging.getLogger('fremor')
+    original_level = base_fre_logger.level
+    original_handlers = list(base_fre_logger.handlers)
+    try:
+        yield
+    finally:
+        for handler in list(base_fre_logger.handlers):
+            if handler not in original_handlers:
+                base_fre_logger.removeHandler(handler)
+                handler.close()
+        base_fre_logger.setLevel(original_level)
 
 
 # ── setup ──────────────────────────────────────────────────────────────────
