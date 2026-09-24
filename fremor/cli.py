@@ -8,6 +8,7 @@ each ``fremor <command>`` has it's own, similarly named python function.
 """
 
 import logging
+import sys
 
 import click
 import yaml as pyyaml
@@ -24,6 +25,49 @@ from .cmor_init import cmor_init_subtool
 from .cmor_stage import cmor_stage_subtool
 
 fre_logger = logging.getLogger(__name__)
+
+
+# // -----------------------------------------------------------------------------------------------
+# // -----------------------------------------------------------------------------------------------
+# // -----------------------------------------------------------------------------------------------
+
+
+# Define the global flags that commonly get misplaced
+MISPLACED_GLOBAL_FLAGS = {'-v', '--verbose', '-q', '--quiet', '-l', '--logfile'}
+class FremorCommand(click.Command):
+    """
+    Custom command class to catch misplaced global flags
+    and provide a user-friendly error message.
+    """
+    def make_context(self, info_name, args, parent=None, **extra):
+            try:
+                return super().make_context(info_name, args, parent=parent, **extra)
+            except click.NoSuchOption as e:
+                if e.option_name in MISPLACED_GLOBAL_FLAGS:
+                    # Provide the clear, specific error message requested in #219
+                    click.secho(
+                        f"Error: The '{e.option_name}' flag is in the wrong spot. "
+                        f"Global flags must be placed before the command (e.g., `fremor {e.option_name} {info_name}`).",
+                        fg="red", err=True
+                    )
+                    sys.exit(2)
+                raise # Re-raise if it's a genuinely unknown flag
+
+class FremorGroup(click.Group):
+    """Main group that automatically uses FremorCommand for all subcommands."""
+    def command(self, *args, **kwargs):
+        kwargs.setdefault('cls', FremorCommand)
+        return super().command(*args, **kwargs)
+
+
+
+# // -----------------------------------------------------------------------------------------------
+# // -----------------------------------------------------------------------------------------------
+# // -----------------------------------------------------------------------------------------------
+
+
+
+
 
 OPT_VAR_NAME_HELP='optional, specify a variable name to specifically process only filenames ' + \
                   'matching that variable name. I.e., this string help target local_vars, not ' + \
@@ -51,7 +95,8 @@ VARLIST_STRICT_MODE_HELP='if indicated, and given a table and variable names fou
 @click.group(
     help = click.style(
         'fremor is the main CLI for fremor. it houses the cmor subcommands.',
-        fg = 'cyan')
+        fg = 'cyan'),
+    cls=FremorGroup,
 )
 @click.option( '-v', '--verbose',
                default = 0,
