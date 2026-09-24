@@ -76,6 +76,7 @@ workflows are supported. Available subcommands:
    - ``--run_one`` — Process one file for testing
    - ``--dry_run`` — Print planned calls without executing
    - ``--print_cli_call/--no-print_cli_call`` — In dry-run mode, print the equivalent CLI invocation (default) or the Python ``cmor_run_subtool()`` call
+   - ``--continue`` — Skip input files whose CMORized output already exists under the output directory and process only the missing ones. An output counts as existing when a non-empty file for the same variable (table for CMIP6, brand for CMIP7) covers the same years as the input file; files left in ``CMOR_tmp`` are ignored
    - ``--start TEXT`` — Minimum year (YYYY)
    - ``--stop TEXT`` — Maximum year (YYYY)
 * Example: ``fremor yaml -y cmor.yaml --dry_run``

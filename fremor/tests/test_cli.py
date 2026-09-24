@@ -157,7 +157,20 @@ def test_cli_fremor_yaml_case1(mock_subtool, tmp_path):
         start=None,
         stop=None,
         print_cli_call=True,
+        skip_existing=False,
     )
+
+
+@patch('fremor.cli.cmor_yaml_subtool')
+def test_cli_fremor_yaml_continue(mock_subtool, tmp_path):
+    """ fremor yaml --continue -y YAMLFILE passes skip_existing=True """
+    dummy_yaml = tmp_path / 'cmor.yaml'
+    dummy_yaml.write_text('placeholder', encoding='utf-8')
+
+    result = runner.invoke(fremor, args=['yaml', '--continue', '-y', str(dummy_yaml)])
+
+    assert result.exit_code == 0
+    assert mock_subtool.call_args.kwargs['skip_existing'] is True
 
 
 # ── fremor stage ───────────────────────────────────────────────────

@@ -10,6 +10,10 @@ datetime for a given variable. Functions within ``cmor_helpers`` assist with the
 
 Functions
 ---------
+- ``resolve_cmip7_brand(...)``
+- ``index_existing_outputs(...)``
+- ``expected_output_prefix(...)``
+- ``find_existing_output(...)``
 - ``rewrite_netcdf_file_var(...)``
 - ``cmorize_target_var_files(...)``
 - ``cmorize_all_variables_in_dir(...)``
@@ -27,6 +31,7 @@ import json
 import logging
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 from typing import Optional, List, Dict, Any
@@ -49,6 +54,154 @@ from .cmor_constants import ( ACCEPTED_VERT_DIMS, NON_HYBRID_SIGMA_COORDS, ALT_H
                               CMOR_LAT_AXIS_NAME, CMOR_LON_AXIS_NAME )
 
 fre_logger = logging.getLogger(__name__)
+
+def _scalar_z_coords(ds: nc.Dataset, local_var: str) -> dict:
+    """
+    Scalar (0-dimensional) coordinate variables with ``axis='Z'`` referenced by ``local_var``'s
+    ``coordinates`` attribute, e.g. ``height``. MIP tables count these as dimensions, so they
+    must be accounted for before CMIP7 brand matching.
+
+    :return: ``{coord_name: netCDF4 variable}``
+    :rtype: dict
+    """
+    scalar_z_coords = {}
+    try:
+        coord_attr = ds.variables[local_var].coordinates
+        for coord_name in coord_attr.split():
+            if coord_name in ds.variables:
+                coord_var = ds.variables[coord_name]
+                if len(coord_var.dimensions) == 0:  # scalar (0-dim)
+                    if hasattr(coord_var, 'axis') and coord_var.axis == 'Z':
+                        scalar_z_coords[coord_name] = coord_var
+                        fre_logger.info('detected scalar Z-coordinate: %s', coord_name)
+    except AttributeError:
+        pass
+    return scalar_z_coords
+
+
+def resolve_cmip7_brand(ds: nc.Dataset, local_var: str, target_var: str,
+                        mip_var_cfgs: dict, var_dim_with_scalars: int) -> str:
+    """
+    Pick the CMIP7 brand of ``target_var`` that the input data matches: candidates are the
+    table's ``<target_var>_<brand>`` entries with as many dimensions as the input (scalar Z
+    coordinates included), disambiguated by ``filter_brands`` when more than one remains.
+
+    :raises ValueError: If no brand's dimensions match the input data.
+    :return: The brand, e.g. ``'tavg-h2m-hxy-u'``.
+    :rtype: str
+    """
+    brands = []
+    for mip_var in mip_var_cfgs['variable_entry'].keys():
+        if all([ target_var == mip_var.split('_')[0],
+                 var_dim_with_scalars == len(mip_var_cfgs['variable_entry'][mip_var]['dimensions']) ]):
+            brands.append(mip_var.split('_')[1])
+
+    if len(brands) == 0:
+        fre_logger.error('cmip7 case detected, but dimensions of input data do not match '
+                         'any of those found for the associated brands.')
+        raise ValueError('no variable brand was able to be identified for this CMIP7 case')
+    if len(brands) == 1:
+        var_brand = brands[0]
+        fre_logger.debug('cmip7 case, extracted brand %s', var_brand)
+    else:
+        fre_logger.warning('cmip7 case, extracted multiple brands %s, attempting disambiguation',
+                           brands)
+        var_brand = filter_brands(
+            brands, target_var, mip_var_cfgs,
+            has_time_bnds = 'time_bnds' in ds.variables,
+            input_vert_dim = get_vertical_dimension(ds, local_var),
+            cell_methods = getattr(ds.variables[local_var], 'cell_methods', None)
+        )
+    fre_logger.debug('cmip7 case, filtered possible brands to %s', var_brand)
+    return var_brand
+
+
+def index_existing_outputs(outdir: str) -> List[Path]:
+    """
+    Every non-empty ``.nc`` file already under ``outdir``, outside CMOR's ``CMOR_tmp`` work
+    area, listed once so each input file can be checked against it cheaply. Used by
+    ``fremor yaml --continue`` to skip input files whose output already exists.
+
+    :param outdir: Output directory root for CMORized files.
+    :type outdir: str
+    :return: Paths of the existing output files.
+    :rtype: list of Path
+    """
+    if not Path(outdir).is_dir():
+        return []
+    return [path for path in Path(outdir).rglob('*.nc')
+            if 'CMOR_tmp' not in path.parts and path.stat().st_size > 0]
+
+
+def _iso_daterange_years(iso_daterange: str) -> Optional[tuple]:
+    """``(first_year, last_year)`` of a ``'YYYY[MM[DD..]]-YYYY[MM[DD..]]'`` range, else None."""
+    match = re.fullmatch(r'(\d{4,})-(\d{4,})', iso_daterange)
+    if match is None:
+        return None
+    return int(match.group(1)[:4]), int(match.group(2)[:4])
+
+
+def expected_output_prefix(input_file: str, local_var: str, target_var: str,
+                           mip_var_cfgs: dict, json_table_config: str,
+                           mip_era: str) -> Optional[str]:
+    """
+    The filename prefix CMOR gives ``target_var``'s output: ``<variable_id>_<table>_``
+    (CMIP6/CMIP6Plus, e.g. ``tas_Amon_``) or ``<variable_id>_<brand>_`` (CMIP7, e.g.
+    ``tas_tavg-h2m-hxy-u_``). A CMIP7 variable with several brands in the table (e.g. tas's
+    time-mean, max and min) needs the brand the input data would get, so only then is the
+    input file's header opened, to pick it the same way the CMORization does.
+
+    :return: The prefix, or None if it cannot be determined.
+    :rtype: str or None
+    """
+    if mip_era != 'CMIP7':
+        table_id = mip_var_cfgs.get('Header', {}).get('table_id') or \
+            Path(json_table_config).stem.split('_', maxsplit=1)[-1]
+        return f'{target_var}_{table_id.split()[-1]}_'
+
+    brands = [key.split('_', 1)[1] for key in mip_var_cfgs['variable_entry']
+              if key.split('_')[0] == target_var and '_' in key]
+    if len(brands) == 1:
+        return f'{target_var}_{brands[0]}_'
+    try:
+        with nc.Dataset(input_file, 'r') as ds:
+            var_dim = ds.variables[local_var].ndim + len(_scalar_z_coords(ds, local_var))
+            var_brand = resolve_cmip7_brand(ds, local_var, target_var, mip_var_cfgs, var_dim)
+    except Exception as exc:  # pylint: disable=broad-except
+        fre_logger.warning('could not resolve the CMIP7 brand of %s in %s to look for '
+                           'existing output: %s', local_var, input_file, exc)
+        return None
+    return f'{target_var}_{var_brand}_'
+
+
+def find_existing_output(prefix: Optional[str], iso_datetime: str,
+                         existing_outputs: List[Path]) -> Optional[Path]:
+    """
+    Find an already-written output file for one input file, purely by filename: one named
+    ``<prefix>..._<start>-<stop>.nc`` whose date range covers the same years as the input
+    file's ``iso_datetime`` (each input chunk yields one output chunk).
+
+    :param prefix: Output filename prefix, see ``expected_output_prefix``. None never matches.
+    :type prefix: str or None
+    :param iso_datetime: The input file's date range, e.g. ``'185001-185412'``.
+    :type iso_datetime: str
+    :param existing_outputs: Output files to search, see ``index_existing_outputs``.
+    :type existing_outputs: list of Path
+    :return: The matching output file, or None.
+    :rtype: Path or None
+    """
+    if prefix is None:
+        return None
+    input_years = _iso_daterange_years(iso_datetime)
+    for path in existing_outputs:
+        if not path.name.startswith(prefix):
+            continue
+        match = re.search(r'_(\d{4,}-\d{4,})\.nc$', path.name)
+        output_years = None if match is None else _iso_daterange_years(match.group(1))
+        if output_years == input_years:
+            return path
+    return None
+
 
 def rewrite_netcdf_file_var( mip_var_cfgs: dict = None,
                              local_var: str = None,
@@ -119,18 +272,7 @@ def rewrite_netcdf_file_var( mip_var_cfgs: dict = None,
     # detect scalar coordinate variables (0-dimensional) with axis='Z'
     # these are auxiliary coordinates like "height" referenced via the coordinates attribute
     # and must be accounted for before brand matching, as MIP tables count them as dimensions
-    scalar_z_coords = {}
-    try:
-        coord_attr = ds.variables[local_var].coordinates
-        for coord_name in coord_attr.split():
-            if coord_name in ds.variables:
-                coord_var = ds.variables[coord_name]
-                if len(coord_var.dimensions) == 0:  # scalar (0-dim)
-                    if hasattr(coord_var, 'axis') and coord_var.axis == 'Z':
-                        scalar_z_coords[coord_name] = coord_var
-                        fre_logger.info('detected scalar Z-coordinate: %s', coord_name)
-    except AttributeError:
-        pass
+    scalar_z_coords = _scalar_z_coords(ds, local_var)
     var_dim_with_scalars = var_dim + len(scalar_z_coords)
 
     # CMORizing ocean grids are implemented only for scalar quantities valued at the central T/h-point of the grid cell.
@@ -151,31 +293,7 @@ def rewrite_netcdf_file_var( mip_var_cfgs: dict = None,
     var_brand = None
     exp_cfg_mip_era = get_json_file_data(json_exp_config)['mip_era'].upper()
     if exp_cfg_mip_era == 'CMIP7':
-        brands = []
-        for mip_var in mip_var_cfgs['variable_entry'].keys():
-            if all([ target_var == mip_var.split('_')[0],
-                     var_dim_with_scalars == len(mip_var_cfgs['variable_entry'][mip_var]['dimensions']) ]):
-                brands.append(mip_var.split('_')[1])
-
-        if len(brands)>0:
-            if len(brands)==1:
-                var_brand=brands[0]
-                fre_logger.debug('cmip7 case, extracted brand %s',var_brand)
-            else:
-                fre_logger.warning('cmip7 case, extracted multiple brands %s, attempting disambiguation',
-                                   brands)
-                var_brand = filter_brands(
-                    brands, target_var, mip_var_cfgs,
-                    has_time_bnds = 'time_bnds' in ds.variables,
-                    input_vert_dim = get_vertical_dimension(ds, local_var),
-                    cell_methods = getattr(ds.variables[local_var], 'cell_methods', None)
-                )
-
-        else:
-            fre_logger.error('cmip7 case detected, but dimensions of input data do not match '
-                             'any of those found for the associated brands.')
-            raise ValueError('no variable brand was able to be identified for this CMIP7 case')
-        fre_logger.debug('cmip7 case, filtered possible brands to %s', var_brand)
+        var_brand = resolve_cmip7_brand(ds, local_var, target_var, mip_var_cfgs, var_dim_with_scalars)
     else:
         fre_logger.debug('non-cmip7 case detected, skipping variable brands')
 
@@ -632,7 +750,8 @@ def cmorize_target_var_files(indir: str = None,
                              json_table_config: str = None,
                              run_one_mode: bool = False,
                              ps_source: Optional[Dict[str, str]] = None,
-                             ps_fallback: Optional[Dict[str, str]] = None):
+                             ps_fallback: Optional[Dict[str, str]] = None,
+                             existing_outputs: Optional[List[Path]] = None):
     """
     CMORize a target variable across all NetCDF files in a directory.
 
@@ -662,6 +781,9 @@ def cmorize_target_var_files(indir: str = None,
     :param ps_fallback: Optional ``{'indir': ..., 'local_var': ...}`` locating the cmor yaml's ``ps_component``,
                         searched after the companion ``.ps.nc`` file.
     :type ps_fallback: dict, optional
+    :param existing_outputs: If given (see ``index_existing_outputs``), input files whose output
+                             is already among these are skipped rather than CMORized again.
+    :type existing_outputs: list of Path, optional
     :raises ValueError: See function body for details.
     :raises OSError: See function body for details.
     :raises Exception: See function body for details.
@@ -679,6 +801,9 @@ def cmorize_target_var_files(indir: str = None,
     tmp_dir = create_tmp_dir(outdir, json_exp_config) + '/'
     fre_logger.info('will use tmp_dir=%s', tmp_dir)
 
+    mip_era = get_json_file_data(json_exp_config)['mip_era'].upper() if existing_outputs is not None else None
+    skipped_files = []
+
     # loop over sets of dates, each one pointing to a file
     nc_fls = {}
     for i, iso_datetime in enumerate(iso_datetime_range_arr):
@@ -692,6 +817,16 @@ def cmorize_target_var_files(indir: str = None,
 
         if not Path(nc_fls[i]).is_absolute():
             nc_fls[i]=str(Path(nc_fls[i]).resolve())
+
+        if existing_outputs is not None:
+            prefix = expected_output_prefix(nc_fls[i], local_var, target_var,
+                                            mip_var_cfgs, json_table_config, mip_era)
+            existing_output = find_existing_output(prefix, iso_datetime, existing_outputs)
+            if existing_output is not None:
+                fre_logger.info('output already exists, skipping input file %s: %s',
+                                nc_fls[i], existing_output)
+                skipped_files.append(nc_fls[i])
+                continue
 
         # create a copy of the input file with local var name into the work directory
         nc_file_work = f'{tmp_dir}{name_of_set}.{iso_datetime}.{local_var}.nc'
@@ -800,6 +935,10 @@ def cmorize_target_var_files(indir: str = None,
             fre_logger.warning('done processing one file!!!')
             break
 
+    if skipped_files:
+        fre_logger.warning('%s: skipped %d of %d input file(s) whose output already exists',
+                           local_var, len(skipped_files), len(iso_datetime_range_arr))
+
 
 def cmorize_all_variables_in_dir(vars_to_run: Dict[str, Any],
                                  indir: str,
@@ -811,7 +950,8 @@ def cmorize_all_variables_in_dir(vars_to_run: Dict[str, Any],
                                  json_table_config: str,
                                  run_one_mode: bool,
                                  ps_source: Optional[Dict[str, str]] = None,
-                                 ps_fallback: Optional[Dict[str, str]] = None) -> int:
+                                 ps_fallback: Optional[Dict[str, str]] = None,
+                                 existing_outputs: Optional[List[Path]] = None) -> int:
     """
     CMORize all variables in a directory according to a variable mapping.
 
@@ -837,6 +977,8 @@ def cmorize_all_variables_in_dir(vars_to_run: Dict[str, Any],
     :type ps_source: dict, optional
     :param ps_fallback: Optional ``{'indir': ..., 'local_var': ...}`` locating the cmor yaml's ``ps_component``.
     :type ps_fallback: dict, optional
+    :param existing_outputs: Existing output files to skip inputs for, see ``cmorize_target_var_files``.
+    :type existing_outputs: list of Path, optional
     :return: 0 if last file processed was successful, 1 if last file processed failed, -1 if no files were processed.
     :rtype: int
 
@@ -860,7 +1002,8 @@ def cmorize_all_variables_in_dir(vars_to_run: Dict[str, Any],
             cmorize_target_var_files(indir, target_var, local_var, iso_datetime_range_arr,
                                      name_of_set, json_exp_config, outdir,
                                      mip_var_cfgs, json_table_config, run_one_mode,
-                                     ps_source=ps_source, ps_fallback=ps_fallback)
+                                     ps_source=ps_source, ps_fallback=ps_fallback,
+                                     existing_outputs=existing_outputs)
             return_status = 0
         except Exception as exc:
             return_status = 1
@@ -907,7 +1050,8 @@ def cmor_run_subtool(indir: str = None,
                      stop: Optional[str] = None,
                      calendar_type: Optional[str] = None,
                      ps_source: Optional[Dict[str, str]] = None,
-                     ps_fallback: Optional[Dict[str, str]] = None) -> int:
+                     ps_fallback: Optional[Dict[str, str]] = None,
+                     skip_existing: bool = False) -> int:
     """
     Main entry point for CMORization workflow, steering all routines in this file.
 
@@ -944,6 +1088,9 @@ def cmor_run_subtool(indir: str = None,
     :param ps_fallback: Optional ``{'indir': ..., 'local_var': ...}`` locating the cmor yaml's ``ps_component``,
                         searched after the companion ``.ps.nc`` file.
     :type ps_fallback: dict, optional
+    :param skip_existing: If True, skip input files whose CMOR output already exists under ``outdir``,
+                          and only CMORize the missing ones.
+    :type skip_existing: bool
     :raises ValueError: If required parameters are missing or inconsistent.
     :raises FileNotFoundError: If required files do not exist.
     :return: 0 if successful.
@@ -1111,8 +1258,15 @@ def cmor_run_subtool(indir: str = None,
     # no longer needed.
     del indir_filenames
 
+    existing_outputs = None
+    if skip_existing:
+        existing_outputs = index_existing_outputs(outdir)
+        fre_logger.info('skip_existing: found %d existing output file(s) under %s',
+                        len(existing_outputs), outdir)
+
     # now we descend into more CPU-heavy work here
     return cmorize_all_variables_in_dir( vars_to_run,
                                          indir, iso_datetime_range_arr, name_of_set, json_exp_config,
                                          outdir, mip_var_cfgs, json_table_config, run_one_mode,
-                                         ps_source=ps_source, ps_fallback=ps_fallback )
+                                         ps_source=ps_source, ps_fallback=ps_fallback,
+                                         existing_outputs=existing_outputs )

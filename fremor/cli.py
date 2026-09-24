@@ -41,6 +41,9 @@ START_YEAR_HELP = 'string representing the minimum calendar year CMOR should sta
                   'currently, only YYYY format is supported.'
 STOP_YEAR_HELP = 'string representing the maximum calendar year CMOR should stop processing for. ' + \
                   'currently, only YYYY format is supported.'
+CONTINUE_HELP='skip input files whose CMORized output already exists under the output directory, ' + \
+              'and only process the missing ones. an output counts as existing when a non-empty file ' + \
+              'for the same variable (and CMIP7 brand) covers the same years as the input file.'
 VARLIST_STRICT_MODE_HELP='if indicated, and given a table and variable names found in filenames, if none of the ' + \
                          'found variable names are in the table (sans brand if cmip7), do not write the list.'
 
@@ -132,7 +135,10 @@ def fremor(verbose = 0, quiet = False, log_file = None):
               help = 'In dry-run mode, print the equivalent CLI invocation (default) '
                      'or the Python cmor_run_subtool() call.',
               required = False)
-def yaml(yamlfile, run_strict, run_one, dry_run, start, stop, print_cli_call):
+@click.option('--continue', 'continue_mode', is_flag = True, default = False,
+              help = CONTINUE_HELP,
+              required = False)
+def yaml(yamlfile, run_strict, run_one, dry_run, start, stop, print_cli_call, continue_mode):
     """Process a self-contained CMOR YAML file and run the requested CMORization steps."""
     cmor_yaml_subtool(
         yamlfile = yamlfile,
@@ -141,7 +147,8 @@ def yaml(yamlfile, run_strict, run_one, dry_run, start, stop, print_cli_call):
         dry_run_mode = dry_run,
         start = start,
         stop = stop,
-        print_cli_call = print_cli_call
+        print_cli_call = print_cli_call,
+        skip_existing = continue_mode
     )
 
 

@@ -41,7 +41,8 @@ STOP=
 FREMOR_YAML=/path/to/cmor.yaml
 ## tables to process. empty -> every enabled table_target in FREMOR_YAML
 TABLES=()
-## extra flags for `fremor yaml`, e.g. (--run_strict)
+## extra flags for `fremor yaml`, e.g. (--run_strict), or (--continue) to resubmit
+## a failed/timed-out table and only CMORize the chunks with no output yet
 YAML_EXTRA_ARGS=()
 ## run `fremor check <table> --check-inputs --check-dims` in the stage job (1=yes)
 PRECHECK=1

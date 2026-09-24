@@ -88,7 +88,8 @@ def cmor_yaml_subtool( yamlfile: str = None,
                        start: Optional[str] = None,
                        stop: Optional[str] = None,
                        calendar_type: Optional[str] = None,
-                       print_cli_call: bool = True):
+                       print_cli_call: bool = True,
+                       skip_existing: bool = False):
     """
     Main driver for CMORization using self-contained CMOR YAML configuration files.
     This routine parses the CMOR YAML, resolves and checks all required
@@ -115,6 +116,9 @@ def cmor_yaml_subtool( yamlfile: str = None,
         the equivalent ``fremor run`` CLI invocation; when False, print
         the Python ``cmor_run_subtool(...)`` call instead.
     :type print_cli_call: bool
+    :param skip_existing: If True, skip input files whose CMOR output already exists under the
+        table/component output directory, and only CMORize the missing ones.
+    :type skip_existing: bool
     :raises FileNotFoundError: If required paths do not exist.
     :raises OSError: If output directories cannot be created.
     :raises ValueError: If required configuration is missing or inconsistent.
@@ -342,7 +346,8 @@ def cmor_yaml_subtool( yamlfile: str = None,
                                           f'    stop = {stop} ,\n' + \
                                           f'    calendar_type = {calendar_type} ,\n' + \
                                           f'    ps_source = {ps_source} ,\n' + \
-                                          f'    ps_fallback = {ps_fallback}'
+                                          f'    ps_fallback = {ps_fallback} ,\n' + \
+                                          f'    skip_existing = {skip_existing}'
                                            ')\n' )
                 continue
             try:
@@ -361,7 +366,8 @@ def cmor_yaml_subtool( yamlfile: str = None,
                     stop = stop ,
                     calendar_type = calendar_type ,
                     ps_source = ps_source ,
-                    ps_fallback = ps_fallback
+                    ps_fallback = ps_fallback ,
+                    skip_existing = skip_existing
                 )
             except Exception as exc: #uncovered
                 fre_logger.warning(
