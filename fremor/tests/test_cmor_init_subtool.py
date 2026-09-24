@@ -10,6 +10,7 @@ Tests the cmor_init_subtool and its helper functions including:
 
 import json
 from pathlib import Path
+import stat
 
 import pytest
 
@@ -17,6 +18,7 @@ from fremor.cmor_init import (
     cmor_init_subtool,
     _fetch_tables_git,
     _fetch_tables_curl,
+    _fetch_cmip6plus_cv,
     MIP_TABLE_REPOS,
 )
 
@@ -334,3 +336,63 @@ def test_fetch_tables_git_with_tag(tmp_path):
     # Verify content was cloned
     json_files = list(tables_dir.rglob('*.json'))
     assert len(json_files) > 0, 'No JSON files found in cloned repository'
+
+def test_fetch_cmip6plus_cv_no_tables_dir(tmp_path, caplog):
+    """
+    Test that _fetch_cmip6plus_cv returns None and logs a warning
+    when no 'Tables' directory is found in the target path.
+    """
+    # Create an empty directory without a 'Tables' subdirectory
+    empty_tables_dir = tmp_path / 'empty_tables'
+    empty_tables_dir.mkdir()
+
+    # Call the function
+    result = _fetch_cmip6plus_cv(str(empty_tables_dir))
+
+    # Verify the function aborts early and returns None
+    assert result is None
+
+    # Verify the appropriate warning was logged
+    assert 'no Tables directory found under' in caplog.text
+
+import stat
+
+def test_fetch_cmip6plus_cv_functional_failure(tmp_path, caplog):
+    """
+    Test that _fetch_cmip6plus_cv returns None and logs a warning
+    when the curl download command fails, using actual execution (no mocks).
+    """
+    from fremor.cmor_init import _fetch_cmip6plus_cv
+
+    # 1. Create a valid Tables directory structure to pass the first check
+    tables_dir = tmp_path / 'tables_root'
+    target_dir = tables_dir / 'Tables'
+    target_dir.mkdir(parents=True)
+
+    # 2. Force the actual curl command to naturally fail.
+    # We do this by creating a broken symlink at the target output path.
+    # curl will try to follow the symlink, fail to open the non-existent destination,
+    # and exit with a non-zero code.
+    target_file = target_dir / 'CMIP6Plus_CV.json'
+
+    try:
+        # Point the symlink to a completely non-existent nested directory
+        target_file.symlink_to(tmp_path / 'nowhere' / 'nothing')
+    except OSError:
+        # Fallback for environments where unprivileged symlinks aren't allowed
+        # (e.g., strict Windows configurations without Developer Mode enabled):
+        # We strip write permissions from the directory instead.
+        target_dir.chmod(stat.S_IREAD | stat.S_IEXEC)  # 0o555
+
+    # 3. Call the function. `curl` genuinely executes but hits our filesystem trap.
+    result = _fetch_cmip6plus_cv(str(tables_dir))
+
+    # 4. Verify the function gracefully caught the CalledProcessError
+    assert result is None
+
+    # 5. Verify the fallback warning was logged
+    assert 'could not fetch the CMIP6Plus CV' in caplog.text
+
+    # Cleanup: restore write permissions if the fallback was used,
+    # ensuring pytest can successfully clean up tmp_path afterwards.
+    target_dir.chmod(stat.S_IREAD | stat.S_IWRITE | stat.S_IEXEC)  # 0o755
