@@ -46,6 +46,11 @@ CONTINUE_HELP='skip input files whose CMORized output already exists under the o
               'for the same variable (and CMIP7 brand) covers the same years as the input file.'
 VARLIST_STRICT_MODE_HELP='if indicated, and given a table and variable names found in filenames, if none of the ' + \
                          'found variable names are in the table (sans brand if cmip7), do not write the list.'
+CONFIG_CHECK_FREQ_HELP='only map a variable to a MIP table when the actual frequency of its pp files matches ' + \
+                       'the table. the frequency is read from the first file\'s time axis spacing, its ' + \
+                       'climatology attribute and the variable\'s cell_methods (time: point vs mean), and ' + \
+                       'compared with the table entry\'s frequency (CMIP6) and time dimension (CMIP6 and ' + \
+                       'CMIP7). opens one file per candidate variable, so offline files are recalled.'
 
 @click.version_option(
     package_name = 'fremor',
@@ -342,8 +347,9 @@ def varlist_(dir_targ, strict_mode, output_variable_list, mip_table):
               help='Overwrite existing variable list files.')
 @click.option('--calendar', type=str, default='noleap',
               help='Calendar type, e.g. noleap, 360_day. Default noleap.')
-def config(pp_dir, mip_tables_dir, mip_era, exp_config, output_yaml,
-           output_dir, pp_comp_glob, strict_varlist, varlist_dir, freq, chunk, grid, overwrite, calendar):
+@click.option('--check_freq', is_flag=True, default=False, help=CONFIG_CHECK_FREQ_HELP)
+def config(pp_dir, mip_tables_dir, mip_era, exp_config, output_yaml, output_dir, pp_comp_glob,
+           strict_varlist, varlist_dir, freq, chunk, grid, overwrite, calendar, check_freq):
     """
     Generate a CMOR YAML configuration file from a post-processing directory tree.
     Scans pp_dir for components and time-series data, cross-references against MIP tables,
@@ -363,7 +369,8 @@ def config(pp_dir, mip_tables_dir, mip_era, exp_config, output_yaml,
         chunk=chunk,
         grid=grid,
         overwrite=overwrite,
-        calendar_type=calendar
+        calendar_type=calendar,
+        check_freq=check_freq
     )
 
 

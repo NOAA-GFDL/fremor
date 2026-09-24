@@ -166,6 +166,7 @@ workflows are supported. Available subcommands:
    - ``--grid TEXT`` — Grid label anchor name (default: ``g999``; the previous documentation incorrectly listed ``g99``)
    - ``--overwrite`` — Overwrite existing variable list files
    - ``--calendar TEXT`` — Calendar type (default: ``noleap``)
+   - ``--check_freq`` — Only map a variable to a MIP table when the actual frequency of its pp files is consistent with the table. The input frequency is read from the variable's first file: the base frequency from the median time-axis spacing (or the time bounds' width for a single time step), and the sampling from the time axis' ``climatology`` attribute and the variable's ``cell_methods`` (``time: point`` vs mean/max/min/sum). It is compared with each matching table entry's ``frequency`` (CMIP6, e.g. ``mon``, ``day``, ``3hrPt``, ``monC``) and time dimension (``time``, ``time1``, ``time2``/``time3``, or none for ``fx``/``ti``; CMIP6 and CMIP7). CMIP7 tables have no ``frequency`` field, so for CMIP7 only the sampling is checked. A variable with no consistent entry is treated like one not in the table (``""`` in the varlist, or left out with ``--strict_varlist``); anything that cannot be read from the file is not held against it. One file per candidate variable is opened, so files offline on tape are recalled
 * Example: ``fremor config -p /path/to/pp -t /path/to/tables -m cmip7 -e exp_config.json -o cmor.yaml -d /path/to/output -l /path/to/varlists``
 
 ``check``
