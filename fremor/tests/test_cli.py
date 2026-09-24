@@ -1078,3 +1078,20 @@ def test_cli_fremor_misplaced_global_flag():
     assert result_q.exit_code == 2
     assert "Error: The '--quiet' flag is in the wrong spot." in result_q.output
     assert "Global flags must be placed before the command (e.g., `fremor --quiet run`)." in result_q.output
+
+def test_cli_fremor_genuinely_unknown_flag():
+    """
+    fremor yaml --made-up-flag
+    Test that an unknown flag that is NOT a misplaced global flag
+    falls through the custom handler and raises standard click exception.
+    """
+    result = runner.invoke(fremor, args=['yaml', '--made-up-flag'])
+
+    # Click uses exit code 2 for usage errors
+    assert result.exit_code == 2
+
+    # Ensure our custom message was bypassed
+    assert "is in the wrong spot" not in result.output
+
+    # Ensure the standard click exception was re-raised and handled
+    assert "Error: No such option '--made-up-flag'" in result.output
