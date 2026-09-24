@@ -1094,7 +1094,7 @@ def test_cli_fremor_run_with_logfile_omission_case(cli_sos_nc_file, cli_sosv2_nc
     Path(varlist_path).unlink(missing_ok=True)
 
 
-def test_cli_fremor_misplaced_global_flag():
+def test_cli_fremor_yaml_misplaced_global_verbose_flag():
     """
     fremor yaml -v
     Test that placing a global flag after a subcommand provides the custom,
@@ -1105,6 +1105,14 @@ def test_cli_fremor_misplaced_global_flag():
     assert result_v.exit_code == 2
     assert "Error: The '-v' flag is in the wrong spot." in result_v.output
     assert "Global flags must be placed before the command (e.g., `fremor -v yaml`)." in result_v.output
+
+
+def test_cli_fremor_run_misplaced_global_quiet_flag():
+    """
+    fremor run --quiet
+    Test that placing a global flag after a subcommand provides the custom,
+    user-friendly error message from FremorCommand (Issue #219).
+    """
 
     # Test with a long flag (--quiet) on the run subcommand
     result_q = runner.invoke(fremor, args=['run', '--quiet'])
