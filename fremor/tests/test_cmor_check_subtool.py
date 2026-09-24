@@ -498,6 +498,91 @@ def test_cmor_check_subtool_staging_gap_detection(temp_dir, capsys): # pylint: d
     assert 'date-range gaps: 1983-1990' in capsys.readouterr().out
 
 
+def _coverage_setup(temp_dir, local_vars, start=None, stop=None): # pylint: disable=redefined-outer-name
+    ''' Amon yaml mapping each of local_vars one-to-one, with optional run bounds;
+    returns (yamlfile, atmos input dir) '''
+    temp_root = Path(temp_dir)
+    tables_dir = temp_root / 'tables'
+    tables_dir.mkdir()
+    _write_amon_table(tables_dir, local_vars)
+
+    varlist_dir = temp_root / 'varlists'
+    varlist_dir.mkdir()
+    atmos_list = varlist_dir / 'CMIP6_Amon_atmos.list'
+    atmos_list.write_text(json.dumps({var: var for var in local_vars}), encoding='utf-8')
+
+    pp_dir = temp_root / 'pp'
+    yamlfile = _write_yaml(temp_dir, [
+        _table_target('Amon', [_component_entry('atmos', atmos_list)])
+    ], table_dir=tables_dir, pp_dir=pp_dir)
+    doc = yaml.safe_load(Path(yamlfile).read_text(encoding='utf-8'))
+    doc['cmor']['start'], doc['cmor']['stop'] = start, stop
+    Path(yamlfile).write_text(yaml.safe_dump(doc), encoding='utf-8')
+    return yamlfile, _input_dir(pp_dir, 'atmos')
+
+
+def test_cmor_check_subtool_coverage_complete(temp_dir, capsys): # pylint: disable=redefined-outer-name
+    ''' check_staging: contiguous chunks report complete coverage, first/last date and years
+    covered, and only the table-level TIME COVERAGE line is printed '''
+    yamlfile, comp_dir = _coverage_setup(temp_dir, ['tas'])
+    _write_input_nc(comp_dir / 'atmos.197901-198312.tas.nc', 'tas')
+    _write_input_nc(comp_dir / 'atmos.198401-198812.tas.nc', 'tas')
+
+    report = cmor_check_subtool(yamlfile=yamlfile, check_staging=True)
+    coverage = report['Amon']['files']['tas']['coverage']
+    assert coverage['status'] == 'complete'
+    assert (coverage['first_date'], coverage['last_date']) == ('197901', '198812')
+    assert coverage['years_covered'] == 10
+    assert coverage['missing_years'] == []
+    out = capsys.readouterr().out
+    assert 'TIME COVERAGE' in out
+    assert '197901-198812 for 1/1 variables' in out
+    assert 'coverage=' not in out
+
+
+def test_cmor_check_subtool_coverage_gap_and_run_bounds(temp_dir, capsys): # pylint: disable=redefined-outer-name
+    ''' check_staging: years missing between chunks and short of the yaml's start/stop bounds
+    are all reported as missing years '''
+    yamlfile, comp_dir = _coverage_setup(temp_dir, ['tas'], start='1974', stop='1998')
+    _write_input_nc(comp_dir / 'atmos.197901-198312.tas.nc', 'tas')
+    _write_input_nc(comp_dir / 'atmos.199001-199412.tas.nc', 'tas')
+
+    report = cmor_check_subtool(yamlfile=yamlfile, check_staging=True)
+    coverage = report['Amon']['files']['tas']['coverage']
+    assert coverage['status'] == 'incomplete'
+    assert coverage['requested'] == [1974, 1998]
+    assert coverage['years_covered'] == 10
+    assert coverage['missing_years'] == ['1974-1978', '1984-1989', '1995-1998']
+    out = capsys.readouterr().out
+    assert 'run bounds 1974..1998' in out
+    assert 'coverage=incomplete 197901-199412 (10 yr), missing years: 1974-1978, 1984-1989, 1995-1998' in out
+
+
+def test_cmor_check_subtool_coverage_flags_outlier_span(temp_dir, capsys): # pylint: disable=redefined-outer-name
+    ''' check_staging: a variable whose complete span differs from the table's common span is
+    listed, while variables matching the common span are not '''
+    yamlfile, comp_dir = _coverage_setup(temp_dir, ['tas', 'pr', 'ts'])
+    for var in ('tas', 'pr'):
+        _write_input_nc(comp_dir / f'atmos.197901-198812.{var}.nc', var)
+    _write_input_nc(comp_dir / 'atmos.197901-198312.ts.nc', 'ts')
+
+    report = cmor_check_subtool(yamlfile=yamlfile, check_staging=True)
+    assert report['Amon']['files']['ts']['coverage']['status'] == 'complete'
+    out = capsys.readouterr().out
+    assert '197901-198812 for 2/3 variables; 1 incomplete or different' in out
+    assert 'coverage=complete 197901-198312 (5 yr)' in out
+    assert 'coverage=complete 197901-198812' not in out
+
+
+def test_cmor_check_subtool_coverage_missing_files(temp_dir): # pylint: disable=redefined-outer-name
+    ''' check_staging: no input files at all gives coverage status missing '''
+    yamlfile, _ = _coverage_setup(temp_dir, ['tas'])
+    report = cmor_check_subtool(yamlfile=yamlfile, check_staging=True)
+    coverage = report['Amon']['files']['tas']['coverage']
+    assert coverage['status'] == 'missing'
+    assert coverage['first_date'] is None
+
+
 def test_cmor_check_subtool_staging_dmls_offline(temp_dir, monkeypatch, capsys): # pylint: disable=redefined-outer-name
     ''' check_staging: when a dmls binary is available, its (OFL) tag marks a file unstaged '''
     temp_root = Path(temp_dir)

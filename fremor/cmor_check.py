@@ -36,7 +36,9 @@ pp_dir input files for every cleanly (one-to-one) mapped variable:
 - ``check_staging=True``: do the expected FRE time-series files exist under
   pp_dir at all, and (best-effort) are they staged/disk-resident rather than
   still sitting offline in the archive -- plus a filename-only scan for gaps
-  between chunk date ranges. No file content is ever read for this check.
+  between chunk date ranges and a per-variable time-coverage summary (first/last
+  date, years covered, and any years missing within the chunks or relative to the
+  yaml's run bounds). No file content is ever read for this check.
   Both checks below respect the yaml's own ``start``/``stop`` run bounds (same
   as ``fremor yaml``/``fremor stage``): a chunk is only considered if its
   complete filename date range falls within them.
@@ -91,7 +93,7 @@ import re
 import shutil
 import subprocess
 import time
-from collections import defaultdict
+from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Optional, Sequence, Union
 
@@ -353,6 +355,63 @@ def _date_range_gaps(files: list, date_range_fn=None) -> list:
         if next_start > prev_end + 1:
             gaps.append(f'{prev_end}-{next_start}')
     return gaps
+
+
+def _time_coverage(files: list, start: Optional[int] = None,
+                   stop: Optional[int] = None) -> dict:
+    """Filename-only summary of the time span a variable's input chunks cover: the first
+    chunk's start date and the last chunk's end date (as written in the filenames, e.g.
+    '185001'/'201412'), the number of distinct years covered, and every year missing from
+    that span -- between chunks, plus, when the yaml sets ``start``/``stop`` run bounds,
+    before the first chunk / after the last one. status is 'complete' when nothing is
+    missing, 'incomplete' otherwise, 'missing' with no files at all, and 'unknown' when no
+    filename carries a parseable date range."""
+    coverage = {'status': 'missing', 'first_date': None, 'last_date': None,
+                'years_covered': 0, 'missing_years': [], 'requested': [start, stop]}
+    if not files:
+        return coverage
+
+    chunks = []  # (first_year, last_year, first_date, last_date)
+    for path in files:
+        years = _date_range_from_filename(path)
+        if years is not None:
+            first_date, last_date = path.name.split('.')[-3].split('-', maxsplit=1)
+            chunks.append((*years, first_date, last_date))
+    if not chunks:
+        coverage['status'] = 'unknown'
+        return coverage
+    chunks.sort()
+
+    covered = set()
+    for first_year, last_year, _, _ in chunks:
+        covered.update(range(first_year, last_year + 1))
+    span_start = chunks[0][0] if start is None else min(start, chunks[0][0])
+    span_stop = max(last for _, last, _, _ in chunks)
+    if stop is not None:
+        span_stop = max(stop, span_stop)
+
+    missing_years = _year_ranges(
+        year for year in range(span_start, span_stop + 1) if year not in covered)
+
+    coverage.update({
+        'status': 'incomplete' if missing_years else 'complete',
+        'first_date': chunks[0][2],
+        'last_date': max(chunks, key=lambda chunk: chunk[1])[3],
+        'years_covered': len(covered),
+        'missing_years': missing_years,
+    })
+    return coverage
+
+
+def _year_ranges(years) -> list:
+    """Collapse ascending years into 'YYYY' / 'YYYY-YYYY' runs, e.g. 1984..1989 -> '1984-1989'."""
+    runs = []
+    for year in years:
+        if runs and runs[-1][1] == year - 1:
+            runs[-1][1] = year
+        else:
+            runs.append([year, year])
+    return [f'{first:04d}' if first == last else f'{first:04d}-{last:04d}' for first, last in runs]
 
 
 def _staging_status(files: list, dmls_bin: Optional[str] = None,
@@ -902,6 +961,7 @@ def _build_files_report(table_path: str, table_data: Optional[dict], mip_era: st
             companions = [p for p in (_ps_file_for(f, ps_source, ps_fallback) for f in files)
                           if p is not None and p not in files]
             var_entry['staging'] = _staging_status(files, dmls_bin, companion_files=companions)
+            var_entry['coverage'] = _time_coverage(files, start, stop)
         if check_dims:
             mip_vert_tokens = _mip_variable_vertical_tokens(table_data or {}, var, mip_era)
             var_entry['dims'] = _vertical_dim_finding(mip_vert_tokens, files, ps_source, ps_fallback)
@@ -1013,6 +1073,55 @@ def _print_exp_config_report(exp_report: dict) -> None:
                                         fg=finding_color, bold=True) + finding['message'])
 
 
+def _print_coverage_summary(files: dict) -> Optional[tuple]:
+    """Print one TIME COVERAGE line for a table's --check-inputs results: the span most of its
+    variables cover and how many are incomplete or differ from it. Returns that common
+    (first_date, last_date) span, so per-variable output can flag only the outliers, or None
+    when no variable has a parseable coverage."""
+    spans = Counter(
+        (entry['coverage']['first_date'], entry['coverage']['last_date'])
+        for entry in files.values()
+        if entry.get('coverage', {}).get('status') in ('complete', 'incomplete')
+    )
+    if not spans:
+        return None
+    common_span, common_count = spans.most_common(1)[0]
+    total = sum(spans.values())
+    outliers = sum(
+        1 for entry in files.values()
+        if entry.get('coverage', {}).get('status') in ('complete', 'incomplete') and
+        (entry['coverage']['status'] == 'incomplete' or
+         (entry['coverage']['first_date'], entry['coverage']['last_date']) != common_span)
+    )
+    requested = next(iter(files.values()))['coverage']['requested']
+    note = f'{common_span[0]}-{common_span[1]} for {common_count}/{total} variables'
+    if requested != [None, None]:
+        bounds = ('-' if year is None else f'{year:04d}' for year in requested)
+        note += f'; run bounds {"..".join(bounds)}'
+    if outliers:
+        note += f'; {outliers} incomplete or different'
+    color = 'green' if outliers == 0 else 'yellow'
+    click.echo('    ' + click.style('TIME COVERAGE ', bold=True, fg=color) +
+               click.style(note, dim=True))
+    return common_span
+
+
+def _coverage_finding(coverage: Optional[dict], common_span: Optional[tuple]) -> Optional[str]:
+    """Text for one variable's coverage finding, or None when it's complete and matches the
+    table's common span (or it has no files, which the staging finding already reports)."""
+    if coverage is None or coverage['status'] == 'missing':
+        return None
+    if coverage['status'] == 'unknown':
+        return 'coverage=unknown (no parseable date range in filenames)'
+    span = (coverage['first_date'], coverage['last_date'])
+    if coverage['status'] == 'complete' and span == common_span:
+        return None
+    text = f'coverage={coverage["status"]} {span[0]}-{span[1]} ({coverage["years_covered"]} yr)'
+    if coverage['missing_years']:
+        text += f', missing years: {", ".join(coverage["missing_years"])}'
+    return text
+
+
 def _print_report(report: dict, show_mapped: bool = False,
                   show_unmapped: bool = False, show_multi_mapped: bool = False) -> None:
     if EXP_CONFIG_REPORT_KEY in report:
@@ -1071,9 +1180,14 @@ def _print_report(report: dict, show_mapped: bool = False,
             click.echo('  ' + click.style('FILES', bold=True))
             if not files:
                 click.echo(click.style('      no one-to-one-mapped variables to check', dim=True))
+            common_span = _print_coverage_summary(files)
             for var in sorted(files):
                 var_entry = files[var]
                 findings = []  # (color, text) pairs to render under this variable
+
+                coverage_text = _coverage_finding(var_entry.get('coverage'), common_span)
+                if coverage_text is not None:
+                    findings.append(('yellow', coverage_text))
 
                 staging = var_entry.get('staging')
                 if staging is not None and (staging['status'] != 'staged' or bool(staging['gaps'])):
@@ -1207,7 +1321,11 @@ def cmor_check_subtool(
     :param check_staging: if True, for every one-to-one-mapped variable also check whether its
         input files exist under pp_dir and whether they're staged/disk-resident (best-effort,
         via ``dmls`` if available else a stat-only heuristic), plus a filename-only scan for
-        gaps between chunk date ranges. The human-readable output omits normal results.
+        gaps between chunk date ranges and each variable's time coverage (reported under
+        ``coverage``: first/last date, years covered, missing years incl. any shortfall
+        against the start/stop run bounds). The human-readable output omits normal staging
+        results, prints one TIME COVERAGE line per table, and lists only variables whose
+        coverage is incomplete or differs from the table's most common span.
     :type check_staging: bool
     :param check_dims: if True, for every one-to-one-mapped variable also check whether a
         representative input file's vertical dimension matches what the MIP table declares

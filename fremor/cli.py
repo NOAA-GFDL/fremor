@@ -381,7 +381,9 @@ def config(pp_dir, mip_tables_dir, mip_era, exp_config, output_yaml,
               help='For every one-to-one-mapped variable, also check whether its input files '
                    'exist under pp_dir and whether they are staged/disk-resident (best-effort, '
                    'via dmls if available, else a stat-only heuristic -- never reads file '
-                   'content), plus a filename-only scan for gaps between chunk date ranges.')
+                   'content), plus a filename-only scan for gaps between chunk date ranges and a '
+                   'per-variable time-coverage report (first/last date, years covered, and '
+                   'years missing between chunks or relative to the yaml\'s start/stop).')
 @click.option('--check-dims', 'check_dims', is_flag=True, default=False,
               help='For every one-to-one-mapped variable, also check whether a representative '
                    'input file\'s vertical dimension matches what the MIP table declares (e.g. '
