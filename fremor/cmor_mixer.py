@@ -169,11 +169,15 @@ def rewrite_netcdf_file_var( mip_var_cfgs: dict = None,
             else:
                 fre_logger.warning('cmip7 case, extracted multiple brands %s, attempting disambiguation',
                                    brands)
+                var_cell_methods = getattr(ds.variables[local_var], 'cell_methods', None)
+                var_standard_name = getattr(ds.variables[local_var], 'standard_name', None) 
+                fre_logger.info('grabbed cell_methods = %s', var_cell_methods)
                 var_brand = filter_brands(
                     brands, target_var, mip_var_cfgs,
                     has_time_bnds = 'time_bnds' in ds.variables,
                     input_vert_dim = get_vertical_dimension(ds, local_var),
-                    cell_methods = getattr(ds.variables[local_var], 'cell_methods', None)
+                    cell_methods = var_cell_methods,
+                    standard_name = var_standard_name
                 )
 
         else:
@@ -433,7 +437,7 @@ def rewrite_netcdf_file_var( mip_var_cfgs: dict = None,
         elif vert_dim.lower() in DEPTH_COORDS:
             fre_logger.info('vert_dim is DEPTH_COORDS')
             try:
-                lev_bnds = create_lev_bnds(bound_these=lev, with_these=ds['z_i'])
+                lev_bnds = create_lev_bnds(bound_these = lev)
                 fre_logger.info('created lev_bnds...')
             except Exception as exc:
                 fre_logger.error('the cmor module always requires vertical levels to have bounds.')
