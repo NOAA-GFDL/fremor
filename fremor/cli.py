@@ -13,7 +13,7 @@ import sys
 import click
 import yaml as pyyaml
 
-from . import __version__ as version, FORMAT
+from . import __version__ as version, FORMAT, DDEBUG_LEVEL_NUM
 from .cmor_finder import cmor_find_subtool, make_simple_varlist
 from .cmor_mixer import cmor_run_subtool
 from .cmor_yamler import cmor_yaml_subtool
@@ -33,7 +33,8 @@ fre_logger = logging.getLogger(__name__)
 
 
 # Define the global flags that commonly get misplaced
-MISPLACED_GLOBAL_FLAGS = {'-v', '--verbose', '-q', '--quiet', '-l', '--logfile'}
+# these flags CANNOT be used by any sub-commands. do not overload them!
+MISPLACED_GLOBAL_FLAGS = {'-v', '--verbose', '-q', '--quiet', '-l', '--log-file', '--log_file'}
 class FremorCommand(click.Command):
     """
     Custom command class to catch misplaced global flags
@@ -102,9 +103,10 @@ VARLIST_STRICT_MODE_HELP='if indicated, and given a table and variable names fou
                default = 0,
                required = False,
                count = True,
-               type = click.IntRange(0, 2, clamp=True), # Replaced int with click.IntRange
+               type = click.IntRange(0, 3, clamp=True),
                help = 'Increment logging verbosity from default (logging.WARNING) to logging.INFO. ' + \
-                      'use -vv for logging.DEBUG. will be overridden by -q/--quiet' )
+                      'use -vv for logging.DEBUG and -vvv for logging.DDEBUG. ' + \
+                      'will be overridden by -q/--quiet' )
 @click.option( '-q', '--quiet',
                default = False,
                required = False,
@@ -112,7 +114,7 @@ VARLIST_STRICT_MODE_HELP='if indicated, and given a table and variable names fou
                type = bool,
                help = 'Set logging verbosity from default (logging.WARNING) to logging.ERROR, printing ' + \
                       'less output to screen. overrides -v[v]/--verbose' )
-@click.option( '-l', '--log_file',
+@click.option( '-l', '--log-file', '--log_file',
                default = None,
                required = False,
                type = str,
@@ -128,6 +130,8 @@ def fremor(verbose = 0, quiet = False, log_file = None):
         log_level = logging.INFO # -v, more verbose than default
     elif verbose == 2:
         log_level = logging.DEBUG # -vv most verbose
+    elif verbose >= 3:
+        log_level = DDEBUG_LEVEL_NUM # -vvv deepest debug
 
     if quiet:
         log_level = logging.ERROR # least verbose
@@ -158,13 +162,13 @@ def fremor(verbose = 0, quiet = False, log_file = None):
 @click.option('-y', '--yamlfile', type = str,
               help = 'YAML file to be used for parsing',
               required = True )
-@click.option('--run_strict', is_flag = True, default = False,
+@click.option('--run-strict', '--run_strict', is_flag = True, default = False,
               help=RUN_STRICT_HELP,
               required = False)
-@click.option('--run_one', is_flag = True, default = False,
+@click.option('--run-one', '--run_one', is_flag = True, default = False,
               help=RUN_ONE_HELP,
               required = False)
-@click.option('--dry_run', is_flag = True, default = False,
+@click.option('--dry-run', '--dry_run', is_flag = True, default = False,
               help=DRY_RUN_HELP,
               required = False)
 @click.option('--start', type=str, default=None,
@@ -173,7 +177,7 @@ def fremor(verbose = 0, quiet = False, log_file = None):
 @click.option('--stop', type=str, default=None,
               help = STOP_YEAR_HELP,
               required = False)
-@click.option('--print_cli_call/--no-print_cli_call', default=True,
+@click.option('--print_cli_call/--no_print_cli_call', '--print-cli-call/--no-print-cli-call', default=True,
               help = 'In dry-run mode, print the equivalent CLI invocation (default) '
                      'or the Python cmor_run_subtool() call.',
               required = False)
@@ -195,9 +199,9 @@ def yaml(yamlfile, run_strict, run_one, dry_run, start, stop, print_cli_call):
               help='Self-contained CMOR YAML file whose mapped input files should be staged.')
 @click.option('--start', type=str, default=None, help=START_YEAR_HELP)
 @click.option('--stop', type=str, default=None, help=STOP_YEAR_HELP)
-@click.option('--dmget_bin', type=str, default='dmget', show_default=True,
+@click.option('--dmget-bin', '--dmget_bin', type=str, default='dmget', show_default=True,
               help='dmget executable name or path.')
-@click.option('--dry_run', is_flag=True, default=False,
+@click.option('--dry-run', '--dry_run', is_flag=True, default=False,
               help='List the selected files without invoking dmget.')
 def stage(yamlfile, start, stop, dmget_bin, dry_run):
     """Stage all mapped archive inputs for a YAML-driven run in one dmget batch."""
@@ -238,13 +242,13 @@ def resolve(yamlfile, experiment, output):
 
 
 @fremor.command()
-@click.option('-l', '--varlist', type = str,
+@click.option('--varlist', type = str,
               help=VARLIST_HELP,
               required=False)
-@click.option('-r', '--table_config_dir', type = str,
+@click.option('-r', '--table-config-dir', '--table_config_dir', type = str,
               help='directory holding MIP tables to search for variables in var list',
               required=True)
-@click.option('-v', '--opt_var_name', type = str,
+@click.option('--opt-var-name', '--opt_var_name', type = str,
               help=OPT_VAR_NAME_HELP,
               required=False)
 def find(varlist, table_config_dir, opt_var_name):
@@ -266,15 +270,15 @@ def find(varlist, table_config_dir, opt_var_name):
               help='directory containing netCDF files. keys specified in json_var_list are local ' + \
                    'variable names used for targeting specific files in this directory',
               required=True)
-@click.option('-l', '--varlist', type = str,
+@click.option('--varlist', type = str,
               help=VARLIST_HELP,
               required=True)
-@click.option('-r', '--table_config', type = str,
+@click.option('-r', '--table-config', '--table_config', type = str,
               help='json file containing CMIP-compliant per-variable/metadata for specific ' + \
                    'MIP table. The MIP table can generally be identified by the specific ' + \
                    'filename (e.g. \'Omon\')',
               required=True)
-@click.option('-p', '--exp_config', type = str,
+@click.option('-p', '--exp-config', '--exp_config', type = str,
               help='json file containing metadata dictionary for CMORization. this metadata is ' + \
                    'effectively appended to the final output file\'s header',
               required=True)
@@ -282,22 +286,22 @@ def find(varlist, table_config_dir, opt_var_name):
               help='directory root that will contain the full output and output directory ' + \
                    'structure generated by the cmor module upon request.',
               required=True)
-@click.option('--run_one', is_flag = True, default = False,
+@click.option('--run-one', '--run_one', is_flag = True, default = False,
               help=RUN_ONE_HELP,
               required = False)
-@click.option('-v', '--opt_var_name', type = str, default = None,
+@click.option('--opt-var-name', '--opt_var_name', type = str, default = None,
               help=OPT_VAR_NAME_HELP,
               required=False)
-@click.option('-g', '--grid_label', type = str, default = None,
+@click.option('-g', '--grid-label', '--grid_label', type = str, default = None,
               help = 'label representing grid type of input data, e.g. gn for native or gr for regridded, ' + \
                      'replaces the grid_label field in the CMOR experiment configuration file. The label must ' + \
                      'be one of the entries in the MIP controlled-vocab file.',
               required = False)
-@click.option('--grid_desc', type = str, default = None,
+@click.option('--grid-desc', '--grid_desc', type = str, default = None,
               help = 'description of grid indicated by grid label, replaces the grid field in the CMOR ' + \
                      'experiment configuration file.',
               required = False)
-@click.option('--nom_res', type = str, default = None,
+@click.option('--nom-res', '--nom_res', type = str, default = None,
               help = 'nominal resolution indicated by grid and/or grid label, replaces the nominal_resolution, ' + \
                      'replaces the grid field in the CMOR experiment configuration file. The entered string ' + \
                      'must be one of the entries in the MIP controlled-vocab file.',
@@ -334,12 +338,12 @@ def run(indir, varlist, table_config, exp_config, outdir, run_one, opt_var_name,
 
 
 @fremor.command('varlist')
-@click.option('-d', '--dir_targ', type=str, required=True, help='Target directory')
+@click.option('-d', '--dir-targ', '--dir_targ', type=str, required=True, help='Target directory')
 @click.option('--strict_mode', is_flag = True, default = False,
               help=VARLIST_STRICT_MODE_HELP,
               required=False)
-@click.option('-o', '--output_variable_list', type=str, required=True, help='Output variable list file')
-@click.option('-t', '--mip_table', type=str, required=False, default=None,
+@click.option('-o', '--output-variable-list', '--output_variable_list', type=str, required=True, help='Output variable list file')
+@click.option('-t', '--mip-table', '--mip_table', type=str, required=False, default=None,
               help='Target MIP table for making variable list')
 def varlist_(dir_targ, strict_mode, output_variable_list, mip_table):
     """
@@ -352,23 +356,23 @@ def varlist_(dir_targ, strict_mode, output_variable_list, mip_table):
 
 
 @fremor.command()
-@click.option('-p', '--pp_dir', type=str, required=True,
+@click.option('-p', '--pp-dir', '--pp_dir', type=str, required=True,
               help='Root post-processing directory containing per-component subdirectories.')
-@click.option('-t', '--mip_tables_dir', type=str, required=True,
+@click.option('-t', '--mip-tables-dir', '--mip_tables_dir', type=str, required=True,
               help='Directory containing MIP table JSON files.')
-@click.option('-m', '--mip_era', type=str, required=True,
+@click.option('-m', '--mip-era', '--mip_era', type=str, required=True,
               help='MIP era identifier, e.g. cmip6, cmip6plus, or cmip7.')
-@click.option('-e', '--exp_config', type=str, required=True,
+@click.option('-e', '--exp-config', '--exp_config', type=str, required=True,
               help='Path to JSON experiment/input configuration file expected by CMOR.')
-@click.option('-o', '--output_yaml', type=str, required=True,
+@click.option('-o', '--output-yaml', '--output_yaml', type=str, required=True,
               help='Path for the output CMOR YAML configuration file.')
-@click.option('-d', '--output_dir', type=str, required=True,
+@click.option('-d', '--output-dir', '--output_dir', type=str, required=True,
               help='Root output directory for CMORized data.')
-@click.option('-l', '--varlist_dir', type=str, required=True,
+@click.option('--varlist-dir','--varlist_dir', type=str, required=True,
               help='Directory in which per-component variable list JSON files are written.')
-@click.option('-g', '--pp_comp_glob', type=str, required=False, default = '*',
+@click.option('-g', '--pp-comp-glob','--pp_comp_glob', type=str, required=False, default = '*',
               help="glob pattern to use for selecting pp component directory names. default '*'")
-@click.option('--strict_varlist', is_flag=True, default=False,
+@click.option('--strict-varlist','--strict_varlist', is_flag=True, default=False,
               help='pass strict_mode flag to fremor varlist')
 @click.option('--freq', type=str, default='monthly',
               help='Temporal frequency string, e.g. monthly, daily. Default monthly.')
@@ -411,58 +415,58 @@ def config(pp_dir, mip_tables_dir, mip_era, exp_config, output_yaml,
               help='Self-contained CMOR YAML file, as written by \'fremor config\'. pp_dir, '
                    'the MIP tables directory, the MIP era, and each component\'s variable_list '
                    'path are all derived from it.')
-@click.option('--show-mapped', 'show_mapped', is_flag=True, default=False,
+@click.option('--show-mapped', '--show_mapped', is_flag=True, default=False,
               help='Also report variables mapped from exactly one component/diagnostic (one-to-one).')
-@click.option('--show-unmapped', 'show_unmapped', is_flag=True, default=False,
+@click.option('--show-unmapped', '--show_unmapped', is_flag=True, default=False,
               help='List every variable required by the table but not mapped from any '
                    'component. By default only a count is shown, since this list can be very '
                    'long for a sparsely-mapped table; the full list is still always available '
                    'via --json or -o/--output_report.')
-@click.option('--show-multi-mapped', 'show_multi_mapped', is_flag=True, default=False,
+@click.option('--show-multi-mapped', '--show_multi_mapped', is_flag=True, default=False,
               help='List every variable mapped from more than one component/diagnostic, with '
                    'each mapping location. By default only a count is shown; the full list is '
                    'still always available via --json or -o/--output_report.')
-@click.option('--check-inputs', 'check_staging', is_flag=True, default=False,
+@click.option('--check-inputs', '--check_inputs', is_flag=True, default=False,
               help='For every one-to-one-mapped variable, also check whether its input files '
                    'exist under pp_dir and whether they are staged/disk-resident (best-effort, '
                    'via dmls if available, else a stat-only heuristic -- never reads file '
                    'content), plus a filename-only scan for gaps between chunk date ranges.')
-@click.option('--check-dims', 'check_dims', is_flag=True, default=False,
+@click.option('--check-dims', '--check_dims', is_flag=True, default=False,
               help='For every one-to-one-mapped variable, also check whether a representative '
                    'input file\'s vertical dimension matches what the MIP table declares (e.g. '
                    'distinguishing model-level "alevel" output from fixed "plevNN" pressure '
                    'levels), and whether hybrid-sigma variables have their companion .ps.nc '
                    'file present. Only inspects one file\'s header per variable.')
-@click.option('--check-outputs', 'check_output', is_flag=True, default=False,
+@click.option('--check-outputs', '--check_outputs', is_flag=True, default=False,
               help='For every one-to-one-mapped variable, also report whether CMOR has '
                    'actually produced matching output file(s) under the yaml\'s outdir, plus '
                    'a filename-only scan for gaps between output chunks\' date ranges -- i.e. '
                    'what got parsed and what has successfully landed in outdir. Requires the '
                    'yaml\'s directories.outdir to be set. Unlike --check-inputs/--check-dims, reports '
                    'every variable, not just abnormal ones.')
-@click.option('--check-attrs', 'check_attrs', is_flag=True, default=False,
+@click.option('--check-attrs', '--check_attrs', is_flag=True, default=False,
               help='For every one-to-one-mapped variable, also check whether a representative '
                    'input file\'s units and cell_methods attributes match what the MIP table '
                    'declares (e.g. catching a variable mapped from the wrong diagnostic, or an '
                    'accumulated field mapped where an instantaneous one is expected). Only '
                    'inspects one file\'s header per variable.')
-@click.option('--check-range', 'check_range', is_flag=True, default=False,
+@click.option('--check-range', '--check_range', is_flag=True, default=False,
               help='For every one-to-one-mapped variable, also check whether a representative '
                    'input file\'s actual data values fall within the MIP table\'s declared '
                    'valid_min/valid_max/ok_min_mean_abs/ok_max_mean_abs. Unlike every other '
                    'check, this reads a file\'s full array of data and can be VERY SLOW for '
                    'large/high-frequency fields. A representative file that is still offline '
                    '(not staged) is skipped rather than triggering a tape retrieval.')
-@click.option('--dmls_bin', type=str, default=None,
+@click.option('--dmls-bin', '--dmls_bin', type=str, default=None,
               help='Path to the dmls binary for the --check-inputs check and for the offline '
                    'check that gates --check-range. If omitted, looks for \'dmls\' on PATH; if '
                    'not found either, falls back to a stat-only residency heuristic.')
-@click.option('--json', 'json_output', is_flag=True, default=False,
+@click.option('--json-output','--json_output', '--json', is_flag=True, default=False,
               help='Print the report as JSON instead of a text summary.')
-@click.option('-o', '--output_report', type=str, default=None,
+@click.option('-o', '--output-report','--output_report', type=str, default=None,
               help='Optional path to also write the JSON report to.')
-def check(tables, yamlfile, show_mapped, show_unmapped, show_multi_mapped, check_staging,
-          check_dims, check_output, check_attrs, check_range, dmls_bin, json_output, output_report):
+def check(tables, yamlfile, show_mapped, show_unmapped, show_multi_mapped, check_inputs,
+          check_dims, check_outputs, check_attrs, check_range, dmls_bin, json_output, output_report):
     """
     Check variable-mapping coverage of varlist files against MIP tables, and optionally
     the actual pp_dir input files those mappings resolve to, and/or the outdir output files
@@ -495,9 +499,9 @@ def check(tables, yamlfile, show_mapped, show_unmapped, show_multi_mapped, check
         show_multi_mapped=show_multi_mapped,
         json_output=json_output,
         output_report=output_report,
-        check_staging=check_staging,
+        check_staging=check_inputs,
         check_dims=check_dims,
-        check_output=check_output,
+        check_output=check_outputs,
         check_attrs=check_attrs,
         check_range=check_range,
         dmls_bin=dmls_bin
@@ -511,11 +515,11 @@ def check(tables, yamlfile, show_mapped, show_unmapped, show_multi_mapped, check
                    'the MIP tables directory, the MIP era, and each component\'s variable_list '
                    'path are all derived from it; mapping edits are staged in memory and only '
                    'written back to the variable_list files referenced there once you save.')
-@click.option('--ncinfo_bin', type=str, required=False, default=None,
+@click.option('--ncinfo-bin', '--ncinfo_bin', type=str, required=False, default=None,
               help='Path to the ncinfo binary for richer NetCDF file previews. If omitted, '
                    'looks for \'ncinfo\' on PATH; if not found either, falls back to a plain '
                    'netCDF4-based preview.')
-@click.option('--dmls_bin', type=str, required=False, default=None,
+@click.option('--dmls-bin', '--dmls_bin', type=str, required=False, default=None,
               help='Path to the dmls binary, used to check whether a selected pp file has '
                    'actually been retrieved from tape (\'REG\'/\'DUL\') before previewing it. '
                    'If omitted, looks for \'dmls\' on PATH; if not found either, falls back to '
@@ -553,14 +557,14 @@ def map_(tables, yamlfile, ncinfo_bin, dmls_bin):
 
 
 @fremor.command()
-@click.option('-m', '--mip_era', type=click.Choice(['cmip6', 'cmip6plus', 'cmip7'], case_sensitive=False),
+@click.option('-m', '--mip-era', '--mip_era', type=click.Choice(['cmip6', 'cmip6plus', 'cmip7'], case_sensitive=False),
               required=True,
               help='MIP era for the template: cmip6, cmip6plus, or cmip7.')
-@click.option('-e', '--exp_config', type=str, default=None,
+@click.option('-e', '--exp-config', '--exp_config', type=str, default=None,
               help='Output path for the template experiment-config JSON file. '
                    'When omitted and --tables_dir is also omitted, a default '
                    'filename is used.')
-@click.option('-t', '--tables_dir', type=str, default=None,
+@click.option('-t', '--tables-dir', '--tables_dir', type=str, default=None,
               help='Directory into which MIP tables will be fetched from '
                    'trusted sources. Omit to skip table retrieval.')
 @click.option('--tag', type=str, default=None,

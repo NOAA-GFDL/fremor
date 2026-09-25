@@ -15,7 +15,7 @@ Functions
 - ``cmorize_all_variables_in_dir(...)``
 - ``cmor_run_subtool(...)``
 
-.. note:: The name "mixer" comes from a conversation between Chris Blanton, the original code author (Sergey Nikonov),
+.. note:: The name "mixer" comes from a conversation between Chris Blanton, the original code author Sergey Nikonov,
           and the next author/maintainer, Ian Laflotte, in 2022. Chris wanted to change the name, and Sergey kind of
           enjoyed the original CMORCommander.py, and so did not have any suggestions. Ian, whom was very new and knew
           nothing, suggested "cmor mixer", not truly understanding why. Chris and Sergey decided to go with it.
@@ -40,7 +40,7 @@ from .cmor_helpers import ( from_ds_get_this, create_lev_bnds,
                             get_iso_datetime_ranges, check_dataset_for_ocean_grid, get_vertical_dimension,
                             create_tmp_dir, get_json_file_data, update_grid_and_label,
                             update_calendar_type, filter_brands,
-                            normalize_calendar, get_time_calendar_value, calendars_are_equivalent,
+                            normalize_calendar, get_time_calendar_ds, calendars_are_equivalent,
                             resolve_mip_era_table_resource )
 from .cmor_tripolar import load_tripolar_grid
 from .cmor_validate import check_exp_config_required_attributes
@@ -52,8 +52,11 @@ from .cmor_constants import ( ACCEPTED_VERT_DIMS, NON_HYBRID_SIGMA_COORDS, ALT_H
 fre_logger = logging.getLogger(__name__)
 
 
-def _pprint_cmor_logfile(cmor_logfile: Optional[str]) -> None:
+def _pprint_cmor_logfile(cmor_logfile: Optional[str],
+                         filename: Optional[str],
+) -> None:
     """Print CMOR's logfile path and contents for verbose runs once CMOR is fully torn down."""
+
     if cmor_logfile is None or fre_logger.getEffectiveLevel() > logging.INFO:
         return
 
@@ -62,9 +65,14 @@ def _pprint_cmor_logfile(cmor_logfile: Optional[str]) -> None:
         fre_logger.warning('cmor logfile requested for screen output but not found: %s', logfile_path)
         return
 
-    print(f'CMOR logfile: {logfile_path.resolve()}')
+    #print(f'CMOR logfile: {logfile_path.resolve()}')
     with open(logfile_path, encoding='utf-8') as handle:
-        print(pformat(handle.read().splitlines()))
+        for line in handle.read().splitlines():
+            fre_logger.info( line )
+
+    if filename is not None:
+        Path(logfile_path).rename( filename.replace('.nc','.log') )
+
 
 def rewrite_netcdf_file_var( mip_var_cfgs: dict = None,
                              local_var: str = None,
@@ -162,28 +170,23 @@ def rewrite_netcdf_file_var( mip_var_cfgs: dict = None,
                      var_dim_with_scalars == len(mip_var_cfgs['variable_entry'][mip_var]['dimensions']) ]):
                 brands.append(mip_var.split('_')[1])
 
-        if len(brands)>0:
-            if len(brands)==1:
-                var_brand=brands[0]
-                fre_logger.debug('cmip7 case, extracted brand %s',var_brand)
-            else:
-                fre_logger.warning('cmip7 case, extracted multiple brands %s, attempting disambiguation',
-                                   brands)
-                var_cell_methods = getattr(ds.variables[local_var], 'cell_methods', None)
-                var_standard_name = getattr(ds.variables[local_var], 'standard_name', None) 
-                fre_logger.info('grabbed cell_methods = %s', var_cell_methods)
-                var_brand = filter_brands(
-                    brands, target_var, mip_var_cfgs,
-                    has_time_bnds = 'time_bnds' in ds.variables,
-                    input_vert_dim = get_vertical_dimension(ds, local_var),
-                    cell_methods = var_cell_methods,
-                    standard_name = var_standard_name
-                )
-
+        if len(brands)==1:
+            var_brand=brands[0]
+            fre_logger.debug('cmip7 case, extracted brand %s',var_brand)
         else:
-            fre_logger.error('cmip7 case detected, but dimensions of input data do not match '
-                             'any of those found for the associated brands.')
-            raise ValueError('no variable brand was able to be identified for this CMIP7 case')
+            fre_logger.warning('cmip7 case, extracted multiple brands %s, attempting disambiguation',
+                               brands)
+            var_cell_methods = getattr(ds.variables[local_var], 'cell_methods', None)
+            var_standard_name = getattr(ds.variables[local_var], 'standard_name', None) 
+            fre_logger.info('grabbed cell_methods = %s', var_cell_methods)
+            var_brand = filter_brands(
+                brands, target_var, mip_var_cfgs,
+                has_time_bnds = 'time_bnds' in ds.variables,
+                input_vert_dim = get_vertical_dimension(ds, local_var),
+                cell_methods = var_cell_methods,
+                standard_name = var_standard_name
+            )
+
         fre_logger.debug('cmip7 case, filtered possible brands to %s', var_brand)
     else:
         fre_logger.debug('non-cmip7 case detected, skipping variable brands')
@@ -225,11 +228,7 @@ def rewrite_netcdf_file_var( mip_var_cfgs: dict = None,
     fre_logger.info('    time_coord_units = %s', time_coord_units)
 
     # check the calendar of the input netcdf file time coordinate, if present
-    time_coords_calendar = None
-    try:
-        time_coords_calendar = get_time_calendar_value(ds['time'])
-    except Exception:
-        fre_logger.debug('could not read time variable for calendar detection.')
+    time_coords_calendar = get_time_calendar_ds(ds)
 
     # if it's still None, give a warning and move on.
     if time_coords_calendar is None:
@@ -294,7 +293,7 @@ def rewrite_netcdf_file_var( mip_var_cfgs: dict = None,
 
     # now we set up the cmor module object
     # initialize CMOR
-    cmor_logfile = CMOR_LOG
+    cmor_logfile = CMOR_LOG if CMOR_LOG is not None else netcdf_file.replace('.nc','.log') # 'cmor_logfile.log'
     # exit control is per-era: CMIP6Plus tables always warn (see CMOR_EXIT_CTL_BY_ERA)
     cmor_exit_ctl = CMOR_EXIT_CTL_BY_ERA.get(exp_cfg_mip_era, CMOR_EXIT_CTL)
     fre_logger.debug('cmor exit_control for %s = %s', exp_cfg_mip_era, cmor_exit_ctl)
@@ -608,7 +607,8 @@ def rewrite_netcdf_file_var( mip_var_cfgs: dict = None,
     ds.close()
     fre_logger.info('tearing-down the cmor module instance')
     cmor.close()
-    _pprint_cmor_logfile(cmor_logfile)
+    fre_logger.info('cmor module instance torn down. logging the output')
+    _pprint_cmor_logfile(cmor_logfile, filename)
 
     fre_logger.info('-------------------------- END rewrite_netcdf_file_var call -----\n\n')
     return filename
@@ -755,6 +755,13 @@ def cmorize_target_var_files(indir: str = None,
             mv_cmd = f'mv {local_file_name} {filedir}'
             fre_logger.info('moving files...\n%s', mv_cmd)
             subprocess.run(mv_cmd, shell=True, check=True)
+
+            try:
+                if Path(local_file_name.replace('.nc', '.log')).exists():
+                    mv_log_cmd = f"mv {local_file_name.replace('.nc', '.log')} {filedir}"
+                    subprocess.run(mv_log_cmd, shell=True, check=True)
+            except Exception as exc: # this is the fremor.cmor_constants.CMOR_LOGFILE != None case
+                fre_logger.warning('could not move cmor_logfile next to cmorized file, but moving on. exception was:\nexc = %s', exc)
 
         # ------ refactor this into function? #TODO
         # ------ what is the use case for this logic really??
@@ -984,7 +991,7 @@ def cmor_run_subtool(indir: str = None,
     # block is written into the exp config there, and can blank out fields the user filled in.
     check_exp_config_required_attributes(json_exp_config, json_table_config)
     mip_fullvar_list = mip_var_cfgs['variable_entry'].keys()
-    fre_logger.debug('the following variables were read from the table: %s', mip_fullvar_list)
+    fre_logger.ddebug('the following variables were read from the table: %s', mip_fullvar_list)
 
     # make the TABLE's variable list, and brand list (if CMIP7)
     mip_var_list, mip_var_brand_list = None, None
@@ -993,14 +1000,13 @@ def cmor_run_subtool(indir: str = None,
                            'within MIP cmor table configs')
         mip_var_list = [ var.split('_')[0] for var in mip_fullvar_list ]
         mip_var_brand_list = [ var.split('_')[1] for var in mip_fullvar_list ]
-        if len(mip_var_list) != len(mip_var_brand_list):
-            raise ValueError('the number of brands is not one-to-one with the number of variables. check config.')
+
     elif exp_cfg_mip_era in ['CMIP6', 'CMIP6PLUS']:
         mip_var_list = mip_fullvar_list
 
-    fre_logger.debug('list of table variables we will process = \n %s', mip_var_list)
+    fre_logger.ddebug('list of table variables we will process = \n %s', mip_var_list)
     if mip_var_brand_list is not None:
-        fre_logger.debug('the following brands were extracted from the variables: %s', mip_var_brand_list)
+        fre_logger.ddebug('the following brands were extracted from the variables: %s', mip_var_brand_list)
 
     # open USER input variable list, no brands required regardless of CMIP6/7
     # these are largely for targeting GFDL's input files and reading them
@@ -1008,7 +1014,7 @@ def cmor_run_subtool(indir: str = None,
     fre_logger.debug('loading json_var_list = \n%s', json_var_list)
 
     var_list = get_json_file_data(json_var_list)
-    fre_logger.debug('var_list is = \n %s', var_list)
+    fre_logger.ddebug('var_list is = \n %s', var_list)
 
     # CHECK that the user's input variables make sense against those in the targeted table
     # if the check(s) pass, the final list of variables to run is stored in vars_to_run

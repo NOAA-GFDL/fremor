@@ -88,8 +88,8 @@ def cmor_yaml_subtool( yamlfile: str = None,
         )
 
     cmor_yaml_dict = yaml_doc['cmor']
-    fre_logger.debug('yaml loading produced the following dictionary of cmor-settings from yaml: \n%s',
-                     pprint.pformat(cmor_yaml_dict) )
+    fre_logger.ddebug('yaml loading produced the following dictionary of cmor-settings from yaml: \n%s',
+                      pprint.pformat(cmor_yaml_dict) )
 
     mip_era = cmor_yaml_dict['mip_era'].upper()
     fre_logger.info('mip_era = %s', mip_era)
@@ -243,13 +243,13 @@ def cmor_yaml_subtool( yamlfile: str = None,
                                           f'    --exp_config {json_exp_config} \\'+'\n' + \
                                           f'    --outdir {cmor_run_call_outdir} \\'+'\n' + \
                                            '    --run_one \\ \n' + \
-                                          f'    --opt_var_name {opt_var_name} \\'+'\n' + \
                                           f'    --grid_desc "{grid_desc}" \\'+'\n' + \
                                           f'    --grid_label {grid_label} \\'+'\n' + \
                                           f'    --nom_res "{nom_res}" \\'+'\n' + \
                                           f'    --start {start} \\'+'\n' + \
                                           f'    --stop {stop} \\'+'\n' + \
-                                          f'    --calendar {calendar_type}'
+                                          f'    --calendar {calendar_type} \\'+'\n' + \
+                                          f'    --opt_var_name {opt_var_name} \\' + \
                                            '\n' )
                 else:
                     fre_logger.info( '%s', '--DRY RUN CALL---\n' + \
@@ -260,13 +260,13 @@ def cmor_yaml_subtool( yamlfile: str = None,
                                           f'    json_exp_config = {json_exp_config} ,\n' + \
                                           f'    outdir = {cmor_run_call_outdir} ,\n' + \
                                           f'    run_one_mode = {run_one_mode} ,\n' + \
-                                          f'    opt_var_name = {opt_var_name} ,\n' + \
                                           f'    grid = {grid_desc} ,\n' + \
                                           f'    grid_label = {grid_label} ,\n' + \
                                           f'    nom_res = {nom_res} ,\n' + \
                                           f'    start = {start} ,\n' + \
                                           f'    stop = {stop} ,\n' + \
-                                          f'    calendar_type = {calendar_type}'
+                                          f'    calendar_type = {calendar_type} ,\n' + \
+                                          f'    opt_var_name = {opt_var_name}' + \
                                            ')\n' )
                 continue
             try:
