@@ -61,7 +61,5 @@ def test_pprint_cmor_logfile_no_filename(tmp_path, caplog):
     with caplog.at_level(logging.INFO, logger='fremor.cmor_mixer'):
         cmor_mixer._pprint_cmor_logfile(str(logfile), None)
         
-    assert 'log content' in caplog.messages
     assert logfile.exists()  # Ensure the original file is left intact
-
     assert caplog.messages == []
