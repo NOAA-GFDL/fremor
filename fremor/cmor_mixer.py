@@ -52,8 +52,11 @@ from .cmor_constants import ( ACCEPTED_VERT_DIMS, NON_HYBRID_SIGMA_COORDS, ALT_H
 fre_logger = logging.getLogger(__name__)
 
 
-def _pprint_cmor_logfile(cmor_logfile: Optional[str]) -> None:
+def _pprint_cmor_logfile(cmor_logfile: Optional[str],
+                         filename: Optional[str],
+) -> None:
     """Print CMOR's logfile path and contents for verbose runs once CMOR is fully torn down."""
+
     if cmor_logfile is None or fre_logger.getEffectiveLevel() > logging.INFO:
         return
 
@@ -62,9 +65,14 @@ def _pprint_cmor_logfile(cmor_logfile: Optional[str]) -> None:
         fre_logger.warning('cmor logfile requested for screen output but not found: %s', logfile_path)
         return
 
-    print(f'CMOR logfile: {logfile_path.resolve()}')
+    #print(f'CMOR logfile: {logfile_path.resolve()}')
     with open(logfile_path, encoding='utf-8') as handle:
-        print(pformat(handle.read().splitlines()))
+        for line in handle.read().splitlines():
+            fre_logger.info( line )
+
+    if filename is not None:
+        Path(logfile_path).rename( filename.replace('.nc','.log') )
+
 
 def rewrite_netcdf_file_var( mip_var_cfgs: dict = None,
                              local_var: str = None,
@@ -294,7 +302,7 @@ def rewrite_netcdf_file_var( mip_var_cfgs: dict = None,
 
     # now we set up the cmor module object
     # initialize CMOR
-    cmor_logfile = CMOR_LOG
+    cmor_logfile = CMOR_LOG if CMOR_LOG is not None else 'cmor_logfile.log'
     # exit control is per-era: CMIP6Plus tables always warn (see CMOR_EXIT_CTL_BY_ERA)
     cmor_exit_ctl = CMOR_EXIT_CTL_BY_ERA.get(exp_cfg_mip_era, CMOR_EXIT_CTL)
     fre_logger.debug('cmor exit_control for %s = %s', exp_cfg_mip_era, cmor_exit_ctl)
@@ -608,7 +616,8 @@ def rewrite_netcdf_file_var( mip_var_cfgs: dict = None,
     ds.close()
     fre_logger.info('tearing-down the cmor module instance')
     cmor.close()
-    _pprint_cmor_logfile(cmor_logfile)
+    fre_logger.info('cmor module instance torn down. logging the output')
+    _pprint_cmor_logfile(cmor_logfile, filename)
 
     fre_logger.info('-------------------------- END rewrite_netcdf_file_var call -----\n\n')
     return filename
@@ -755,6 +764,13 @@ def cmorize_target_var_files(indir: str = None,
             mv_cmd = f'mv {local_file_name} {filedir}'
             fre_logger.info('moving files...\n%s', mv_cmd)
             subprocess.run(mv_cmd, shell=True, check=True)
+
+            try:
+                if Path(local_file_name.replace('.nc', '.log')).exists():
+                    mv_log_cmd = f"mv {local_file_name.replace('.nc', '.log')} {filedir}"
+                    subprocess.run(mv_log_cmd, shell=True, check=True)
+            except:
+                fre_logger_warning('could not move cmor_logfile next to cmorized file')
 
         # ------ refactor this into function? #TODO
         # ------ what is the use case for this logic really??
