@@ -100,7 +100,7 @@ def get_time_calendar_ds(ds = None):
     
     """
     try:
-        get_time_calendar_value(ds['time'])
+        return get_time_calendar_value(ds['time'])
     except KeyError as exc:
         fre_logger.error('netCDF4 input dataset does not have a time axis')
         raise KeyError from exc
