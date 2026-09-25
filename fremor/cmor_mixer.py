@@ -40,7 +40,7 @@ from .cmor_helpers import ( from_ds_get_this, create_lev_bnds,
                             get_iso_datetime_ranges, check_dataset_for_ocean_grid, get_vertical_dimension,
                             create_tmp_dir, get_json_file_data, update_grid_and_label,
                             update_calendar_type, filter_brands,
-                            normalize_calendar, get_time_calendar_value, calendars_are_equivalent,
+                            normalize_calendar, get_time_calendar_ds, calendars_are_equivalent,
                             resolve_mip_era_table_resource )
 from .cmor_tripolar import load_tripolar_grid
 from .cmor_validate import check_exp_config_required_attributes
@@ -228,7 +228,7 @@ def rewrite_netcdf_file_var( mip_var_cfgs: dict = None,
     fre_logger.info('    time_coord_units = %s', time_coord_units)
 
     # check the calendar of the input netcdf file time coordinate, if present
-    time_coords_calendar = get_time_calendar_value(ds)
+    time_coords_calendar = get_time_calendar_ds(ds)
 
     # if it's still None, give a warning and move on.
     if time_coords_calendar is None:
