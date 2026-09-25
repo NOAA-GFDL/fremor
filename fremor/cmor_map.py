@@ -76,11 +76,19 @@ year(s) its file(s) cover (merged into one range, or several when a year is miss
 pieces of information whether the variable has one file for its whole period or one file per
 year. Selecting it previews its earliest file.
 
+Selecting a MIP table node shows that table_target's grid settings (the ``gridding`` block's
+``grid_label``/``grid_desc``/``nom_res``, or the experiment config's values CMOR falls back to
+without one) and where surface pressure for hybrid-sigma variables will come from (the table's
+own mapped ``ps``, the companion ``.ps.nc`` file, then ``ps_component``/``ps_local_name``).
+'e' opens a dialog to edit those five fields. Like a disabled-flag toggle, the edit is staged
+until saved, counts toward 'R' restore, and is not part of 'u' undo.
+
 Functions
 ---------
 - ``cmor_map_subtool(...)``
 """
 
+import copy
 import glob
 import json
 import logging
@@ -97,15 +105,16 @@ import yaml
 from netCDF4 import Dataset
 from textual import work
 from textual.app import App, ComposeResult
-from textual.containers import Horizontal, Vertical
-from textual.widgets import Footer, Static, Tree
+from textual.containers import Horizontal, Vertical, VerticalScroll
+from textual.screen import ModalScreen
+from textual.widgets import Button, Footer, Input, Label, Static, Tree
 
 from .cmor_check import _build_table_report, _date_range_from_filename, \
     _DMLS_DISK_RESIDENT_STATES, _dmls_state_for_file, \
     _find_dmls_bin, _is_file_staged, _matching_variable_keys, _mip_table_paths, \
     _select_table_names, _varlists_by_table_from_yaml
 from .cmor_config import _bronx_to_iso_chunk, _load_config_yaml
-from .cmor_helpers import get_json_file_data, iso_to_bronx_chunk
+from .cmor_helpers import get_json_file_data, iso_to_bronx_chunk, table_declares_ps
 
 fre_logger = logging.getLogger(__name__)
 
@@ -356,6 +365,86 @@ def _infer_varlist_dir(table_targets: Sequence[dict]) -> Optional[str]:
 
 
 # ---------------------------------------------------------------------------
+# table_target grid / surface-pressure settings
+# ---------------------------------------------------------------------------
+
+# a table_target's gridding block -- fremor yaml needs all three or none, and with none CMOR
+# keeps the experiment config's grid_label / grid / nominal_resolution
+_GRID_FIELDS = ('grid_label', 'grid_desc', 'nom_res')
+# a table_target's optional named surface-pressure source (see resolve_named_ps_source)
+_PS_FIELDS = ('ps_component', 'ps_local_name')
+TABLE_SETTING_FIELDS = _GRID_FIELDS + _PS_FIELDS
+# the table_target keys the settings above live under
+_TABLE_SETTING_KEYS = ('gridding',) + _PS_FIELDS
+# experiment config keys CMOR falls back to when a table_target has no gridding block
+_EXP_GRID_KEYS = {'grid_label': 'grid_label', 'grid_desc': 'grid', 'nom_res': 'nominal_resolution'}
+
+
+def _normalize_table_settings(values: dict) -> dict:
+    """Strip every TABLE_SETTING_FIELDS value, turning blanks into None, and check the
+    combination is one fremor yaml accepts.
+
+    :raises ValueError: if only some of the gridding fields are set, or ps_local_name is set
+        without ps_component.
+    """
+    settings = {}
+    for field in TABLE_SETTING_FIELDS:
+        value = values.get(field)
+        value = str(value).strip() if value is not None else ''
+        settings[field] = value or None
+    grid_set = [field for field in _GRID_FIELDS if settings[field] is not None]
+    if grid_set and len(grid_set) != len(_GRID_FIELDS):
+        raise ValueError('grid_label, grid_desc and nom_res must all be set, or all left empty '
+                         "to use the experiment config's")
+    if settings['ps_local_name'] is not None and settings['ps_component'] is None:
+        raise ValueError('ps_local_name needs a ps_component to read it from')
+    return settings
+
+
+def _format_table_settings(table_name: str, settings: dict, exp_grid: dict, ps_info: dict,
+                           freq: Optional[str] = None) -> str:
+    """Render a table_target's grid and surface-pressure settings for the cmip-tree detail
+    box, shown when a MIP table node itself is selected."""
+    lines = [f'{table_name}' + (f'  (freq={freq})' if freq else ''), '', 'gridding:']
+    if settings['grid_label'] is None:
+        lines.append("  not set -- CMOR uses the experiment config's")
+        for field, exp_key in _EXP_GRID_KEYS.items():
+            lines.append(f'  {field}: {exp_grid.get(field) or "?"}  (exp_json {exp_key})')
+    else:
+        lines.extend(f'  {field}: {settings[field]}' for field in _GRID_FIELDS)
+
+    lines += ['', 'surface pressure (ps), for hybrid-sigma variables -- searched in order:']
+    if not ps_info['declares_ps']:
+        lines.append('  1. table ps: no ps entry in this table')
+    elif ps_info['sources']:
+        sources = ', '.join(f'{comp}:{key}' for comp, key in ps_info['sources'])
+        lines.append(f'  1. table ps: mapped from {sources}')
+    else:
+        lines.append('  1. table ps: in the table, but not mapped')
+    lines.append('  2. the companion .ps.nc file next to each input file')
+    if settings['ps_component'] is None:
+        lines.append('  3. ps_component: not set')
+    else:
+        local_name = settings['ps_local_name'] or 'ps (default)'
+        lines.append(f"  3. ps_component: {settings['ps_component']}, ps_local_name: {local_name}")
+    lines += ['', "press 'e' to edit"]
+    return '\n'.join(lines)
+
+
+def _read_exp_grid(exp_json: Optional[str]) -> dict:
+    """The experiment config's grid values CMOR falls back to, keyed like _GRID_FIELDS --
+    empty if the file is missing or unreadable, since it's only shown for reference."""
+    if not exp_json or not Path(exp_json).is_file():
+        return {}
+    try:
+        exp_data = get_json_file_data(exp_json)
+    except Exception as exc: # pylint: disable=broad-exception-caught
+        fre_logger.warning('could not read exp_json %s: %s', exp_json, exc)
+        return {}
+    return {field: exp_data.get(exp_key) for field, exp_key in _EXP_GRID_KEYS.items()}
+
+
+# ---------------------------------------------------------------------------
 # session: data model + mutation, no UI code
 # ---------------------------------------------------------------------------
 
@@ -436,6 +525,13 @@ class MapSession:
             for name, table_target in self.table_targets_by_name.items()
         }
         self.disabled_dirty = set()  # {table_name, ...} -- staged disabled-flag toggles
+
+        # grid / ps settings staging works the same way: set_table_settings edits the live
+        # table_target dicts, _baseline_table_fields keeps each one's last-saved keys (absent
+        # keys left out) so restore_pending can put them back exactly as they were
+        self._baseline_table_fields = self._snapshot_table_fields()
+        self.settings_dirty = set()  # {table_name, ...} -- staged grid/ps settings edits
+        self.exp_grid = _read_exp_grid(cmor_yaml_ctx['exp_json'])
 
         # like disabled-flag staging, a new target_components entry (staged by set_mapping
         # when mapping a component with no existing entry -- see there) is appended directly
@@ -609,6 +705,75 @@ class MapSession:
         fre_logger.info('staged disabled=%s for table %s (not yet saved)', new_state, table_name)
         return new_state
 
+    def _snapshot_table_fields(self) -> dict:
+        """Deep copy of every loaded table_target's grid/ps keys, leaving absent keys out."""
+        return {
+            name: {key: copy.deepcopy(table_target[key])
+                   for key in _TABLE_SETTING_KEYS if key in table_target}
+            for name, table_target in self.table_targets_by_name.items()
+        }
+
+    @staticmethod
+    def _settings_from_fields(fields: dict) -> dict:
+        """TABLE_SETTING_FIELDS values (None when unset) from a table_target, or from one
+        table's _baseline_table_fields entry."""
+        gridding = fields.get('gridding') or {}
+        settings = {field: gridding.get(field) for field in _GRID_FIELDS}
+        settings.update({field: fields.get(field) for field in _PS_FIELDS})
+        return {field: (str(value) if value not in (None, '') else None)
+                for field, value in settings.items()}
+
+    def table_settings(self, table_name: str) -> dict:
+        """table_name's grid (gridding.grid_label / grid_desc / nom_res) and surface-pressure
+        (ps_component / ps_local_name) settings, None for each one not set -- reflects staged
+        set_table_settings() calls immediately."""
+        return self._settings_from_fields(self.table_targets_by_name[table_name])
+
+    def table_ps_info(self, table_name: str) -> dict:
+        """Whether table_name's MIP table has its own ps entry (``declares_ps``), and the
+        component/local_key sources its varlists currently map to ps (``sources``) -- the
+        first place fremor yaml looks for surface pressure, before the companion file and
+        ps_component."""
+        declares_ps = table_declares_ps(get_json_file_data(self.table_paths[table_name]))
+        sources = _mapped_sources(table_name, self.varlists_by_table).get('ps', [])
+        return {'declares_ps': declares_ps, 'sources': sorted(sources)}
+
+    def set_table_settings(self, table_name: str, values: dict) -> bool:
+        """Stage new grid/ps settings for table_name, written to the cmor yaml by
+        save_pending(). Blank gridding fields leave ``gridding: null`` (CMOR then keeps the
+        experiment config's grid), and blank ps fields are removed from the table_target.
+        Setting them back to their last-saved values drops the table from settings_dirty.
+
+        :param values: TABLE_SETTING_FIELDS -> value; blank or None means unset.
+        :raises ValueError: if the combination is invalid, see _normalize_table_settings.
+        :return: False if nothing changed, else True.
+        :rtype: bool
+        """
+        settings = _normalize_table_settings(values)
+        if settings == self.table_settings(table_name):
+            return False
+
+        table_target = self.table_targets_by_name[table_name]
+        if settings['grid_label'] is None:
+            table_target['gridding'] = None
+        else:
+            gridding = dict(table_target.get('gridding') or {})
+            gridding.update({field: settings[field] for field in _GRID_FIELDS})
+            table_target['gridding'] = gridding
+        for field in _PS_FIELDS:
+            if settings[field] is None:
+                table_target.pop(field, None)
+            else:
+                table_target[field] = settings[field]
+
+        baseline = self._settings_from_fields(self._baseline_table_fields[table_name])
+        if settings == baseline:
+            self.settings_dirty.discard(table_name)
+        else:
+            self.settings_dirty.add(table_name)
+        fre_logger.info('staged grid/ps settings %s for table %s (not yet saved)', settings, table_name)
+        return True
+
     def usage_count(self, component_name: str, local_key: str) -> int:
         """Number of currently-loaded (table, component) varlists in which local_key is
         mapped to a non-empty CMIP variable for the given component -- i.e. how many times
@@ -659,14 +824,21 @@ class MapSession:
 
     @property
     def has_pending_changes(self) -> bool:
-        """True if any staged mapping edit, disabled-flag toggle, or new target_components
-        entry hasn't been written to disk yet."""
-        return bool(self.dirty_keys) or bool(self.disabled_dirty) or bool(self.new_target_components)
+        """True if any staged mapping edit, disabled-flag toggle, grid/ps settings edit, or
+        new target_components entry hasn't been written to disk yet."""
+        return (bool(self.dirty_keys) or bool(self.disabled_dirty) or bool(self.settings_dirty)
+                or bool(self.new_target_components))
+
+    @property
+    def pending_count(self) -> int:
+        """Number of staged edits: mapping edits, disabled-flag toggles and tables with
+        edited grid/ps settings."""
+        return len(self.dirty_keys) + len(self.disabled_dirty) + len(self.settings_dirty)
 
     def _write_yaml_doc(self) -> None:
         """Re-serialize the full cmor yaml document back to yamlfile -- used to persist
-        staged disabled-flag toggles and new target_components entries, both of which live in
-        the yaml itself rather than a varlist JSON file. Rewrites the whole file (not just the
+        staged disabled-flag toggles, grid/ps settings edits and new target_components entries,
+        all of which live in the yaml itself rather than a varlist JSON file. Rewrites the whole file (not just the
         changed lines), so hand-added comments/anchors/formatting in yamlfile won't survive a
         save with either staged."""
         with open(self._yamlfile, 'w', encoding='utf-8') as handle:
@@ -678,11 +850,11 @@ class MapSession:
         any disabled flag was toggled or a new target_components entry was staged, then clear
         dirty tracking and undo history, and re-baseline both for a future restore_pending().
 
-        :return: number of staged edits (mapping edits plus disabled-flag toggles) that were
-            saved.
+        :return: number of staged edits (mapping edits, disabled-flag toggles and grid/ps
+            settings edits) that were saved.
         :rtype: int
         """
-        saved_count = len(self.dirty_keys) + len(self.disabled_dirty)
+        saved_count = self.pending_count
         paths_to_write = {}
         for table_name, component_name, _local_key in self.dirty_keys:
             for component, path, data in self.varlists_by_table.get(table_name, []):
@@ -695,13 +867,15 @@ class MapSession:
                 json.dump(data, handle, indent=4)
             fre_logger.info('saved varlist %s', path)
 
-        if self.disabled_dirty or self.new_target_components:
+        if self.disabled_dirty or self.settings_dirty or self.new_target_components:
             self._write_yaml_doc()
             self._baseline_disabled = {
                 name: bool(table_target.get('disabled'))
                 for name, table_target in self.table_targets_by_name.items()
             }
+            self._baseline_table_fields = self._snapshot_table_fields()
             self.disabled_dirty.clear()
+            self.settings_dirty.clear()
             self.new_target_components.clear()
 
         self.dirty_keys.clear()
@@ -715,17 +889,26 @@ class MapSession:
         state at load time, if nothing has been saved yet). Also clears the undo history,
         since those edits no longer apply once the whole session has been rewound past them.
 
-        :return: number of staged edits (mapping edits plus disabled-flag toggles) that were
-            discarded.
+        :return: number of staged edits (mapping edits, disabled-flag toggles and grid/ps
+            settings edits) that were discarded.
         :rtype: int
         """
-        discarded = len(self.dirty_keys) + len(self.disabled_dirty)
+        discarded = self.pending_count
         self.varlists_by_table = _snapshot_varlists(self._baseline)
         self.dirty_keys.clear()
         self._history.clear()
         for table_name in self.disabled_dirty:
             self.table_targets_by_name[table_name]['disabled'] = self._baseline_disabled[table_name]
         self.disabled_dirty.clear()
+        for table_name in self.settings_dirty:
+            table_target = self.table_targets_by_name[table_name]
+            baseline = self._baseline_table_fields[table_name]
+            for key in _TABLE_SETTING_KEYS:
+                if key in baseline:
+                    table_target[key] = copy.deepcopy(baseline[key])
+                else:
+                    table_target.pop(key, None)
+        self.settings_dirty.clear()
         for table_name, component_name in self.new_target_components:
             target_components = self.table_targets_by_name[table_name].get('target_components') or []
             self.table_targets_by_name[table_name]['target_components'] = [
@@ -740,12 +923,112 @@ class MapSession:
 # the TUI itself
 # ---------------------------------------------------------------------------
 
+class TableSettingsScreen(ModalScreen):
+    """Modal dialog editing one table_target's grid and surface-pressure settings. Dismisses
+    with the entered TABLE_SETTING_FIELDS values (validated, not yet staged), or None if
+    cancelled. Enter in any field or the Stage button submits; Escape or Cancel closes it."""
+
+    CSS = """
+    TableSettingsScreen {
+        align: center middle;
+    }
+    #settings_dialog {
+        width: 80;
+        max-width: 100%;
+        height: auto;
+        max-height: 100%;
+        border: thick $accent;
+        background: $surface;
+        padding: 0 1;
+    }
+    .settings_row {
+        height: 3;
+    }
+    .settings_row Label {
+        width: 16;
+        padding-top: 1;
+    }
+    .settings_row Input {
+        width: 1fr;
+    }
+    #settings_error {
+        color: $error;
+        height: auto;
+    }
+    #settings_buttons {
+        height: auto;
+        margin-top: 1;
+    }
+    #settings_buttons Button {
+        margin-right: 2;
+    }
+    """
+
+    BINDINGS = [('escape', 'cancel', 'Cancel')]
+
+    def __init__(self, table_name: str, settings: dict, exp_grid: dict):
+        super().__init__()
+        self.table_name = table_name
+        self.settings = settings
+        self.exp_grid = exp_grid
+
+    def _placeholder(self, field: str) -> str:
+        if field in _GRID_FIELDS:
+            exp_value = self.exp_grid.get(field)
+            return (f'empty: use exp_json ({exp_value})' if exp_value
+                    else "empty: use the experiment config's")
+        if field == 'ps_component':
+            return 'optional pp component holding ps, e.g. atmos'
+        return 'default: ps'
+
+    def compose(self) -> ComposeResult:
+        with VerticalScroll(id='settings_dialog'):
+            yield Static(f'{self.table_name}: grid and surface-pressure settings')
+            for field in TABLE_SETTING_FIELDS:
+                with Horizontal(classes='settings_row'):
+                    yield Label(field)
+                    yield Input(value=self.settings.get(field) or '',
+                                placeholder=self._placeholder(field), id=f'field_{field}')
+            yield Static('', id='settings_error')
+            with Horizontal(id='settings_buttons'):
+                yield Button('Stage', variant='primary', id='settings_ok')
+                yield Button('Cancel', id='settings_cancel')
+
+    def _submit(self) -> None:
+        values = {field: self.query_one(f'#field_{field}', Input).value
+                  for field in TABLE_SETTING_FIELDS}
+        try:
+            _normalize_table_settings(values)
+        except ValueError as exc:
+            self.query_one('#settings_error', Static).update(str(exc))
+            return
+        self.dismiss(values)
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        """Enter in any field submits the dialog."""
+        event.stop()
+        self._submit()
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        """Stage submits the dialog, Cancel closes it."""
+        event.stop()
+        if event.button.id == 'settings_ok':
+            self._submit()
+        else:
+            self.dismiss(None)
+
+    def action_cancel(self) -> None:
+        """Escape closes the dialog without staging anything."""
+        self.dismiss(None)
+
+
 class MapApp(App):
     """Two-pane TUI: MIP-table mapping-status tree on the left, pp-directory browser +
     NetCDF preview on the right. Press 'm' to stage assigning the selected pp file to the
     selected CMIP variable, 'd' to stage clearing a selected existing mapping, 't' to stage
     toggling the disabled flag of the MIP table currently selected (or containing the
-    currently selected variable/source), 'u' to undo the single most recent staged mapping
+    currently selected variable/source), 'e' to edit that table's grid and surface-pressure
+    settings in a dialog (selecting the table node itself shows them), 'u' to undo the single most recent staged mapping
     edit, 'R' to restore every staged edit back to the last save, 's' to save all staged
     changes to disk, 'r' to refresh the tree, and 'q' to quit ('q' again to confirm if there
     are unsaved staged changes). Staged-but-unsaved mapping nodes are marked in place
@@ -794,6 +1077,7 @@ class MapApp(App):
         ('m', 'assign_mapping', 'Stage mapping'),
         ('d', 'clear_mapping', 'Stage clear'),
         ('t', 'toggle_disabled', 'Toggle table disabled'),
+        ('e', 'edit_table_settings', 'Edit grid/ps'),
         ('u', 'undo', 'Undo last edit'),
         ('R', 'restore_pending', 'Restore to last save'),
         ('s', 'save_pending', 'Save staged changes'),
@@ -858,6 +1142,13 @@ class MapApp(App):
             label += f'\ncurrent source: {data["component"]}:{data["local_key"]}'
         return label
 
+    def _show_table_settings(self, table_name: str) -> None:
+        """Fill the detail box under the cmip tree with a MIP table's grid and
+        surface-pressure settings, shown when the table node itself is selected."""
+        self.query_one('#cmip_detail', Static).update(_format_table_settings(
+            table_name, self.session.table_settings(table_name), self.session.exp_grid,
+            self.session.table_ps_info(table_name), self.session.table_freq(table_name)))
+
     def _update_cmip_detail(self, data: dict) -> None:
         """Refresh the detail box under the cmip tree with the selected variable's own MIP
         table definition (long_name, units, etc.) -- independent of its mapping status."""
@@ -878,12 +1169,17 @@ class MapApp(App):
         table_freq = self.session.table_freq(table_name)
         if table_freq:
             label += f', freq={table_freq}'
+        grid_label = self.session.table_settings(table_name)['grid_label']
+        if grid_label:
+            label += f', grid={grid_label}'
         label += ')'
         disabled = self.session.is_disabled(table_name)
         if disabled:
             label += '  (disabled)'
         pending = sum(1 for (t, _c, _k) in self.session.dirty_keys if t == table_name)
         if table_name in self.session.disabled_dirty:
+            pending += 1
+        if table_name in self.session.settings_dirty:
             pending += 1
         if pending:
             label += f' -- {pending} unsaved'
@@ -1111,6 +1407,8 @@ class MapApp(App):
         if event.control.id == 'cmip_tree':
             if 'table' in data:
                 self.selected_table_name = data['table']
+            if kind == 'table':
+                self._show_table_settings(data['table'])
             if kind not in ('var', 'source'):
                 return
             self.selected_cmip = data
@@ -1284,6 +1582,37 @@ class MapApp(App):
         self._refresh_table_pending_label(table_name)
         self._quit_confirmed = False
 
+    def action_edit_table_settings(self) -> None:
+        """Open the grid/ps settings dialog for the MIP table currently in context."""
+        table_name = self.selected_table_name
+        if table_name is None:
+            self.notify('select a MIP table (or one of its variables) first', severity='warning')
+            return
+        screen = TableSettingsScreen(table_name, self.session.table_settings(table_name),
+                                     self.session.exp_grid)
+        self.push_screen(screen, callback=lambda values: self._stage_table_settings(table_name, values))
+
+    def _stage_table_settings(self, table_name: str, values: Optional[dict]) -> None:
+        """TableSettingsScreen's dismiss callback: stage the entered settings, if any."""
+        if values is None:
+            return
+        try:
+            changed = self.session.set_table_settings(table_name, values)
+        except ValueError as exc:
+            self.notify(str(exc), severity='error')
+            return
+        if not changed:
+            self.notify(f'no changes to {table_name} grid/ps settings', severity='information')
+            return
+        ps_component = self.session.table_settings(table_name)['ps_component']
+        if ps_component and not (Path(self.session.pp_dir) / ps_component).is_dir():
+            self.notify(f'ps_component {ps_component} is not a directory under pp_dir',
+                        severity='warning')
+        self.notify(f"staged grid/ps settings for {table_name} (press 's' to save)")
+        self._refresh_table_pending_label(table_name)
+        self._show_table_settings(table_name)
+        self._quit_confirmed = False
+
     def action_undo(self) -> None:
         edit = self.session.undo()
         if edit is None:
@@ -1317,7 +1646,7 @@ class MapApp(App):
     async def action_quit(self) -> None:
         if self.session.has_pending_changes and not self._quit_confirmed:
             self._quit_confirmed = True
-            count = len(self.session.dirty_keys)
+            count = self.session.pending_count
             self.notify(
                 f'{count} staged change(s) not saved -- press q again to quit anyway, '
                 "or 's' to save first",
