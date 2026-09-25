@@ -47,7 +47,7 @@ def test_pprint_cmor_logfile_missing_file(tmp_path, caplog):
     """A warning is logged if the provided logfile path does not exist."""
     missing_log = tmp_path / 'nonexistent.log'
     
-    with caplog.at_level(logging.INFO, logger='fremor.cmor_mixer'):
+    with caplog.at_level(logging.WARNING, logger='fremor.cmor_mixer'):
         cmor_mixer._pprint_cmor_logfile(str(missing_log), 'dummy_output.nc')
         
     assert 'cmor logfile requested for screen output but not found' in caplog.text
