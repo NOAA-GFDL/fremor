@@ -302,7 +302,7 @@ def rewrite_netcdf_file_var( mip_var_cfgs: dict = None,
 
     # now we set up the cmor module object
     # initialize CMOR
-    cmor_logfile = CMOR_LOG if CMOR_LOG is not None else 'cmor_logfile.log'
+    cmor_logfile = CMOR_LOG if CMOR_LOG is not None else netcdf_file.replace('.nc','.log') # 'cmor_logfile.log'
     # exit control is per-era: CMIP6Plus tables always warn (see CMOR_EXIT_CTL_BY_ERA)
     cmor_exit_ctl = CMOR_EXIT_CTL_BY_ERA.get(exp_cfg_mip_era, CMOR_EXIT_CTL)
     fre_logger.debug('cmor exit_control for %s = %s', exp_cfg_mip_era, cmor_exit_ctl)
