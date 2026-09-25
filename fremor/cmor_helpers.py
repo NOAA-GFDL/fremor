@@ -95,6 +95,16 @@ def calendars_are_equivalent(cal1: Optional[str], cal2: Optional[str]) -> bool:
     """
     return normalize_calendar(cal1) == normalize_calendar(cal2)
 
+def get_time_calendar_ds(ds = None):
+    """
+    
+    """
+    try:
+        get_time_calendar_value(ds['time'])
+    except KeyError as exc:
+        fre_logger.error('netCDF4 input dataset does not have a time axis')
+        raise KeyError from exc
+
 def get_time_calendar_value(time_var) -> Optional[str]:
     """
     Read a time variable's calendar/calendar_type attribute and normalize aliases.
