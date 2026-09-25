@@ -15,7 +15,7 @@ Functions
 - ``cmorize_all_variables_in_dir(...)``
 - ``cmor_run_subtool(...)``
 
-.. note:: The name "mixer" comes from a conversation between Chris Blanton, the original code author (Sergey Nikonov),
+.. note:: The name "mixer" comes from a conversation between Chris Blanton, the original code author Sergey Nikonov,
           and the next author/maintainer, Ian Laflotte, in 2022. Chris wanted to change the name, and Sergey kind of
           enjoyed the original CMORCommander.py, and so did not have any suggestions. Ian, whom was very new and knew
           nothing, suggested "cmor mixer", not truly understanding why. Chris and Sergey decided to go with it.
@@ -228,11 +228,7 @@ def rewrite_netcdf_file_var( mip_var_cfgs: dict = None,
     fre_logger.info('    time_coord_units = %s', time_coord_units)
 
     # check the calendar of the input netcdf file time coordinate, if present
-    time_coords_calendar = None
-    try:
-        time_coords_calendar = get_time_calendar_value(ds['time'])
-    except Exception:
-        fre_logger.debug('could not read time variable for calendar detection.')
+    time_coords_calendar = get_time_calendar_value(ds)
 
     # if it's still None, give a warning and move on.
     if time_coords_calendar is None:
