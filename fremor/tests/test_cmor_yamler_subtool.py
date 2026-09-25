@@ -468,7 +468,7 @@ def test_cmip6_freq_none_derivation_succeeds(tmp_path):
     cmor_yaml_subtool(yamlfile=yamlfile, dry_run_mode=True)
 
 
-def test_dry_run_prints_cli_call(tmp_path):
+def test_dry_run_prints_cli_call(tmp_path, caplog):
     """dry_run_mode=True with print_cli_call=True should not create outputs."""
     local_exp = tmp_path / 'exp.json'
     shutil.copy(EXP_CONFIG, local_exp)
@@ -488,16 +488,23 @@ def test_dry_run_prints_cli_call(tmp_path):
         ),
     )
 
-    cmor_yaml_subtool(
-        yamlfile=yamlfile,
-        dry_run_mode=True,
-        print_cli_call=True,
-    )
+    with caplog.at_level(logging.INFO, logger='fremor.cmor_yamler'):
+        cmor_yaml_subtool(
+            yamlfile=yamlfile,
+            dry_run_mode=True,
+            print_cli_call=True,
+        )
 
     assert not list(outdir.rglob('*.nc'))
+    cli_call = next(
+        record.getMessage()
+        for record in caplog.records
+        if '--DRY RUN CLI CALL---' in record.getMessage()
+    )
+    assert cli_call.index('--calendar julian') < cli_call.index('--opt_var_name ')
 
 
-def test_dry_run_prints_python_call(tmp_path):
+def test_dry_run_prints_python_call(tmp_path, caplog):
     """dry_run_mode=True with print_cli_call=False should not create outputs."""
     local_exp = tmp_path / 'exp.json'
     shutil.copy(EXP_CONFIG, local_exp)
@@ -517,11 +524,19 @@ def test_dry_run_prints_python_call(tmp_path):
         ),
     )
 
-    cmor_yaml_subtool(
-        yamlfile=yamlfile,
-        dry_run_mode=True,
-        print_cli_call=False,
+    with caplog.at_level(logging.INFO, logger='fremor.cmor_yamler'):
+        cmor_yaml_subtool(
+            yamlfile=yamlfile,
+            dry_run_mode=True,
+            print_cli_call=False,
+        )
+
+    python_call = next(
+        record.getMessage()
+        for record in caplog.records
+        if '--DRY RUN CALL---' in record.getMessage()
     )
+    assert python_call.index('calendar_type = julian') < python_call.index('opt_var_name = ')
 
 
 def test_disabled_table_target_is_skipped(tmp_path, caplog):

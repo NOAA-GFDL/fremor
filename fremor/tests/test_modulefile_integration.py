@@ -265,13 +265,13 @@ def _build_case_command(shell_root, case):
             [
                 '--indir', str(shell_root / 'input'),
                 '--varlist', str(Path(VARLIST)),
-                '--table_config', str(Path(CMIP6_TABLE_CONFIG)),
-                '--exp_config', str(shell_root / 'CMOR_input_example.json'),
+                '--table-config', str(Path(CMIP6_TABLE_CONFIG)),
+                '--exp-config', str(shell_root / 'CMOR_input_example.json'),
                 '--outdir', str(shell_root / 'output'),
-                '--run_one',
-                '--grid_label', 'gr',
-                '--grid_desc', 'regridded to FOO grid from native',
-                '--nom_res', '10000 km',
+                '--run-one',
+                '--grid-label', 'gr',
+                '--grid-desc', 'regridded to FOO grid from native',
+                '--nom-res', '10000 km',
                 '--calendar', 'julian',
             ]
         )
@@ -375,8 +375,8 @@ def test_build_case_command_includes_required_run_args_for_success_case(tmp_path
 
     assert '--indir' in command
     assert '--varlist' in command
-    assert '--table_config' in command
-    assert '--exp_config' in command
+    assert '--table-config' in command
+    assert '--exp-config' in command
     assert '--outdir' in command
 
 
@@ -387,8 +387,8 @@ def test_build_case_command_omits_required_run_args_for_error_case(tmp_path):
 
     assert '--indir' not in command
     assert '--varlist' not in command
-    assert '--table_config' not in command
-    assert '--exp_config' not in command
+    assert '--table-config' not in command
+    assert '--exp-config' not in command
     assert '--outdir' not in command
 
 

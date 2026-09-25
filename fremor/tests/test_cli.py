@@ -172,13 +172,13 @@ def test_cli_fremor_yaml_opt_dne():
 
 @patch('fremor.cli.cmor_yaml_subtool')
 def test_cli_fremor_yaml_case1(mock_subtool, tmp_path):
-    """ fremor yaml --dry_run -y YAMLFILE """
+    """ fremor yaml --dry-run -y YAMLFILE """
     dummy_yaml = tmp_path / 'cmor.yaml'
     dummy_yaml.write_text('placeholder', encoding='utf-8')
 
     mock_subtool.return_value = None
 
-    result = runner.invoke(fremor, args=['-v', '-v', 'yaml', '--dry_run',
+    result = runner.invoke(fremor, args=['-v', '-v', 'yaml', '--dry-run',
                                          '-y', str(dummy_yaml)])
 
     assert result.exit_code == 0
@@ -210,7 +210,7 @@ def test_cli_fremor_stage_dry_run(mock_subtool, tmp_path):
 
     result = runner.invoke(fremor, args=[
         'stage', '-y', str(yamlfile), '--start', '2000', '--stop', '2004',
-        '--dmget_bin', '/usr/local/bin/dmget', '--dry_run',
+        '--dmget-bin', '/usr/local/bin/dmget', '--dry-run',
     ])
 
     assert result.exit_code == 0
@@ -227,7 +227,7 @@ def test_cli_fremor_stage_dry_run(mock_subtool, tmp_path):
 
 @patch('fremor.cli.cmor_stage_subtool')
 def test_cli_fremor_stage_non_dry_run(mock_subtool, tmp_path):
-    """Without --dry_run, the stage CLI reports files as already staged."""
+    """Without --dry-run, the stage CLI reports files as already staged."""
     yamlfile = tmp_path / 'cmor.yaml'
     yamlfile.touch()
     mock_subtool.return_value = ['/archive/case/a.nc', '/archive/case/b.nc']
@@ -268,15 +268,15 @@ def test_cli_fremor_check_case(mock_subtool, tmp_path):
 
 
 @patch('fremor.cli.cmor_check_subtool')
-def test_cli_fremor_check_renamed_flags(mock_subtool, tmp_path):
-    """The check CLI accepts the hyphenated names for all optional checks."""
+def test_cli_fremor_check_accepts_hyphen_and_underscore_flags(mock_subtool, tmp_path):
+    """The check CLI accepts mixed hyphenated and underscored aliases for its optional checks."""
     yamlfile = tmp_path / 'cmor.yaml'
     yamlfile.touch()
 
     result = runner.invoke(
         fremor,
-        args=['check', '-y', str(yamlfile), '--show-mapped', '--show-unmapped', '--check-inputs',
-              '--check-dims', '--check-outputs', '--check-attrs', '--check-range'],
+        args=['check', '-y', str(yamlfile), '--show-mapped', '--show_unmapped', '--check-inputs',
+              '--check_dims', '--check-outputs', '--check_attrs', '--check-range'],
     )
 
     assert result.exit_code == 0
@@ -423,16 +423,16 @@ def test_cli_fremor_run_case1(cli_sos_nc_file, tmp_path):
     outdir = str(tmp_path / 'outdir')
 
     result = runner.invoke(fremor, args = [ '-v', '-v',
-                                            'run', '--run_one',
+                                            'run', '--run-one',
                                             '--indir', str(INDIR),
                                             '--varlist', str(VARLIST),
-                                            '--table_config', str(CMIP6_TABLE_CONFIG),
-                                            '--exp_config', str(EXP_CONFIG),
+                                            '--table-config', str(CMIP6_TABLE_CONFIG),
+                                            '--exp-config', str(EXP_CONFIG),
                                             '--outdir', outdir,
                                             '--calendar', 'julian',
-                                            '--grid_label', 'gr',
-                                            '--grid_desc', 'FOO_BAR_PLACEHOLD',
-                                            '--nom_res', '10000 km' ] )
+                                            '--grid-label', 'gr',
+                                            '--grid-desc', 'FOO_BAR_PLACEHOLD',
+                                            '--nom-res', '10000 km' ] )
     assert result.exit_code == 0, f'case1 failed: {result.output}'
 
     output_ncs = list(Path(outdir).rglob('sos_Omon_*.nc'))
@@ -449,16 +449,16 @@ def test_cli_fremor_run_case2(tmp_path):
     outdir = str(tmp_path / 'outdir')
 
     result = runner.invoke(fremor, args = ['-v', '-v',
-                                           'run', '--run_one',
+                                           'run', '--run-one',
                                            '--indir', str(INDIR),
                                            '--varlist', str(VARLIST_DIFF),
-                                           '--table_config', str(CMIP6_TABLE_CONFIG),
-                                           '--exp_config', str(EXP_CONFIG),
+                                           '--table-config', str(CMIP6_TABLE_CONFIG),
+                                           '--exp-config', str(EXP_CONFIG),
                                            '--outdir', outdir,
                                            '--calendar', 'julian',
-                                           '--grid_label', 'gr',
-                                           '--grid_desc', 'FOO_BAR_PLACEHOLD',
-                                           '--nom_res', '10000 km' ] )
+                                           '--grid-label', 'gr',
+                                           '--grid-desc', 'FOO_BAR_PLACEHOLD',
+                                           '--nom-res', '10000 km' ] )
     assert result.exit_code == 0
 
 
@@ -467,16 +467,16 @@ def test_cli_fremor_run_cmip7_case1(cli_sos_nc_file, tmp_path): # pylint: disabl
     outdir = str(tmp_path / 'outdir')
 
     result = runner.invoke(fremor, args = [ '-v', '-v',
-                                            'run', '--run_one',
+                                            'run', '--run-one',
                                             '--indir', str(INDIR),
                                             '--varlist', str(VARLIST),
-                                            '--table_config', str(CMIP7_TABLE_CONFIG),
-                                            '--exp_config', str(EXP_CONFIG_CMIP7),
+                                            '--table-config', str(CMIP7_TABLE_CONFIG),
+                                            '--exp-config', str(EXP_CONFIG_CMIP7),
                                             '--outdir', outdir,
                                             '--calendar', 'julian',
-                                            '--grid_label', 'g010',
-                                            '--grid_desc', 'FOO_BAR_PLACEHOLD',
-                                            '--nom_res', '100 km' ] )
+                                            '--grid-label', 'g010',
+                                            '--grid-desc', 'FOO_BAR_PLACEHOLD',
+                                            '--nom-res', '100 km' ] )
     assert result.exit_code == 0, f'cmip7 case1 failed: {result.output}'
 
     output_ncs = list(Path(outdir).rglob('sos_*.nc'))
@@ -493,16 +493,16 @@ def test_cli_fremor_run_cmip7_case2(cli_sosv2_nc_file, tmp_path):
     outdir = str(tmp_path / 'outdir')
 
     result = runner.invoke(fremor, args = [ '-v', '-v',
-                                            'run', '--run_one',
+                                            'run', '--run-one',
                                             '--indir', str(Path(cli_sosv2_nc_file).parent),
                                             '--varlist', str(VARLIST_DIFF),
-                                            '--table_config', str(CMIP7_TABLE_CONFIG),
-                                            '--exp_config', str(EXP_CONFIG_CMIP7),
+                                            '--table-config', str(CMIP7_TABLE_CONFIG),
+                                            '--exp-config', str(EXP_CONFIG_CMIP7),
                                             '--outdir', outdir,
                                             '--calendar', 'julian',
-                                            '--grid_label', 'g010',
-                                            '--grid_desc', 'FOO_BAR_PLACEHOLD',
-                                            '--nom_res', '100 km' ] )
+                                            '--grid-label', 'g010',
+                                            '--grid-desc', 'FOO_BAR_PLACEHOLD',
+                                            '--nom-res', '100 km' ] )
     assert result.exit_code == 0
 
 
@@ -511,16 +511,16 @@ def test_cli_fremor_run_case3(cli_mapped_nc_file, tmp_path):
     outdir = str(tmp_path / 'outdir')
 
     result = runner.invoke(fremor, args = [ '-v', '-v',
-                                            'run', '--run_one',
+                                            'run', '--run-one',
                                             '--indir', str(INDIR),
                                             '--varlist', str(VARLIST_MAPPED),
-                                            '--table_config', str(CMIP6_TABLE_CONFIG),
-                                            '--exp_config', str(EXP_CONFIG),
+                                            '--table-config', str(CMIP6_TABLE_CONFIG),
+                                            '--exp-config', str(EXP_CONFIG),
                                             '--outdir', outdir,
                                             '--calendar', 'julian',
-                                            '--grid_label', 'gr',
-                                            '--grid_desc', 'FOO_BAR_PLACEHOLD',
-                                            '--nom_res', '10000 km' ] )
+                                            '--grid-label', 'gr',
+                                            '--grid-desc', 'FOO_BAR_PLACEHOLD',
+                                            '--nom-res', '10000 km' ] )
     assert result.exit_code == 0, f'case3 failed: {result.output}'
 
     output_ncs = list(Path(outdir).rglob('sos_Omon_*.nc'))
@@ -533,16 +533,16 @@ def test_cli_fremor_run_cmip7_case3(cli_mapped_nc_file, tmp_path):
     outdir = str(tmp_path / 'outdir')
 
     result = runner.invoke(fremor, args = [ '-v', '-v',
-                                            'run', '--run_one',
+                                            'run', '--run-one',
                                             '--indir', str(INDIR),
                                             '--varlist', str(VARLIST_MAPPED),
-                                            '--table_config', str(CMIP7_TABLE_CONFIG),
-                                            '--exp_config', str(EXP_CONFIG_CMIP7),
+                                            '--table-config', str(CMIP7_TABLE_CONFIG),
+                                            '--exp-config', str(EXP_CONFIG_CMIP7),
                                             '--outdir', outdir,
                                             '--calendar', 'julian',
-                                            '--grid_label', 'g010',
-                                            '--grid_desc', 'FOO_BAR_PLACEHOLD',
-                                            '--nom_res', '100 km' ] )
+                                            '--grid-label', 'g010',
+                                            '--grid-desc', 'FOO_BAR_PLACEHOLD',
+                                            '--nom-res', '100 km' ] )
     assert result.exit_code == 0, f'cmip7 case3 failed: {result.output}'
 
     output_ncs = list(Path(outdir).rglob('sos_*.nc'))
@@ -572,14 +572,14 @@ def test_cli_fremor_find_cmip6_case1():
     """ fremor find, test-use case searching for variables in cmip6 tables """
     result = runner.invoke(fremor, args=['-v', 'find',
                                          '--varlist', str(VARLIST),
-                                         '--table_config_dir', str(CMIP6_TABLE_CONFIG.parent)] )
+                                         '--table-config-dir', str(CMIP6_TABLE_CONFIG.parent)] )
     assert result.exit_code == 0
 
 def test_cli_fremor_find_cmip6_case2():
     """ fremor find, test-use case searching for variables in cmip6 tables """
     result = runner.invoke(fremor, args=['-v', 'find',
-                                         '--opt_var_name', 'sos',
-                                         '--table_config_dir', str(CMIP6_TABLE_CONFIG.parent)] )
+                                         '--opt-var-name', 'sos',
+                                         '--table-config-dir', str(CMIP6_TABLE_CONFIG.parent)] )
     assert result.exit_code == 0
 
 
@@ -658,13 +658,13 @@ def test_cli_fremor_config_case1(cli_sos_nc_file): # pylint: disable=redefined-o
     result = runner.invoke(fremor, args=[
         '-v', '-v',
         'config',
-        '--pp_dir', str(mock_pp_dir),
-        '--mip_tables_dir', str(CMIP6_TABLE_CONFIG.parent),
-        '--mip_era', 'cmip6',
-        '--exp_config', str(EXP_CONFIG),
-        '--output_yaml', str(output_yaml),
-        '--output_dir', str(output_data_dir),
-        '--varlist_dir', str(varlist_out_dir),
+        '--pp-dir', str(mock_pp_dir),
+        '--mip-tables-dir', str(CMIP6_TABLE_CONFIG.parent),
+        '--mip-era', 'cmip6',
+        '--exp-config', str(EXP_CONFIG),
+        '--output-yaml', str(output_yaml),
+        '--output-dir', str(output_data_dir),
+        '--varlist-dir', str(varlist_out_dir),
         '--freq', 'monthly',
         '--chunk', '5yr',
         '--grid', 'gn',
@@ -724,8 +724,8 @@ def test_cli_fremor_varlist_no_table_filter(cli_sos_nc_file, cli_sosv2_nc_file, 
     result = runner.invoke(fremor, args=[
         '-v', '-v',
         'varlist',
-        '--dir_targ', str(Path(cli_sos_nc_file).parent),
-        '--output_variable_list', str(output_varlist)
+        '--dir-targ', str(Path(cli_sos_nc_file).parent),
+        '--output-variable-list', str(output_varlist)
     ])
     assert result.exit_code == 0, f'varlist failed: {result.output}'
     assert output_varlist.exists(), 'output variable list was not created'
@@ -751,9 +751,9 @@ def test_cli_fremor_varlist_cmip6_table_filter(cli_sos_nc_file, cli_sosv2_nc_fil
     result = runner.invoke(fremor, args=[
         '-v', '-v',
         'varlist',
-        '--dir_targ', str(Path(cli_sos_nc_file).parent),
-        '--output_variable_list', str(output_varlist),
-        '--mip_table', str(CMIP6_TABLE_CONFIG)
+        '--dir-targ', str(Path(cli_sos_nc_file).parent),
+        '--output-variable-list', str(output_varlist),
+        '--mip-table', str(CMIP6_TABLE_CONFIG)
     ])
     assert result.exit_code == 0, f'varlist failed: {result.output}'
     assert output_varlist.exists(), 'output variable list was not created'
@@ -781,9 +781,9 @@ def test_cli_fremor_varlist_cmip7_table_filter(cli_sos_nc_file, cli_sosv2_nc_fil
     result = runner.invoke(fremor, args=[
         '-v', '-v',
         'varlist',
-        '--dir_targ', str(Path(cli_sos_nc_file).parent),
-        '--output_variable_list', str(output_varlist),
-        '--mip_table', str(CMIP7_TABLE_CONFIG)
+        '--dir-targ', str(Path(cli_sos_nc_file).parent),
+        '--output-variable-list', str(output_varlist),
+        '--mip-table', str(CMIP7_TABLE_CONFIG)
     ])
     assert result.exit_code == 0, f'varlist failed: {result.output}'
     assert output_varlist.exists(), 'output variable list was not created'
@@ -824,8 +824,8 @@ def test_cli_fremor_init_cmip6_exp_config(tmp_path):
 
     result = runner.invoke(fremor, args=[
         'init',
-        '--mip_era', 'cmip6',
-        '--exp_config', str(output_path)
+        '--mip-era', 'cmip6',
+        '--exp-config', str(output_path)
     ])
     assert result.exit_code == 0, f'init failed: {result.output}'
     assert output_path.exists(), 'output config was not created'
@@ -847,8 +847,8 @@ def test_cli_fremor_init_cmip7_exp_config(tmp_path):
 
     result = runner.invoke(fremor, args=[
         'init',
-        '--mip_era', 'cmip7',
-        '--exp_config', str(output_path)
+        '--mip-era', 'cmip7',
+        '--exp-config', str(output_path)
     ])
     assert result.exit_code == 0, f'init failed: {result.output}'
     assert output_path.exists(), 'output config was not created'
@@ -870,8 +870,8 @@ def test_cli_fremor_init_cmip6plus_exp_config(tmp_path):
 
     result = runner.invoke(fremor, args=[
         'init',
-        '--mip_era', 'cmip6plus',
-        '--exp_config', str(output_path)
+        '--mip-era', 'cmip6plus',
+        '--exp-config', str(output_path)
     ])
     assert result.exit_code == 0, f'init failed: {result.output}'
     assert output_path.exists(), 'output config was not created'
@@ -888,14 +888,14 @@ def test_cli_fremor_init_cmip6plus_exp_config(tmp_path):
 
 def test_cli_fremor_init_cmip6_default_name(tmp_path):
     """
-    fremor init -- when no --exp_config is given and no --tables_dir,
+    fremor init -- when no --exp-config is given and no --tables-dir,
     a default-named file should be created in the current directory.
     """
     # Use CliRunner's isolated_filesystem to avoid polluting the actual working directory
     with runner.isolated_filesystem(temp_dir=tmp_path):
         result = runner.invoke(fremor, args=[
             'init',
-            '--mip_era', 'cmip6'
+            '--mip-era', 'cmip6'
         ])
         assert result.exit_code == 0, f'init failed: {result.output}'
 
@@ -908,14 +908,14 @@ def test_cli_fremor_init_cmip6_default_name(tmp_path):
 
 def test_cli_fremor_init_cmip6plus_default_name(tmp_path):
     """
-    fremor init -- when no --exp_config is given and no --tables_dir,
+    fremor init -- when no --exp-config is given and no --tables-dir,
     a default-named file should be created in the current directory.
     """
     # Use CliRunner's isolated_filesystem to avoid polluting the actual working directory
     with runner.isolated_filesystem(temp_dir=tmp_path):
         result = runner.invoke(fremor, args=[
             'init',
-            '--mip_era', 'cmip6plus'
+            '--mip-era', 'cmip6plus'
         ])
         assert result.exit_code == 0, f'init failed: {result.output}'
 
@@ -930,14 +930,14 @@ def test_cli_fremor_init_cmip6plus_default_name(tmp_path):
 
 def test_cli_fremor_init_cmip7_default_name(tmp_path):
     """
-    fremor init -- when no --exp_config is given and no --tables_dir,
+    fremor init -- when no --exp-config is given and no --tables-dir,
     a default-named file should be created in the current directory.
     """
     # Use CliRunner's isolated_filesystem to avoid polluting the actual working directory
     with runner.isolated_filesystem(temp_dir=tmp_path):
         result = runner.invoke(fremor, args=[
             'init',
-            '--mip_era', 'cmip7'
+            '--mip-era', 'cmip7'
         ])
         assert result.exit_code == 0, f'init failed: {result.output}'
 
@@ -951,15 +951,15 @@ def test_cli_fremor_init_cmip7_default_name(tmp_path):
 
 @patch('fremor.cli.cmor_init_subtool')
 def test_cli_fremor_init_exp_config_and_tables_dir_fast(mock_subtool, tmp_path):
-    """The init CLI forwards both --exp_config and --tables_dir for curl-based retrieval."""
+    """The init CLI forwards both --exp-config and --tables-dir for curl-based retrieval."""
     exp_config = tmp_path / 'experiment.json'
     tables_dir = tmp_path / 'tables'
 
     result = runner.invoke(fremor, args=[
         'init',
-        '--mip_era', 'cmip6',
-        '--exp_config', str(exp_config),
-        '--tables_dir', str(tables_dir),
+        '--mip-era', 'cmip6',
+        '--exp-config', str(exp_config),
+        '--tables-dir', str(tables_dir),
         '--fast',
     ])
 
@@ -975,15 +975,15 @@ def test_cli_fremor_init_exp_config_and_tables_dir_fast(mock_subtool, tmp_path):
 
 @patch('fremor.cli.cmor_init_subtool')
 def test_cli_fremor_init_exp_config_and_tables_dir_git(mock_subtool, tmp_path):
-    """The init CLI forwards both --exp_config and --tables_dir for git-based retrieval."""
+    """The init CLI forwards both --exp-config and --tables-dir for git-based retrieval."""
     exp_config = tmp_path / 'experiment.json'
     tables_dir = tmp_path / 'tables'
 
     result = runner.invoke(fremor, args=[
         'init',
-        '--mip_era', 'cmip7',
-        '--exp_config', str(exp_config),
-        '--tables_dir', str(tables_dir),
+        '--mip-era', 'cmip7',
+        '--exp-config', str(exp_config),
+        '--tables-dir', str(tables_dir),
     ])
 
     assert result.exit_code == 0
@@ -1012,16 +1012,16 @@ def test_cli_fremor_run_with_logfile(cli_sos_nc_file, tmp_path): # pylint: disab
 
     result = runner.invoke(fremor, args=[
         '-vv', '-l', str(log_path),
-        'run', '--run_one',
+        'run', '--run-one',
         '--indir', str(Path(cli_sos_nc_file).parent),
         '--varlist', str(VARLIST),
-        '--table_config', str(CMIP6_TABLE_CONFIG),
-        '--exp_config', str(EXP_CONFIG),
+        '--table-config', str(CMIP6_TABLE_CONFIG),
+        '--exp-config', str(EXP_CONFIG),
         '--outdir', outdir,
         '--calendar', 'julian',
-        '--grid_label', 'gr',
-        '--grid_desc', 'FOO_BAR_PLACEHOLD',
-        '--nom_res', '10000 km',
+        '--grid-label', 'gr',
+        '--grid-desc', 'FOO_BAR_PLACEHOLD',
+        '--nom-res', '10000 km',
     ])
 
     assert result.exit_code == 0, f'run failed: {result.output}'
@@ -1061,13 +1061,13 @@ def test_cli_fremor_run_with_logfile_omission_case(cli_sos_nc_file, cli_sosv2_nc
         'run',
         '--indir', str(Path(cli_sos_nc_file).parent),
         '--varlist', varlist_path,
-        '--table_config', str(CMIP6_TABLE_CONFIG),
-        '--exp_config', str(EXP_CONFIG),
+        '--table-config', str(CMIP6_TABLE_CONFIG),
+        '--exp-config', str(EXP_CONFIG),
         '--outdir', outdir,
         '--calendar', 'julian',
-        '--grid_label', 'gr',
-        '--grid_desc', 'FOO_BAR_PLACEHOLD',
-        '--nom_res', '10000 km',
+        '--grid-label', 'gr',
+        '--grid-desc', 'FOO_BAR_PLACEHOLD',
+        '--nom-res', '10000 km',
     ])
 
     assert result.exit_code == 0, f'run failed: {result.output}'
