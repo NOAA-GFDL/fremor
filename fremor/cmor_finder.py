@@ -79,7 +79,7 @@ def print_var_content(table_config_file: IO[str],
         fre_logger.debug('    cmip7 case detected, checking branded variable content')
         all_branded_vars = proj_table_vars.get('variable_entry', {}).keys()
         relevant_branded_vars = [ branded_var for branded_var in all_branded_vars if var_name in branded_var ]
-        fre_logger.debug('found relevant_branded_vars = %s', relevant_branded_vars)
+        fre_logger.ddebug('found relevant_branded_vars = %s', relevant_branded_vars)
 
         var_content = []
         for relevant_var_name in relevant_branded_vars:
@@ -98,7 +98,7 @@ def print_var_content(table_config_file: IO[str],
             fre_logger.info('\n')
 
             fre_logger.info('in table %s / table_name %s, found %s', table_file_name, table_name, branded_var)
-            fre_logger.debug(brand_var_content[branded_var])
+            fre_logger.ddebug(brand_var_content[branded_var])
             fre_logger.debug(type(brand_var_content[branded_var]))
             for thing in brand_var_content[branded_var]:
                 if thing in DO_NOT_PRINT_LIST:

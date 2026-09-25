@@ -21,6 +21,7 @@ from fremor.cmor_yamler import cmor_yaml_subtool
 ROOTDIR = str(Path(fremor.__file__).parent) + '/tests/test_files'
 VARLIST = f'{ROOTDIR}/varlist'
 EXP_CONFIG = f'{ROOTDIR}/CMOR_input_example.json'
+EXP_CONFIG_CMIP6PLUS = f'{ROOTDIR}/CMOR_CMIP6PLUS_input_example.json'
 CDL_SOURCE = f'{ROOTDIR}/reduced_ascii_files/reduced_ocean_monthly_1x1deg.199301-199302.sos.cdl'
 NC_FILENAME = 'reduced_ocean_monthly_1x1deg.199301-199302.sos.nc'
 
@@ -82,7 +83,8 @@ def _write_table_json(table_dir, era, table_name, frequency='mon'):
     """Write a minimal MIP table JSON file and return the containing directory path."""
     table_dir = Path(table_dir)
     table_dir.mkdir(parents=True, exist_ok=True)
-    (table_dir / f'{era}_{table_name}.json').write_text(
+    prefix = 'MIP' if str(era).upper() == 'CMIP6PLUS' else era
+    (table_dir / f'{prefix}_{table_name}.json').write_text(
         json.dumps({'variable_entry': {'sos': {'frequency': frequency}}}),
         encoding='utf-8',
     )
@@ -466,6 +468,63 @@ def test_cmip6_freq_none_derivation_succeeds(tmp_path):
     )
 
     cmor_yaml_subtool(yamlfile=yamlfile, dry_run_mode=True)
+
+
+def test_cmip6plus_uses_mip_table_prefix(tmp_path, caplog):
+    """CMIP6Plus table targets should resolve `MIP_<table>.json` paths."""
+    local_exp = tmp_path / 'exp.json'
+    shutil.copy(EXP_CONFIG_CMIP6PLUS, local_exp)
+    pp_dir = tmp_path / 'pp'
+    pp_dir.mkdir()
+    outdir = tmp_path / 'out'
+    outdir.mkdir()
+    table_dir = _write_table_json(tmp_path / 'tables', 'CMIP6PLUS', 'Omon')
+    yamlfile = _write_cmor_yaml(
+        tmp_path,
+        _build_cmor_dict(
+            pp_dir=str(pp_dir),
+            table_dir=table_dir,
+            outdir=str(outdir),
+            exp_config=str(local_exp),
+            varlist=VARLIST,
+            mip_era='CMIP6PLUS',
+        ),
+    )
+
+    with caplog.at_level(logging.INFO, logger='fremor.cmor_yamler'):
+        cmor_yaml_subtool(yamlfile=yamlfile, dry_run_mode=True)
+
+    assert f'{table_dir}/MIP_Omon.json' in caplog.text
+
+
+def test_dry_run_yaml_dict_dump_uses_ddebug(tmp_path, caplog):
+    """The full YAML dictionary dump should only appear at DDEBUG level."""
+    local_exp = tmp_path / 'exp.json'
+    shutil.copy(EXP_CONFIG, local_exp)
+    pp_dir = tmp_path / 'pp'
+    pp_dir.mkdir()
+    outdir = tmp_path / 'out'
+    outdir.mkdir()
+    table_dir = _write_table_json(tmp_path / 'tables', 'CMIP6', 'Omon')
+    yamlfile = _write_cmor_yaml(
+        tmp_path,
+        _build_cmor_dict(
+            pp_dir=str(pp_dir),
+            table_dir=table_dir,
+            outdir=str(outdir),
+            exp_config=str(local_exp),
+            varlist=VARLIST,
+        ),
+    )
+
+    with caplog.at_level(logging.DEBUG, logger='fremor.cmor_yamler'):
+        cmor_yaml_subtool(yamlfile=yamlfile, dry_run_mode=True)
+    assert 'yaml loading produced the following dictionary of cmor-settings from yaml' not in caplog.text
+
+    caplog.clear()
+    with caplog.at_level(fremor.DDEBUG_LEVEL_NUM, logger='fremor.cmor_yamler'):
+        cmor_yaml_subtool(yamlfile=yamlfile, dry_run_mode=True)
+    assert 'yaml loading produced the following dictionary of cmor-settings from yaml' in caplog.text
 
 
 def test_dry_run_prints_cli_call(tmp_path):

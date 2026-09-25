@@ -88,8 +88,8 @@ def cmor_yaml_subtool( yamlfile: str = None,
         )
 
     cmor_yaml_dict = yaml_doc['cmor']
-    fre_logger.debug('yaml loading produced the following dictionary of cmor-settings from yaml: \n%s',
-                     pprint.pformat(cmor_yaml_dict) )
+    fre_logger.ddebug('yaml loading produced the following dictionary of cmor-settings from yaml: \n%s',
+                      pprint.pformat(cmor_yaml_dict) )
 
     mip_era = cmor_yaml_dict['mip_era'].upper()
     fre_logger.info('mip_era = %s', mip_era)

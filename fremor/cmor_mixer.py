@@ -1000,7 +1000,7 @@ def cmor_run_subtool(indir: str = None,
     # block is written into the exp config there, and can blank out fields the user filled in.
     check_exp_config_required_attributes(json_exp_config, json_table_config)
     mip_fullvar_list = mip_var_cfgs['variable_entry'].keys()
-    fre_logger.debug('the following variables were read from the table: %s', mip_fullvar_list)
+    fre_logger.ddebug('the following variables were read from the table: %s', mip_fullvar_list)
 
     # make the TABLE's variable list, and brand list (if CMIP7)
     mip_var_list, mip_var_brand_list = None, None
@@ -1014,9 +1014,9 @@ def cmor_run_subtool(indir: str = None,
     elif exp_cfg_mip_era in ['CMIP6', 'CMIP6PLUS']:
         mip_var_list = mip_fullvar_list
 
-    fre_logger.debug('list of table variables we will process = \n %s', mip_var_list)
+    fre_logger.ddebug('list of table variables we will process = \n %s', mip_var_list)
     if mip_var_brand_list is not None:
-        fre_logger.debug('the following brands were extracted from the variables: %s', mip_var_brand_list)
+        fre_logger.ddebug('the following brands were extracted from the variables: %s', mip_var_brand_list)
 
     # open USER input variable list, no brands required regardless of CMIP6/7
     # these are largely for targeting GFDL's input files and reading them
@@ -1024,7 +1024,7 @@ def cmor_run_subtool(indir: str = None,
     fre_logger.debug('loading json_var_list = \n%s', json_var_list)
 
     var_list = get_json_file_data(json_var_list)
-    fre_logger.debug('var_list is = \n %s', var_list)
+    fre_logger.ddebug('var_list is = \n %s', var_list)
 
     # CHECK that the user's input variables make sense against those in the targeted table
     # if the check(s) pass, the final list of variables to run is stored in vars_to_run

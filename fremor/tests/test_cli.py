@@ -117,6 +117,30 @@ def test_cli_fremor_help_and_debuglog(tmp_path):
     assert LOG_INFO_LINE in line_list[0]
     assert LOG_DEBUG_LINE in line_list[1]
 
+@patch('fremor.cli.cmor_yaml_subtool')
+def test_cli_fremor_ddebug_logfile(mock_subtool, tmp_path):
+    """
+    fremor -vvv -l LOG yaml --dry-run -y YAMLFILE
+    """
+    log_file = tmp_path / 'TEST_DDEBUG_LOG.log'
+    dummy_yaml = tmp_path / 'cmor.yaml'
+    dummy_yaml.write_text('placeholder', encoding='utf-8')
+
+    def _emit_ddebug(*args, **kwargs):
+        logging.getLogger('fremor.cli').ddebug('deep debug enabled')
+
+    mock_subtool.side_effect = _emit_ddebug
+
+    result = runner.invoke(
+        fremor,
+        args=['-vvv', '-l', str(log_file), 'yaml', '--dry-run', '-y', str(dummy_yaml)],
+    )
+
+    assert result.exit_code == 0
+    log_text = log_file.read_text(encoding='utf-8')
+    assert 'DDEBUG' in log_text
+    assert 'deep debug enabled' in log_text
+
 def test_cli_fremor_help_and_infolog(tmp_path):
     """
     fremor -v -l LOG yaml --help

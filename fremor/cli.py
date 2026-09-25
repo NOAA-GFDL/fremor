@@ -13,7 +13,7 @@ import sys
 import click
 import yaml as pyyaml
 
-from . import __version__ as version, FORMAT
+from . import __version__ as version, FORMAT, DDEBUG_LEVEL_NUM
 from .cmor_finder import cmor_find_subtool, make_simple_varlist
 from .cmor_mixer import cmor_run_subtool
 from .cmor_yamler import cmor_yaml_subtool
@@ -103,9 +103,10 @@ VARLIST_STRICT_MODE_HELP='if indicated, and given a table and variable names fou
                default = 0,
                required = False,
                count = True,
-               type = click.IntRange(0, 2, clamp=True), # Replaced int with click.IntRange
+               type = click.IntRange(0, 3, clamp=True),
                help = 'Increment logging verbosity from default (logging.WARNING) to logging.INFO. ' + \
-                      'use -vv for logging.DEBUG. will be overridden by -q/--quiet' )
+                      'use -vv for logging.DEBUG and -vvv for logging.DDEBUG. ' + \
+                      'will be overridden by -q/--quiet' )
 @click.option( '-q', '--quiet',
                default = False,
                required = False,
@@ -129,6 +130,8 @@ def fremor(verbose = 0, quiet = False, log_file = None):
         log_level = logging.INFO # -v, more verbose than default
     elif verbose == 2:
         log_level = logging.DEBUG # -vv most verbose
+    elif verbose >= 3:
+        log_level = DDEBUG_LEVEL_NUM # -vvv deepest debug
 
     if quiet:
         log_level = logging.ERROR # least verbose

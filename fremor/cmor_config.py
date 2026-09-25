@@ -68,8 +68,8 @@ def _filter_mip_tables(mip_tables_dir: str, mip_era: str):
         if suffix not in EXCLUDED_TABLE_SUFFIXES:
             filtered.append(table_path)
 
-    fre_logger.debug('filtered MIP tables (%d of %d): %s',
-                     len(filtered), len(all_tables), filtered)
+    fre_logger.ddebug('filtered MIP tables (%d of %d): %s',
+                      len(filtered), len(all_tables), filtered)
     return filtered
 
 
