@@ -62,8 +62,7 @@ MODULEFILE_JOB_CASES = (
         'include_required_run_args': True,
         'expect_success': True,
         'expect_output': True,
-        'expect_stderr_empty': False,
-        'expect_stderr_contains': ['\n! ------\n! All files were closed successfully. \n! ------\n! \n'],
+        'expect_stderr_empty': True,
         'expect_stdout_not_contains': ['[ INFO:', '[DEBUG:', CMOR_OPEN_FRAGMENT, CMOR_CLOSE_FRAGMENT],
     },
     {
