@@ -1009,8 +1009,7 @@ def cmor_run_subtool(indir: str = None,
                            'within MIP cmor table configs')
         mip_var_list = [ var.split('_')[0] for var in mip_fullvar_list ]
         mip_var_brand_list = [ var.split('_')[1] for var in mip_fullvar_list ]
-        if len(mip_var_list) != len(mip_var_brand_list):
-            raise ValueError('the number of brands is not one-to-one with the number of variables. check config.')
+
     elif exp_cfg_mip_era in ['CMIP6', 'CMIP6PLUS']:
         mip_var_list = mip_fullvar_list
 
