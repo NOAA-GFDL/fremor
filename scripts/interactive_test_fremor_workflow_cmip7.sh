@@ -9,9 +9,9 @@ CHECK_VARLIST=1
 CHECK_FIND=1
 CHECK_CONFIG=1
 CHECK_CHECK=1
-CHECK_MAP=1 # NEW TODO
-CHECK_STAGE=0 # NEW TODO
-CHECK_YAML=1
+CHECK_MAP=1
+CHECK_STAGE=1
+CHECK_YAML=0
 
 ## someday
 #CHECK_RESOLVE=1 # WHEN FRE-CLI INTEGRATION POSSIBLE TODO
@@ -166,7 +166,7 @@ else
 				 --mip_era "cmip7" \
 				 --freq "${FREQ}" \
 				 --chunk "${CHUNK}" \
-				 --grid "g999" \
+				 --grid "g225" \
 				 --calendar "noleap" \
 				 --output_yaml "${FREMOR_CONFIG_OUTYAML}" \
 				 --output_dir "${OUTPUT_CMORIZED_DATA_DIR}" \
@@ -182,30 +182,6 @@ else
 fi
 
 
-#### YAML, also RUN, because YAML calls RUN
-if [[ "${CHECK_YAML}" -eq 1 ]]; then
-	echo "not checking fremor yaml"
-else
-
-	echo "setting up fremor yaml check"
-
-	echo "running fremor yaml"
-	echo_and_run fremor -vv yaml \
-				 --yamlfile "${FREMOR_CONFIG_OUTYAML}" \
-				 --start "${PP_START}" \
-				 --stop "${PP_STOP}" \
-				 --print_cli_call \
-				 --dry_run
-	#           --run_strict
-	#           --run_one
-
-	echo "checking the output cmorized data directory for successfully created output"
-	tree ${OUTPUT_CMORIZED_DATA_DIR}/*/*/CMIP/
-
-	echo "checking the output cmorized data directory for created output"
-	echo "number of left-behind tmp outputs (without interpolated pressure style coordinate vars is:"
-	ls ${OUTPUT_CMORIZED_DATA_DIR}/*/*/CMOR_tmp/*nc  | wc -l # | grep -v '\.ps\.' | grep -v '\.phalf\.' | grep -v -c '\.pfull\.'
-fi
 
 #### CHECK
 FREMOR_CHECK_OUTDIR=${WORKING_CWD}/fremor_check_outdir
@@ -269,5 +245,34 @@ else
 #				 --dry_run \
 
 fi
+
+
+
+#### YAML, also RUN, because YAML calls RUN
+if [[ "${CHECK_YAML}" -eq 1 ]]; then
+	echo "not checking fremor yaml"
+else
+
+	echo "setting up fremor yaml check"
+
+	echo "running fremor yaml"
+	echo_and_run fremor -vv -l fremor_log_output_dir/OUTPUT_LOG.log yaml \
+				 --yamlfile "${FREMOR_CONFIG_OUTYAML}" \
+				 --start "${PP_START}" \
+				 --stop "${PP_STOP}"
+#				 --print_cli_call \
+#				 --dry_run
+#                --run_strict \
+#                --run_one \
+
+	echo "checking the output cmorized data directory for successfully created output"
+	tree ${OUTPUT_CMORIZED_DATA_DIR}/*/*/CMIP/
+
+	echo "checking the output cmorized data directory for created output"
+	echo "number of left-behind tmp outputs (without interpolated pressure style coordinate vars is:"
+	ls ${OUTPUT_CMORIZED_DATA_DIR}/*/*/CMOR_tmp/*nc  | wc -l # | grep -v '\.ps\.' | grep -v '\.phalf\.' | grep -v -c '\.pfull\.'
+fi
+
+
 # end where we began
 cd "${WORKING_CWD}" || return
