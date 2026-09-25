@@ -760,8 +760,8 @@ def cmorize_target_var_files(indir: str = None,
                 if Path(local_file_name.replace('.nc', '.log')).exists():
                     mv_log_cmd = f"mv {local_file_name.replace('.nc', '.log')} {filedir}"
                     subprocess.run(mv_log_cmd, shell=True, check=True)
-            except:
-                fre_logger_warning('could not move cmor_logfile next to cmorized file')
+            except Exception as exc: # this is the fremor.cmor_constants.CMOR_LOGFILE != None case
+                fre_logger.warning('could not move cmor_logfile next to cmorized file, but moving on. exception was:\nexc = %s', exc)
 
         # ------ refactor this into function? #TODO
         # ------ what is the use case for this logic really??
