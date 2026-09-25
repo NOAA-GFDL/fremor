@@ -10,16 +10,19 @@ from pathlib import Path
 import pytest
 import yaml
 from netCDF4 import Dataset
+from textual.widgets import Input
 from textual.worker import WorkerCancelled
 
 from fremor.cmor_map import (
     MapApp,
     MapSession,
+    TableSettingsScreen,
     _discover_chunks,
     _discover_freqs,
     _discover_nc_files,
     _discover_pp_components,
     _find_ncinfo_bin,
+    _format_table_settings,
     _format_variable_detail,
     _format_year_coverage,
     _group_pp_files_by_variable,
@@ -2183,3 +2186,220 @@ async def test_map_app_navigate_falls_back_to_mismatched_freq_with_warning(temp_
         pp_tree = app.query_one('#pp_tree')
         assert pp_tree.cursor_node.data['freq'] == 'daily'
         assert any(sev == 'warning' and 'freq' in msg for msg, sev in notifications)
+
+
+# ── table_target grid / surface-pressure settings ───────────────────────────
+
+_GRID_GN = {'grid_label': 'gn', 'grid_desc': 'd', 'nom_res': '100 km'}
+
+
+def _settings(**overrides):
+    values = {'grid_label': None, 'grid_desc': None, 'nom_res': None,
+              'ps_component': None, 'ps_local_name': None}
+    values.update(overrides)
+    return values
+
+
+def _settings_session(root_dir, exp_config=None):
+    pp_dir, varlist_dir, tables_dir = _make_session_fixture(root_dir)
+    if exp_config is not None:
+        (Path(root_dir) / 'exp.json').write_text(json.dumps(exp_config), encoding='utf-8')
+    yamlfile = _amon_yaml(root_dir, pp_dir, varlist_dir, tables_dir)
+    return yamlfile, MapSession(yamlfile)
+
+
+def _saved_table_target(yamlfile):
+    return yaml.safe_load(Path(yamlfile).read_text(encoding='utf-8'))['cmor']['table_targets'][0]
+
+
+def test_mapsession_table_settings_and_exp_grid(temp_dir): # pylint: disable=redefined-outer-name
+    ''' grid settings come from the gridding block, ps ones are unset by default, and the
+    experiment config's grid values are read for reference '''
+    _, session = _settings_session(temp_dir, {'grid_label': 'gr1', 'grid': 'a 1 deg grid',
+                                              'nominal_resolution': '100 km'})
+    assert session.table_settings('Amon') == _settings(**_GRID_GN)
+    assert session.exp_grid == {'grid_label': 'gr1', 'grid_desc': 'a 1 deg grid', 'nom_res': '100 km'}
+
+
+def test_mapsession_exp_grid_missing_file(temp_dir): # pylint: disable=redefined-outer-name
+    ''' a missing exp_json just means there is nothing to show '''
+    _, session = _settings_session(temp_dir)
+    assert session.exp_grid == {}
+
+
+def test_mapsession_set_table_settings_stages_then_saves(temp_dir): # pylint: disable=redefined-outer-name
+    ''' an edit is visible at once, written to the yaml only on save '''
+    yamlfile, session = _settings_session(temp_dir)
+    new = _settings(grid_label=' gr1 ', grid_desc='1x1 degree', nom_res='100 km',
+                    ps_component='atmos', ps_local_name='')
+    assert session.set_table_settings('Amon', new) is True
+    assert session.table_settings('Amon') == _settings(grid_label='gr1', grid_desc='1x1 degree',
+                                                       nom_res='100 km', ps_component='atmos')
+    assert session.settings_dirty == {'Amon'}
+    assert session.has_pending_changes and session.pending_count == 1
+    assert _saved_table_target(yamlfile)['gridding'] == _GRID_GN
+
+    assert session.save_pending() == 1
+    saved = _saved_table_target(yamlfile)
+    assert saved['gridding'] == {'grid_label': 'gr1', 'grid_desc': '1x1 degree', 'nom_res': '100 km'}
+    assert saved['ps_component'] == 'atmos'
+    assert 'ps_local_name' not in saved
+    assert not session.has_pending_changes
+
+
+def test_mapsession_set_table_settings_clearing(temp_dir): # pylint: disable=redefined-outer-name
+    ''' blank grid fields leave gridding: null (fremor yaml then uses the experiment
+    config), and blank ps fields are removed '''
+    yamlfile, session = _settings_session(temp_dir)
+    session.set_table_settings('Amon', _settings(ps_component='atmos', ps_local_name='ps_in'))
+    session.save_pending()
+    assert _saved_table_target(yamlfile)['ps_local_name'] == 'ps_in'
+
+    session.set_table_settings('Amon', _settings())
+    session.save_pending()
+    saved = _saved_table_target(yamlfile)
+    assert saved['gridding'] is None
+    assert 'ps_component' not in saved and 'ps_local_name' not in saved
+
+
+def test_mapsession_set_table_settings_validation_and_no_change(temp_dir): # pylint: disable=redefined-outer-name
+    ''' partial gridding and an orphan ps_local_name are refused; an unchanged submit stages
+    nothing; editing back to the saved values clears the dirty flag '''
+    _, session = _settings_session(temp_dir)
+    with pytest.raises(ValueError, match='must all be set'):
+        session.set_table_settings('Amon', _settings(grid_label='gr1'))
+    with pytest.raises(ValueError, match='needs a ps_component'):
+        session.set_table_settings('Amon', _settings(**_GRID_GN, ps_local_name='ps'))
+    assert session.set_table_settings('Amon', _settings(**_GRID_GN)) is False
+    assert not session.has_pending_changes
+
+    session.set_table_settings('Amon', _settings(**_GRID_GN, ps_component='atmos'))
+    assert session.settings_dirty == {'Amon'}
+    session.set_table_settings('Amon', _settings(**_GRID_GN))
+    assert not session.settings_dirty
+
+
+def test_mapsession_restore_pending_discards_table_settings(temp_dir): # pylint: disable=redefined-outer-name
+    ''' restore puts the table_target back exactly as last saved, keys and all '''
+    yamlfile, session = _settings_session(temp_dir)
+    before = dict(session.table_targets_by_name['Amon'])
+    session.set_table_settings('Amon', _settings(ps_component='atmos'))
+    assert session.restore_pending() == 1
+    assert session.table_targets_by_name['Amon'] == before
+    assert list(session.table_targets_by_name['Amon']) == list(before)
+    assert not session.has_pending_changes
+    assert _saved_table_target(yamlfile)['gridding'] == _GRID_GN
+
+
+def test_mapsession_table_ps_info(temp_dir): # pylint: disable=redefined-outer-name
+    ''' the fixture Amon table has its own ps entry; mapping a local variable to it shows up '''
+    _, session = _settings_session(temp_dir)
+    assert session.table_ps_info('Amon') == {'declares_ps': True, 'sources': []}
+    session.set_mapping('Amon', 'atmos', 'ps_surf', 'ps')
+    assert session.table_ps_info('Amon') == {'declares_ps': True, 'sources': [('atmos', 'ps_surf')]}
+
+
+def test_format_table_settings():
+    ''' grid values or their experiment-config fallback, and the three ps sources in order '''
+    exp_grid = {'grid_label': 'gr1', 'grid_desc': 'a grid', 'nom_res': '100 km'}
+    text = _format_table_settings('Amon', _settings(**_GRID_GN), exp_grid,
+                                  {'declares_ps': True, 'sources': [('atmos', 'ps')]}, 'monthly')
+    assert 'Amon  (freq=monthly)' in text
+    assert 'grid_label: gn' in text and 'nom_res: 100 km' in text
+    assert '1. table ps: mapped from atmos:ps' in text
+    assert '3. ps_component: not set' in text
+
+    text = _format_table_settings('APmonLev', _settings(ps_component='atmos'), exp_grid,
+                                  {'declares_ps': False, 'sources': []})
+    assert "not set -- CMOR uses the experiment config's" in text
+    assert 'grid_label: gr1  (exp_json grid_label)' in text
+    assert '1. table ps: no ps entry in this table' in text
+    assert '3. ps_component: atmos, ps_local_name: ps (default)' in text
+
+
+@pytest.mark.asyncio
+async def test_map_app_table_node_shows_settings_and_label_grid(temp_dir): # pylint: disable=redefined-outer-name
+    ''' selecting a table node fills the detail box with its grid/ps settings, and the table
+    label carries its grid label '''
+    _, session = _settings_session(temp_dir)
+    app = MapApp(session)
+    async with app.run_test() as pilot:
+        table_node = app.query_one('#cmip_tree').root.children[0]
+        assert 'grid=gn' in str(table_node.label)
+        app.on_tree_node_selected(_FakeTreeEvent(table_node, 'cmip_tree'))
+        await pilot.pause()
+        detail = str(app.query_one('#cmip_detail').content)
+        assert 'grid_label: gn' in detail
+        assert '1. table ps: in the table, but not mapped' in detail
+
+
+@pytest.mark.asyncio
+async def test_map_app_edit_table_settings_dialog(temp_dir): # pylint: disable=redefined-outer-name
+    ''' 'e' opens the dialog; letters typed into it stay in the input rather than firing app
+    keys; Enter stages the edit, which 's' then saves '''
+    yamlfile, session = _settings_session(temp_dir)
+    app = MapApp(session)
+    async with app.run_test(size=(120, 40)) as pilot:
+        table_node = app.query_one('#cmip_tree').root.children[0]
+        app.on_tree_node_selected(_FakeTreeEvent(table_node, 'cmip_tree'))
+        await pilot.press('e')
+        await pilot.pause()
+        assert isinstance(app.screen, TableSettingsScreen)
+        assert app.screen.query_one('#field_grid_label', Input).value == 'gn'
+
+        ps_input = app.screen.query_one('#field_ps_component', Input)
+        ps_input.focus()
+        await pilot.press('a', 't', 'm', 'o', 's')  # 's' must not save, 't' must not toggle
+        await pilot.pause()
+        assert ps_input.value == 'atmos'
+        assert not session.is_disabled('Amon')
+
+        await pilot.press('enter')
+        await pilot.pause()
+        assert not isinstance(app.screen, TableSettingsScreen)
+        assert session.table_settings('Amon')['ps_component'] == 'atmos'
+        assert 'unsaved' in str(table_node.label)
+        assert '3. ps_component: atmos' in str(app.query_one('#cmip_detail').content)
+        assert 'ps_component' not in _saved_table_target(yamlfile)
+
+        await pilot.press('s')
+        await pilot.pause()
+    assert _saved_table_target(yamlfile)['ps_component'] == 'atmos'
+
+
+@pytest.mark.asyncio
+async def test_map_app_edit_table_settings_invalid_then_cancel(temp_dir): # pylint: disable=redefined-outer-name
+    ''' an invalid combination keeps the dialog open with the reason; Escape closes it
+    without staging anything '''
+    _, session = _settings_session(temp_dir)
+    app = MapApp(session)
+    async with app.run_test(size=(120, 40)) as pilot:
+        table_node = app.query_one('#cmip_tree').root.children[0]
+        app.on_tree_node_selected(_FakeTreeEvent(table_node, 'cmip_tree'))
+        await pilot.press('e')
+        await pilot.pause()
+        app.screen.query_one('#field_nom_res', Input).value = ''
+        app.screen.query_one('#field_grid_label', Input).focus()
+        await pilot.press('enter')
+        await pilot.pause()
+        assert isinstance(app.screen, TableSettingsScreen)
+        assert 'must all be set' in str(app.screen.query_one('#settings_error').content)
+
+        await pilot.press('escape')
+        await pilot.pause()
+        assert not isinstance(app.screen, TableSettingsScreen)
+    assert not session.has_pending_changes
+
+
+@pytest.mark.asyncio
+async def test_map_app_edit_table_settings_no_selection_warns(temp_dir): # pylint: disable=redefined-outer-name
+    ''' 'e' with no table in context warns instead of opening the dialog '''
+    _, session = _settings_session(temp_dir)
+    app = MapApp(session)
+    async with app.run_test() as pilot:
+        notifications = []
+        app.notify = lambda message, **kwargs: notifications.append((message, kwargs.get('severity')))
+        await pilot.press('e')
+        await pilot.pause()
+        assert not isinstance(app.screen, TableSettingsScreen)
+        assert any(sev == 'warning' for _msg, sev in notifications)
