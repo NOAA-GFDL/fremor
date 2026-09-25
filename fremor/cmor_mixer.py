@@ -170,28 +170,23 @@ def rewrite_netcdf_file_var( mip_var_cfgs: dict = None,
                      var_dim_with_scalars == len(mip_var_cfgs['variable_entry'][mip_var]['dimensions']) ]):
                 brands.append(mip_var.split('_')[1])
 
-        if len(brands)>0:
-            if len(brands)==1:
-                var_brand=brands[0]
-                fre_logger.debug('cmip7 case, extracted brand %s',var_brand)
-            else:
-                fre_logger.warning('cmip7 case, extracted multiple brands %s, attempting disambiguation',
-                                   brands)
-                var_cell_methods = getattr(ds.variables[local_var], 'cell_methods', None)
-                var_standard_name = getattr(ds.variables[local_var], 'standard_name', None) 
-                fre_logger.info('grabbed cell_methods = %s', var_cell_methods)
-                var_brand = filter_brands(
-                    brands, target_var, mip_var_cfgs,
-                    has_time_bnds = 'time_bnds' in ds.variables,
-                    input_vert_dim = get_vertical_dimension(ds, local_var),
-                    cell_methods = var_cell_methods,
-                    standard_name = var_standard_name
-                )
-
+        if len(brands)==1:
+            var_brand=brands[0]
+            fre_logger.debug('cmip7 case, extracted brand %s',var_brand)
         else:
-            fre_logger.error('cmip7 case detected, but dimensions of input data do not match '
-                             'any of those found for the associated brands.')
-            raise ValueError('no variable brand was able to be identified for this CMIP7 case')
+            fre_logger.warning('cmip7 case, extracted multiple brands %s, attempting disambiguation',
+                               brands)
+            var_cell_methods = getattr(ds.variables[local_var], 'cell_methods', None)
+            var_standard_name = getattr(ds.variables[local_var], 'standard_name', None) 
+            fre_logger.info('grabbed cell_methods = %s', var_cell_methods)
+            var_brand = filter_brands(
+                brands, target_var, mip_var_cfgs,
+                has_time_bnds = 'time_bnds' in ds.variables,
+                input_vert_dim = get_vertical_dimension(ds, local_var),
+                cell_methods = var_cell_methods,
+                standard_name = var_standard_name
+            )
+
         fre_logger.debug('cmip7 case, filtered possible brands to %s', var_brand)
     else:
         fre_logger.debug('non-cmip7 case detected, skipping variable brands')
