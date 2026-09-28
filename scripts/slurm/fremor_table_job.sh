@@ -3,24 +3,29 @@
 # fremor_table_job.sh -- slurm job body for ONE MIP table. Submitted by
 # fremor_submit_tables.sh; not meant to be edited per run (edit the submitter).
 #
+# Stages and CMORizes in the same job, so recalled files are processed right
+# away instead of sitting in the disk cache (and risking a purge) while a
+# separate CMOR job waits in the queue:
+#   1. list the table's input files and check they exist
+#   2. dmget offline files from tape and verify (dmls) they are disk-resident
+#   3. run `fremor yaml` (MODE=yaml) or `fremor run` (MODE=run)
+#
 # Environment passed by sbatch --export:
 #   JOB_ENV : env file written by the submitter (MODE, LABEL, TABLE_YAML, ...)
-#   STEP    : "stage" -> list inputs, check existence, dmget, verify on disk
-#             "cmor"  -> re-verify inputs on disk, then fremor yaml / fremor run
 #
 # The #SBATCH lines are fallbacks only; the submitter overrides them.
 # ==============================================================================
 #SBATCH --ntasks=1
-#SBATCH --time=04:00:00
+#SBATCH --time=16:00:00
 #SBATCH --output=fremor_%x.%j.out
 
 set -euo pipefail
 
 : "${JOB_ENV:?JOB_ENV not set, submit via fremor_submit_tables.sh}"
-: "${STEP:?STEP not set (stage|cmor)}"
 # shellcheck source=/dev/null
 source "${JOB_ENV}"   # sourced at top level so declared arrays stay global
 
+STEP=stage
 log() { echo "[$(date '+%F %T')] [${STEP}:${LABEL}] $*"; }
 die() { log "ERROR: $*" >&2; exit 1; }
 
@@ -170,10 +175,6 @@ do_stage() {
 }
 
 do_cmor() {
-    # inputs may have been purged from the disk cache while this job was queued
-    [[ -s ${INPUT_LIST} ]] || list_inputs
-    check_exist
-    stage_inputs
     [[ ${COPY_TO_LOCAL} == 1 ]] && copy_to_local
 
     local fremor_log=${TABLE_WORK}/fremor_${LABEL}.log
@@ -204,8 +205,7 @@ do_cmor() {
     log "done"
 }
 
-case ${STEP} in
-    stage) do_stage ;;
-    cmor)  do_cmor ;;
-    *)     die "unknown STEP '${STEP}'" ;;
-esac
+# stage then cmor back to back, so recalled files are used before they can be purged
+do_stage
+STEP=cmor
+do_cmor
