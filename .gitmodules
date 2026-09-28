@@ -5,6 +5,3 @@
 	path = fremor/tests/test_files/cmip7-cmor-tables
 	url = https://github.com/WCRP-CMIP/cmip7-cmor-tables.git
 	branch = main
-[submodule "fremor/tests/test_files/mip-cmor-tables"]
-	path = fremor/tests/test_files/mip-cmor-tables
-	url = git@github.com:PCMDI/mip-cmor-tables
