@@ -11,6 +11,7 @@ from typing import Optional, Sequence
 import yaml
 
 from .cmor_helpers import get_bronx_freq_from_mip_table, iso_to_bronx_chunk, resolve_named_ps_source
+from .cmor_reduce import varlist_target
 
 
 fre_logger = logging.getLogger(__name__)
@@ -90,9 +91,8 @@ def _table_local_variables(table_path: Path, variable_list_path: Path,
         valid_targets = set(table_variables)
 
     return {
-        local_var for local_var, target_var in variable_list.items()
-        if isinstance(local_var, str) and isinstance(target_var, str) and
-        target_var in valid_targets
+        local_var for local_var, value in variable_list.items()
+        if isinstance(local_var, str) and varlist_target(value) in valid_targets
     }
 
 

@@ -83,6 +83,11 @@ own mapped ``ps``, the companion ``.ps.nc`` file, then ``ps_component``/``ps_loc
 'e' opens a dialog to edit those five fields. Like a disabled-flag toggle, the edit is staged
 until saved, counts toward 'R' restore, and is not part of 'u' undo.
 
+A varlist value may be an object with a reduce method (see ``cmor_reduce``), shown next to its
+mapping in the tree. 'z' picks the selected mapping's reduce method (none / zonal_mean), staged
+like any mapping edit; mapping ('m') onto a variable that is only defined as a zonal mean
+(latitude but no longitude) opens the same picker with zonal_mean highlighted.
+
 Functions
 ---------
 - ``cmor_map_subtool(...)``
@@ -93,6 +98,7 @@ import glob
 import json
 import logging
 import os
+import re
 import shutil
 import subprocess
 import time
@@ -107,7 +113,8 @@ from textual import work
 from textual.app import App, ComposeResult
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import ModalScreen
-from textual.widgets import Button, Footer, Input, Label, Static, Tree
+from textual.widgets import Button, Footer, Input, Label, OptionList, Static, Tree
+from textual.widgets.option_list import Option
 
 from .cmor_check import _build_table_report, _date_range_from_filename, \
     _DMLS_DISK_RESIDENT_STATES, _dmls_state_for_file, \
@@ -115,6 +122,7 @@ from .cmor_check import _build_table_report, _date_range_from_filename, \
     _select_table_names, _varlists_by_table_from_yaml
 from .cmor_config import _bronx_to_iso_chunk, _load_config_yaml
 from .cmor_helpers import get_json_file_data, iso_to_bronx_chunk, table_declares_ps
+from .cmor_reduce import REDUCE_METHODS, parse_varlist_value, varlist_target
 
 fre_logger = logging.getLogger(__name__)
 
@@ -345,10 +353,35 @@ def _mapped_sources(table_name: str, varlists_by_table: dict) -> dict:
     keyed by the mapped value -- whether or not it's actually a real table variable."""
     mapped = defaultdict(list)
     for component, _path, data in varlists_by_table.get(table_name, []):
-        for gfdl_key, cmip_var in data.items():
+        for gfdl_key, value in data.items():
+            cmip_var = varlist_target(value)
             if cmip_var:
                 mapped[cmip_var].append((component, gfdl_key))
     return mapped
+
+
+def _is_zonal_mean(definitions: dict) -> bool:
+    """Whether every one of a variable's MIP table definitions (see
+    MapSession.variable_definitions) is a zonal mean -- has a latitude dimension but no
+    longitude one, e.g. CMIP6 AERmonZ ta. A CMIP7 variable that also has lat-lon brands (e.g.
+    ta) is not, since there the reduce method picks the brand."""
+    if not definitions:
+        return False
+    for entry in definitions.values():
+        dims = entry.get('dimensions') or []
+        dims = dims.split() if isinstance(dims, str) else dims
+        if 'latitude' not in dims or 'longitude' in dims:
+            return False
+    return True
+
+
+def _remapped_value(old_value, cmip_var: str):
+    """The varlist value mapping a key to cmip_var: an object value (see cmor_reduce) keeps
+    its other fields, e.g. its reduce method, when re-pointed at another variable; clearing
+    (cmip_var '') always leaves the plain '' placeholder."""
+    if cmip_var and isinstance(old_value, dict):
+        return {**old_value, 'name': cmip_var}
+    return cmip_var
 
 
 def _infer_varlist_dir(table_targets: Sequence[dict]) -> Optional[str]:
@@ -462,7 +495,7 @@ def _snapshot_varlists(varlists_by_table: dict) -> dict:
     }
 
 
-class MapSession:
+class MapSession: # pylint: disable=too-many-public-methods
     """Loads MIP tables + varlists for a `fremor map` session, computes per-table mapping
     status reports, and stages mapping edits in memory until ``save_pending`` is called --
     edits are visible immediately (e.g. in ``table_report``) but not written to disk until
@@ -591,7 +624,7 @@ class MapSession:
         for component, path, data in entries:
             if component == component_name:
                 old_value = data.get(local_key, _UNSET)
-                data[local_key] = cmip_var
+                data[local_key] = _remapped_value(old_value, cmip_var)
                 break
         else:
             already_declared = any(
@@ -627,7 +660,7 @@ class MapSession:
 
             data = get_json_file_data(path) if Path(path).is_file() else {}
             old_value = data.get(local_key, _UNSET)
-            data[local_key] = cmip_var
+            data[local_key] = _remapped_value(old_value, cmip_var)
             entries.append((component_name, path, data))
 
         self.dirty_keys.add((table_name, component_name, local_key))
@@ -650,10 +683,57 @@ class MapSession:
         for table_name, entries in self.varlists_by_table.items():
             for component, _path, data in entries:
                 if component == component_name:
-                    cmip_var = data.get(local_key)
+                    cmip_var = varlist_target(data.get(local_key))
                     if cmip_var:
                         mapped.append((table_name, cmip_var))
         return sorted(mapped)
+
+    def set_reduce(self, table_name: str, component_name: str, local_key: str,
+                   reduce: Optional[str]) -> bool:
+        """Stage setting (or, with None, removing) the reduce method of an existing mapping
+        -- the value becomes ``{"name": ..., "reduce": ...}``, or the plain name again without
+        one (see cmor_reduce). Goes through the same undo history and dirty tracking as
+        set_mapping.
+
+        :raises ValueError: if the reduce method is unknown, or local_key is not mapped for
+            this table/component.
+        :return: False if the value already had that reduce method, else True.
+        :rtype: bool
+        """
+        if reduce is not None and reduce not in REDUCE_METHODS:
+            raise ValueError(f'unknown reduce method {reduce!r}, expected one of '
+                             f'{sorted(REDUCE_METHODS)}')
+        for component, _path, data in self.varlists_by_table.get(table_name, []):
+            if component == component_name:
+                break
+        else:
+            data = {}
+        old_value = data.get(local_key, _UNSET)
+        cmip_var = varlist_target(None if old_value is _UNSET else old_value)
+        if not cmip_var:
+            raise ValueError(f'{component_name}:{local_key} is not mapped in {table_name}, '
+                             'map it before setting a reduce method')
+        new_value = {'name': cmip_var, 'reduce': reduce} if reduce is not None else cmip_var
+        if new_value == old_value:
+            return False
+
+        data[local_key] = new_value
+        self.dirty_keys.add((table_name, component_name, local_key))
+        self._history.append(_Edit(table_name, component_name, local_key, old_value))
+        fre_logger.info('staged reduce=%s for %s/%s:%s (not yet saved)',
+                        reduce, table_name, component_name, local_key)
+        return True
+
+    def mapping_reduce(self, table_name: str, component_name: str, local_key: str) -> Optional[str]:
+        """The reduce method (e.g. 'zonal_mean') of local_key's varlist value for this
+        table/component, None for a plain name or a malformed value -- see cmor_reduce."""
+        for component, _path, data in self.varlists_by_table.get(table_name, []):
+            if component == component_name:
+                try:
+                    return parse_varlist_value(data.get(local_key))[1]
+                except ValueError:
+                    return None
+        return None
 
     def table_freq(self, table_name: str) -> Optional[str]:
         """The freq configured for table_name's table_target (e.g. 'monthly') -- this is the
@@ -1022,13 +1102,78 @@ class TableSettingsScreen(ModalScreen):
         self.dismiss(None)
 
 
+# what each reduce method (see cmor_reduce) does, for the reduce picker
+_REDUCE_DESCRIPTIONS = {
+    None: 'none -- CMORize the input as it is',
+    'zonal_mean': 'zonal_mean -- average over longitude (needs a 1-D longitude axis)',
+}
+_NO_REDUCE_ID = 'none'
+
+
+class ReduceScreen(ModalScreen):
+    """Modal picker for a mapping's reduce method. Dismisses with ``{'reduce': method}``
+    (method None for no reduction) when an option is chosen with Enter, or None if cancelled
+    with Escape."""
+
+    CSS = """
+    ReduceScreen {
+        align: center middle;
+    }
+    #reduce_dialog {
+        width: 80;
+        max-width: 100%;
+        height: auto;
+        border: thick $accent;
+        background: $surface;
+        padding: 0 1;
+    }
+    #reduce_options {
+        height: auto;
+        margin-top: 1;
+    }
+    """
+
+    BINDINGS = [('escape', 'cancel', 'Cancel')]
+
+    def __init__(self, title: str, current: Optional[str]):
+        super().__init__()
+        self.title_text = title
+        self.current = current
+
+    def compose(self) -> ComposeResult:
+        methods = [None] + sorted(REDUCE_METHODS)
+        options = [Option(_REDUCE_DESCRIPTIONS.get(method, method), id=method or _NO_REDUCE_ID)
+                   for method in methods]
+        with Vertical(id='reduce_dialog'):
+            yield Static(self.title_text)
+            option_list = OptionList(*options, id='reduce_options')
+            option_list.highlighted = methods.index(self.current) if self.current in methods else 0
+            yield option_list
+            yield Static('Enter to stage, Escape to cancel', classes='hint')
+
+    def on_mount(self) -> None:
+        """Focus the options, so the arrow keys and Enter work straight away."""
+        self.query_one('#reduce_options', OptionList).focus()
+
+    def on_option_list_option_selected(self, event: OptionList.OptionSelected) -> None:
+        """Enter on an option chooses it."""
+        event.stop()
+        option_id = event.option.id
+        self.dismiss({'reduce': None if option_id == _NO_REDUCE_ID else option_id})
+
+    def action_cancel(self) -> None:
+        """Escape closes the picker without staging anything."""
+        self.dismiss(None)
+
+
 class MapApp(App):
     """Two-pane TUI: MIP-table mapping-status tree on the left, pp-directory browser +
     NetCDF preview on the right. Press 'm' to stage assigning the selected pp file to the
     selected CMIP variable, 'd' to stage clearing a selected existing mapping, 't' to stage
     toggling the disabled flag of the MIP table currently selected (or containing the
     currently selected variable/source), 'e' to edit that table's grid and surface-pressure
-    settings in a dialog (selecting the table node itself shows them), 'u' to undo the single most recent staged mapping
+    settings in a dialog (selecting the table node itself shows them), 'z' to pick the reduce
+    method of the selected mapping, 'u' to undo the single most recent staged mapping
     edit, 'R' to restore every staged edit back to the last save, 's' to save all staged
     changes to disk, 'r' to refresh the tree, and 'q' to quit ('q' again to confirm if there
     are unsaved staged changes). Staged-but-unsaved mapping nodes are marked in place
@@ -1078,6 +1223,7 @@ class MapApp(App):
         ('d', 'clear_mapping', 'Stage clear'),
         ('t', 'toggle_disabled', 'Toggle table disabled'),
         ('e', 'edit_table_settings', 'Edit grid/ps'),
+        ('z', 'set_reduce', 'Set reduce'),
         ('u', 'undo', 'Undo last edit'),
         ('R', 'restore_pending', 'Restore to last save'),
         ('s', 'save_pending', 'Save staged changes'),
@@ -1121,6 +1267,9 @@ class MapApp(App):
         # on selection and re-prepended to the preview box once the backgrounded nc preview
         # (which replaces the whole box) lands.
         self._selected_pp_mapped_text = ''
+        # (table, component, local_key, cmip_var, node) of the most recent 'm', so 'z' can set a
+        # reduce method on a just-mapped variable whose tree node isn't a source node yet
+        self._last_assigned = None
 
     def compose(self) -> ComposeResult:
         with Horizontal():
@@ -1193,6 +1342,9 @@ class MapApp(App):
         still-mapped node whose (table, component, local_key) has a staged-but-unsaved edit
         is flagged generically -- a cleared mapping never reaches here, since it no longer
         produces a mapped-source node at all once the report is recomputed."""
+        reduce = self.session.mapping_reduce(table_name, component, local_key)
+        if reduce is not None:
+            base_label += f'  (reduce={reduce})'
         if (table_name, component, local_key) in self.session.dirty_keys:
             return base_label + self.PENDING_SUFFIX
         return base_label
@@ -1541,15 +1693,90 @@ class MapApp(App):
             self.notify(str(exc), severity='error')
             return
 
+        assigned_node = None
         if reassigning_source and (old_component, old_local_key) != (component, local_key):
             self.session.clear_mapping(table_name, old_component, old_local_key)
             self._mark_deleted(self.selected_cmip_node, table_name)
         else:
             self._mark_assigned(self.selected_cmip_node, table_name, component, local_key)
+            assigned_node = self.selected_cmip_node
+        self._last_assigned = (table_name, component, local_key, cmip_var, assigned_node)
 
         self.notify(f'staged {local_key} ({component}) -> {cmip_var} in {table_name} '
                    "(press 's' to save)")
         self._quit_confirmed = False
+
+        # a table variable with no longitude (e.g. AERmonZ ta) is usually mapped from a lat-lon
+        # pp file, so offer its zonal mean -- the user picks 'none' if the file is zonal already
+        if _is_zonal_mean(self.session.variable_definitions(table_name, cmip_var)) and \
+                self.session.mapping_reduce(table_name, component, local_key) is None:
+            self._open_reduce_picker(table_name, component, local_key, cmip_var, assigned_node,
+                                     suggested='zonal_mean')
+
+    def _reduce_target(self) -> Optional[tuple]:
+        """(table, component, local_key, cmip_var, node) of the mapping 'z' acts on: the
+        selected source node, or the selected variable if it was just mapped with 'm'."""
+        data = self.selected_cmip
+        if data is None:
+            return None
+        if data.get('kind') == 'source':
+            return (data['table'], data['component'], data['local_key'], data['var'],
+                    self.selected_cmip_node)
+        if self._last_assigned is not None and self._last_assigned[4] is self.selected_cmip_node:
+            return self._last_assigned
+        return None
+
+    def action_set_reduce(self) -> None:
+        """Open the reduce-method picker for the selected mapping."""
+        target = self._reduce_target()
+        if target is None:
+            self.notify('select a mapped component:local_key source (or a variable just mapped '
+                        "with 'm') to set its reduce method", severity='warning')
+            return
+        self._open_reduce_picker(*target)
+
+    def _open_reduce_picker(self, table_name: str, component: str, local_key: str, # pylint: disable=too-many-arguments, too-many-positional-arguments
+                            cmip_var: str, node, suggested: Optional[str] = None) -> None:
+        current = self.session.mapping_reduce(table_name, component, local_key)
+        title = f'reduce method for {table_name} / {cmip_var} <- {component}:{local_key}'
+        if suggested is not None:
+            title += f'\n{cmip_var} has no longitude in {table_name}; suggesting {suggested}'
+        self.push_screen(
+            ReduceScreen(title, suggested if suggested is not None else current),
+            callback=lambda choice: self._stage_reduce(table_name, component, local_key, node,
+                                                       choice))
+
+    def _stage_reduce(self, table_name: str, component: str, local_key: str, node, # pylint: disable=too-many-arguments, too-many-positional-arguments
+                      choice: Optional[dict]) -> None:
+        """ReduceScreen's dismiss callback: stage the chosen reduce method, if any."""
+        if choice is None:
+            return
+        reduce = choice['reduce']
+        try:
+            changed = self.session.set_reduce(table_name, component, local_key, reduce)
+        except ValueError as exc:
+            self.notify(str(exc), severity='error')
+            return
+        if not changed:
+            return
+        if node is not None:
+            node.set_label(self._with_reduce_label(str(node.label), reduce))
+        self._refresh_table_pending_label(table_name)
+        self.notify(f"staged reduce={reduce or 'none'} for {component}:{local_key} in "
+                    f"{table_name} (press 's' to save)")
+        self._quit_confirmed = False
+
+    def _with_reduce_label(self, label: str, reduce: Optional[str]) -> str:
+        """A tree label with its '(reduce=...)' note replaced by `reduce`'s, and marked
+        unsaved unless it already shows a staged '<- component:local_key' assignment."""
+        label = re.sub(r'  \(reduce=[^)]*\)', '', label)
+        if label.endswith(self.PENDING_SUFFIX):
+            label = label[:-len(self.PENDING_SUFFIX)]
+        if reduce is not None:
+            label += f'  (reduce={reduce})'
+        if '  <- ' not in label:
+            label += self.PENDING_SUFFIX
+        return label
 
     def action_clear_mapping(self) -> None:
         if self.selected_cmip is None or self.selected_cmip.get('kind') != 'source':

@@ -105,6 +105,7 @@ from .cmor_check_exp import ( check_exp_config as _check_exp_config, find_emd_gr
                               grid_label_spec, load_cv )
 from .cmor_config import _load_config_yaml
 from .cmor_constants import ACCEPTED_VERT_DIMS, INPUT_TO_MIP_VERT_DIM
+from .cmor_reduce import parse_varlist_value
 from .cmor_helpers import ( find_ps_companion, get_json_file_data, get_vertical_dimension,
                             iso_to_bronx_chunk, resolve_named_ps_source )
 from .cmor_stage import _year_bound
@@ -1001,10 +1002,20 @@ def _build_table_report(table_path: str, mip_era: str, varlists_by_table: dict,
     reference_vars = _reference_vars_for_table(table_path, mip_era)
 
     mapped = defaultdict(list)  # cmip_var -> [(component, gfdl_diag_key), ...]
+    reduce_by_source = {}  # (component, gfdl_diag_key) -> reduce method, see cmor_reduce
+    invalid_entries = []  # values that are neither a name nor a valid {name, reduce} object
     for component, _fname, data in varlists_by_table.get(table_name, []):
-        for gfdl_key, cmip_var in data.items():
+        for gfdl_key, value in data.items():
+            try:
+                cmip_var, reduce = parse_varlist_value(value)
+            except ValueError as exc:
+                invalid_entries.append({'component': component, 'local_key': gfdl_key,
+                                        'error': str(exc)})
+                continue
             if cmip_var:
                 mapped[cmip_var].append((component, gfdl_key))
+                if reduce is not None:
+                    reduce_by_source[(component, gfdl_key)] = reduce
 
     unmapped = sorted(reference_vars - set(mapped))
     multiply_mapped = {
@@ -1023,6 +1034,14 @@ def _build_table_report(table_path: str, mip_era: str, varlists_by_table: dict,
         'multiply_mapped': multiply_mapped,
         'unknown_mapped': unknown_mapped,
     }
+
+    # only present when there is something to say, so reports for plain varlists are unchanged
+    if invalid_entries:
+        report_entry['invalid_entries'] = invalid_entries
+    reduced = {var: reduce_by_source[source] for var, source in one_to_one_mapped.items()
+               if source in reduce_by_source}
+    if reduced:
+        report_entry['reduce'] = reduced
 
     if show_mapped:
         report_entry['one_to_one_mapped'] = one_to_one_mapped
@@ -1166,14 +1185,25 @@ def _print_report(report: dict, show_mapped: bool = False,
         for var in unknown_mapped:
             click.echo(f'      - {var}')
 
+        invalid_entries = entry.get('invalid_entries', [])
+        if invalid_entries:
+            click.echo(_category_line(
+                'INVALID', len(invalid_entries),
+                'varlist values that are neither a name nor a {name, reduce} object',
+                nonzero_fg='red'))
+            for invalid in invalid_entries:
+                click.echo(f'      - {invalid["component"]}:{invalid["local_key"]}: {invalid["error"]}')
+
         if show_mapped:
             one_to_one = entry.get('one_to_one_mapped', {})
+            reduced = entry.get('reduce', {})
             click.echo(_category_line(
                 'MAPPED', len(one_to_one), 'mapped from exactly one component/diagnostic',
                 nonzero_fg='green'))
             for var in sorted(one_to_one):
                 comp, key = one_to_one[var]
-                click.echo(f'      - {var}: {comp}:{key}')
+                suffix = f' (reduce={reduced[var]})' if var in reduced else ''
+                click.echo(f'      - {var}: {comp}:{key}{suffix}')
 
         files = entry.get('files')
         if files is not None:
@@ -1367,8 +1397,9 @@ def cmor_check_subtool(
         match any table_target, yamlfile's ``start``/``stop`` isn't a four-digit year, or
         check_output is True but yamlfile has no ``directories.outdir`` set.
     :return: enabled table_name -> report dict, with keys 'reference_var_count', 'unmapped',
-             'multiply_mapped', 'unknown_mapped', (if show_mapped) 'one_to_one_mapped', and
-             (if check_staging or check_dims or check_output or check_attrs or check_range)
+             'multiply_mapped', 'unknown_mapped', (if show_mapped) 'one_to_one_mapped', (if any
+             varlist value is malformed) 'invalid_entries', (if any one-to-one mapping has a
+             reduce method) 'reduce', and (if check_staging or check_dims or check_output or check_attrs or check_range)
              'files'. Disabled table targets are omitted. With check_exp_config, the extra key
              '_exp_config' holds the experiment-config findings.
     :rtype: dict

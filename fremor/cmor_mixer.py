@@ -46,6 +46,7 @@ from .cmor_helpers import ( from_ds_get_this, create_lev_bnds,
                             update_calendar_type, filter_brands,
                             normalize_calendar, get_time_calendar_value, calendars_are_equivalent,
                             resolve_mip_era_table_resource, find_ps_companion, table_declares_ps )
+from .cmor_reduce import REDUCE_METHODS, apply_reduce, parse_varlist_value
 from .cmor_tripolar import load_tripolar_grid
 from .cmor_validate import check_exp_config_required_attributes
 from .cmor_constants import ( ACCEPTED_VERT_DIMS, NON_HYBRID_SIGMA_COORDS, ALT_HYBRID_SIGMA_COORDS,
@@ -143,13 +144,14 @@ def _iso_daterange_years(iso_daterange: str) -> Optional[tuple]:
 
 def expected_output_prefix(input_file: str, local_var: str, target_var: str,
                            mip_var_cfgs: dict, json_table_config: str,
-                           mip_era: str) -> Optional[str]:
+                           mip_era: str, reduce: Optional[str] = None) -> Optional[str]:
     """
     The filename prefix CMOR gives ``target_var``'s output: ``<variable_id>_<table>_``
     (CMIP6/CMIP6Plus, e.g. ``tas_Amon_``) or ``<variable_id>_<brand>_`` (CMIP7, e.g.
     ``tas_tavg-h2m-hxy-u_``). A CMIP7 variable with several brands in the table (e.g. tas's
     time-mean, max and min) needs the brand the input data would get, so only then is the
-    input file's header opened, to pick it the same way the CMORization does.
+    input file's header opened, to pick it the same way the CMORization does -- counting the
+    dimensions left after the variable list's ``reduce`` method, if any.
 
     :return: The prefix, or None if it cannot be determined.
     :rtype: str or None
@@ -165,7 +167,8 @@ def expected_output_prefix(input_file: str, local_var: str, target_var: str,
         return f'{target_var}_{brands[0]}_'
     try:
         with nc.Dataset(input_file, 'r') as ds:
-            var_dim = ds.variables[local_var].ndim + len(_scalar_z_coords(ds, local_var))
+            var_dim = ds.variables[local_var].ndim + len(_scalar_z_coords(ds, local_var)) - \
+                REDUCE_METHODS.get(reduce, 0)
             var_brand = resolve_cmip7_brand(ds, local_var, target_var, mip_var_cfgs, var_dim)
     except Exception as exc:  # pylint: disable=broad-except
         fre_logger.warning('could not resolve the CMIP7 brand of %s in %s to look for '
@@ -751,7 +754,8 @@ def cmorize_target_var_files(indir: str = None,
                              run_one_mode: bool = False,
                              ps_source: Optional[Dict[str, str]] = None,
                              ps_fallback: Optional[Dict[str, str]] = None,
-                             existing_outputs: Optional[List[Path]] = None):
+                             existing_outputs: Optional[List[Path]] = None,
+                             reduce: Optional[str] = None):
     """
     CMORize a target variable across all NetCDF files in a directory.
 
@@ -784,6 +788,9 @@ def cmorize_target_var_files(indir: str = None,
     :param existing_outputs: If given (see ``index_existing_outputs``), input files whose output
                              is already among these are skipped rather than CMORized again.
     :type existing_outputs: list of Path, optional
+    :param reduce: Optional reduce method from the variable list (see ``cmor_reduce``), applied to
+                   each input file's working copy before CMORization, e.g. ``'zonal_mean'``.
+    :type reduce: str, optional
     :raises ValueError: See function body for details.
     :raises OSError: See function body for details.
     :raises Exception: See function body for details.
@@ -820,7 +827,7 @@ def cmorize_target_var_files(indir: str = None,
 
         if existing_outputs is not None:
             prefix = expected_output_prefix(nc_fls[i], local_var, target_var,
-                                            mip_var_cfgs, json_table_config, mip_era)
+                                            mip_var_cfgs, json_table_config, mip_era, reduce)
             existing_output = find_existing_output(prefix, iso_datetime, existing_outputs)
             if existing_output is not None:
                 fre_logger.info('output already exists, skipping input file %s: %s',
@@ -833,6 +840,7 @@ def cmorize_target_var_files(indir: str = None,
 
         fre_logger.info('nc_file_work = %s', nc_file_work)
         shutil.copy(nc_fls[i], nc_file_work)
+        apply_reduce(nc_file_work, local_var, reduce)
 
         # if a ps file is found, we'll copy it to the work directory too
         nc_ps_file, ps_var, ps_searched = find_ps_companion(nc_fls[i], local_var,
@@ -951,7 +959,8 @@ def cmorize_all_variables_in_dir(vars_to_run: Dict[str, Any],
                                  run_one_mode: bool,
                                  ps_source: Optional[Dict[str, str]] = None,
                                  ps_fallback: Optional[Dict[str, str]] = None,
-                                 existing_outputs: Optional[List[Path]] = None) -> int:
+                                 existing_outputs: Optional[List[Path]] = None,
+                                 var_reduce: Optional[Dict[str, str]] = None) -> int:
     """
     CMORize all variables in a directory according to a variable mapping.
 
@@ -979,6 +988,8 @@ def cmorize_all_variables_in_dir(vars_to_run: Dict[str, Any],
     :type ps_fallback: dict, optional
     :param existing_outputs: Existing output files to skip inputs for, see ``cmorize_target_var_files``.
     :type existing_outputs: list of Path, optional
+    :param var_reduce: Reduce method per modeler variable name, from the variable list's object values.
+    :type var_reduce: dict, optional
     :return: 0 if last file processed was successful, 1 if last file processed failed, -1 if no files were processed.
     :rtype: int
 
@@ -1003,7 +1014,8 @@ def cmorize_all_variables_in_dir(vars_to_run: Dict[str, Any],
                                      name_of_set, json_exp_config, outdir,
                                      mip_var_cfgs, json_table_config, run_one_mode,
                                      ps_source=ps_source, ps_fallback=ps_fallback,
-                                     existing_outputs=existing_outputs)
+                                     existing_outputs=existing_outputs,
+                                     reduce=(var_reduce or {}).get(local_var))
             return_status = 0
         except Exception as exc:
             return_status = 1
@@ -1190,8 +1202,18 @@ def cmor_run_subtool(indir: str = None,
     json_var_list = str(Path(json_var_list).resolve())
     fre_logger.debug('loading json_var_list = \n%s', json_var_list)
 
-    var_list = get_json_file_data(json_var_list)
-    fre_logger.debug('var_list is = \n %s', var_list)
+    raw_var_list = get_json_file_data(json_var_list)
+    fre_logger.debug('var_list is = \n %s', raw_var_list)
+
+    # a value is either the MIP variable name, or {"name": ..., "reduce": ...} (see cmor_reduce)
+    var_list, var_reduce = {}, {}
+    for local_var, value in raw_var_list.items():
+        try:
+            var_list[local_var], reduce = parse_varlist_value(value)
+        except ValueError as exc:
+            raise ValueError(f'invalid entry for {local_var} in {json_var_list}: {exc}') from exc
+        if reduce is not None:
+            var_reduce[local_var] = reduce
 
     # CHECK that the user's input variables make sense against those in the targeted table
     # if the check(s) pass, the final list of variables to run is stored in vars_to_run
@@ -1210,6 +1232,8 @@ def cmor_run_subtool(indir: str = None,
         fre_logger.info('%s found in %s', var_list[local_var], Path(json_table_config).name)
         vars_to_run[local_var] = var_list[local_var]
     fre_logger.info('vars_to_run = %s', vars_to_run)
+    if var_reduce:
+        fre_logger.info('reduce methods: %s', var_reduce)
 
     # CHECK that there's at least one variable to run after comparing use inputs vars to MIP config input vars
     if len(vars_to_run) < 1:
@@ -1269,4 +1293,4 @@ def cmor_run_subtool(indir: str = None,
                                          indir, iso_datetime_range_arr, name_of_set, json_exp_config,
                                          outdir, mip_var_cfgs, json_table_config, run_one_mode,
                                          ps_source=ps_source, ps_fallback=ps_fallback,
-                                         existing_outputs=existing_outputs )
+                                         existing_outputs=existing_outputs, var_reduce=var_reduce )

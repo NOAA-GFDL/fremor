@@ -34,6 +34,7 @@ import numpy as np
 from netCDF4 import Dataset, Variable
 
 from .cmor_helpers import get_json_file_data
+from .cmor_reduce import varlist_target
 from .cmor_constants import DO_NOT_PRINT_LIST
 
 fre_logger = logging.getLogger(__name__)
@@ -183,7 +184,7 @@ def cmor_find_subtool( json_var_list: Optional[str] = None,
         fre_logger.info('looking for %s variables worth of info', len(var_list))
         for var in var_list:
             print_var_content_in_dir_w_mip_tables(json_table_configs=json_table_configs,
-                                                  var_name=var_list[var])
+                                                  var_name=varlist_target(var_list[var]))
 
 # base frequencies recognized from an input file's time spacing, as (name, low, high) in days
 _SPACING_TO_BASE_FREQ = (

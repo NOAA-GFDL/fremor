@@ -136,6 +136,38 @@ entry (rather than writing a file full of empty-value entries), use ``--strict_m
 If no variables match, nothing is written and the tool exits without error. This is useful for
 batch workflows where many components are checked against many tables and most pairs have no overlap.
 
+.. _varlist-reduce:
+
+**Reducing the input (zonal means)**
+
+A value can also be an object naming the MIP variable together with a ``reduce`` method applied to
+the input before CMORization. This writes a zonal-mean table (e.g. CMIP6 ``AERmonZ``, CMIP6Plus
+``APmonZ``, or a CMIP7 ``-hy-`` brand such as ``ta_tavg-p39-hy-air``) straight from the lat-lon time
+series already used for the lat-lon table:
+
+.. code-block:: json
+
+   {
+       "ta": {"name": "ta", "reduce": "zonal_mean"},
+       "ua": {"name": "ua", "reduce": "zonal_mean"}
+   }
+
+* ``name`` — the MIP table variable, as a plain value would give it (``""`` means unmapped)
+* ``reduce`` — optional. ``zonal_mean`` averages over longitude, weighted by the longitude cell widths
+  (``lon_bnds``) when present and ignoring missing values; latitude circles with no valid data stay
+  missing. It needs a 1-D longitude axis, so data on a native tripolar or cubed-sphere grid must be
+  regridded to lat-lon first. The ``lon`` coordinate and its bounds are dropped, so CMOR sees a
+  latitude-only variable
+
+Only the working copy CMOR reads is reduced; the pp files are never modified. The key is still the
+local variable name in the pp filenames and files. Set the zonal-mean table target's ``gridding`` to
+the grid label you want to publish, e.g. ``grz``/``gr1z`` in CMIP6, since CMOR does not add the ``z``
+itself. ``fremor check``, ``fremor stage`` and ``fremor map`` all read object values;
+``fremor check`` lists any malformed ones under ``INVALID``. In ``fremor map``, ``z`` sets or removes
+the reduce method of the selected mapping, mapping a zonal-mean table variable with ``m`` offers
+``zonal_mean`` straight away, and the reduce method is shown next to the mapping and kept when the
+mapping is re-pointed.
+
 To verify variables exist in MIP tables, search for variable definitions:
 
 .. code-block:: bash
