@@ -710,6 +710,8 @@ def cmorize_target_var_files(indir: str = None,
                                                       json_table_config,
                                                       prev_path=nc_fls[i] )
         except Exception as exc:
+            cmor_logfile = CMOR_LOG if CMOR_LOG is not None else nc_file_work.replace('.nc','.log')
+            _pprint_cmor_logfile(cmor_logfile, None)            
             raise Exception(
                 'problem with rewrite_netcdf_file_var. '
                 f'exc={exc}\n'
@@ -922,7 +924,7 @@ def cmor_run_subtool(indir: str = None,
         fre_logger.warning('CMIP7 config detected, will be expecting and enforcing variable brands.')
 
     if exp_cfg_mip_era == 'CMIP6PLUS':
-        exp_cfg_mip_era = 'CMIP6'
+        #exp_cfg_mip_era = 'CMIP6'
         fre_logger.warning('CMIP6Plus config detected, capability under development, treating as a CMIP6 case for now')
 
     # CHECK optional grid/grid_label/nom_res inputs from exp config, the function raises the potential error conditions
