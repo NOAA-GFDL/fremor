@@ -22,6 +22,7 @@ from typing import Optional
 import yaml
 
 from .cmor_mixer import cmor_run_subtool
+from .cmor_reduce import varlist_target
 from .cmor_helpers import ( check_path_existence, iso_to_bronx_chunk,
                             get_bronx_freq_from_mip_table, get_json_file_data,
                             table_declares_ps, resolve_named_ps_source )
@@ -64,8 +65,8 @@ def _find_table_ps_source(json_mip_table_config: str, table_components_list: lis
             fre_logger.warning('could not read %s while looking for a ps mapping, skipping it',
                                targ_comp_config['variable_list'])
             continue
-        for local_var, target_var in var_list.items():
-            if target_var == 'ps':
+        for local_var, value in var_list.items():
+            if varlist_target(value) == 'ps':
                 ps_mappings.append((targ_comp_config, local_var))
 
     if not ps_mappings:

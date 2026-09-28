@@ -16,6 +16,7 @@ from textual.worker import WorkerCancelled
 from fremor.cmor_map import (
     MapApp,
     MapSession,
+    ReduceScreen,
     TableSettingsScreen,
     _discover_chunks,
     _discover_freqs,
@@ -23,6 +24,7 @@ from fremor.cmor_map import (
     _discover_pp_components,
     _find_ncinfo_bin,
     _format_table_settings,
+    _is_zonal_mean,
     _format_variable_detail,
     _format_year_coverage,
     _group_pp_files_by_variable,
@@ -2402,4 +2404,175 @@ async def test_map_app_edit_table_settings_no_selection_warns(temp_dir): # pylin
         await pilot.press('e')
         await pilot.pause()
         assert not isinstance(app.screen, TableSettingsScreen)
+        assert any(sev == 'warning' for _msg, sev in notifications)
+
+
+# ── varlist object values (see cmor_reduce) ─────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_map_app_object_varlist_values(temp_dir): # pylint: disable=redefined-outer-name
+    ''' an object value counts as a mapping, its reduce method shows in the tree label, and
+    re-pointing it at another variable keeps the reduce method '''
+    pp_dir, varlist_dir, tables_dir = _make_session_fixture(temp_dir)
+    (Path(varlist_dir) / 'CMIP6_Amon_atmos.list').write_text(
+        json.dumps({'t_ref': {'name': 'tas', 'reduce': 'zonal_mean'}}), encoding='utf-8')
+    yamlfile = _amon_yaml(temp_dir, pp_dir, varlist_dir, tables_dir, component_names=['atmos'])
+    session = MapSession(yamlfile)
+    assert session.mapped_variables('atmos', 't_ref') == [('Amon', 'tas')]
+    assert session.mapping_reduce('Amon', 'atmos', 't_ref') == 'zonal_mean'
+
+    app = MapApp(session)
+    async with app.run_test():
+        mapped_node = app.query_one('#cmip_tree').root.children[0].children[1]
+        assert [str(node.label) for node in mapped_node.children] == \
+            ['tas <- atmos:t_ref  (reduce=zonal_mean)']
+
+    session.set_mapping('Amon', 'atmos', 't_ref', 'pr')
+    session.save_pending()
+    saved = json.loads((Path(varlist_dir) / 'CMIP6_Amon_atmos.list').read_text(encoding='utf-8'))
+    assert saved == {'t_ref': {'name': 'pr', 'reduce': 'zonal_mean'}}
+
+
+# ── setting a mapping's reduce method ('z') ─────────────────────────────────
+
+def _zonal_fixture(root_dir, varlist=None):
+    ''' an AmonZ-like table: ta has no longitude (zonal mean), tas is lat-lon; an atmos pp
+    component holding ta; optionally a varlist for it '''
+    pp_dir, varlist_dir, tables_dir = _make_session_fixture(root_dir)
+    (Path(tables_dir) / 'CMIP6_AmonZ.json').write_text(json.dumps({
+        'Header': {'table_id': 'Table AmonZ'},
+        'variable_entry': {
+            'ta': {'dimensions': 'latitude plev19 time'},
+            'tas': {'dimensions': 'longitude latitude time height2m'},
+        }}), encoding='utf-8')
+    ts_dir = Path(pp_dir) / 'atmos' / 'ts' / 'monthly' / '5yr'
+    ts_dir.mkdir(parents=True)
+    _write_nc_file(ts_dir / 'atmos.000101-000512.ta.nc', 'ta', units='K')
+    varlist_path = Path(varlist_dir) / 'CMIP6_AmonZ_atmos.list'
+    if varlist is not None:
+        varlist_path.write_text(json.dumps(varlist), encoding='utf-8')
+    yamlfile = _write_map_yaml(root_dir, pp_dir, tables_dir, [
+        _table_target('AmonZ', [_component_entry('atmos', varlist_path)])])
+    return yamlfile, varlist_path
+
+
+def test_mapsession_set_reduce_stages_undoes_and_saves(temp_dir): # pylint: disable=redefined-outer-name
+    ''' set_reduce turns a plain name into an object and back, through undo/save like any
+    other mapping edit; an unmapped key is refused '''
+    yamlfile, varlist_path = _zonal_fixture(temp_dir, {'ta': 'ta', 'foo': ''})
+    session = MapSession(yamlfile)
+
+    assert session.set_reduce('AmonZ', 'atmos', 'ta', 'zonal_mean') is True
+    assert session.mapping_reduce('AmonZ', 'atmos', 'ta') == 'zonal_mean'
+    assert session.set_reduce('AmonZ', 'atmos', 'ta', 'zonal_mean') is False
+    assert ('AmonZ', 'atmos', 'ta') in session.dirty_keys
+    session.undo()
+    assert session.mapping_reduce('AmonZ', 'atmos', 'ta') is None
+    assert not session.has_pending_changes
+
+    session.set_reduce('AmonZ', 'atmos', 'ta', 'zonal_mean')
+    session.save_pending()
+    assert json.loads(varlist_path.read_text(encoding='utf-8'))['ta'] == \
+        {'name': 'ta', 'reduce': 'zonal_mean'}
+    session.set_reduce('AmonZ', 'atmos', 'ta', None)
+    session.save_pending()
+    assert json.loads(varlist_path.read_text(encoding='utf-8'))['ta'] == 'ta'
+
+    with pytest.raises(ValueError, match='is not mapped'):
+        session.set_reduce('AmonZ', 'atmos', 'foo', 'zonal_mean')
+    with pytest.raises(ValueError, match='unknown reduce method'):
+        session.set_reduce('AmonZ', 'atmos', 'ta', 'global_mean')
+
+
+def test_is_zonal_mean(temp_dir): # pylint: disable=redefined-outer-name
+    ''' zonal means have latitude but no longitude in every definition '''
+    yamlfile, _ = _zonal_fixture(temp_dir)
+    session = MapSession(yamlfile)
+    assert _is_zonal_mean(session.variable_definitions('AmonZ', 'ta'))
+    assert not _is_zonal_mean(session.variable_definitions('AmonZ', 'tas'))
+    assert not _is_zonal_mean(session.variable_definitions('AmonZ', 'nope'))
+    assert not _is_zonal_mean({'ta_tavg-p39-hy-air': {'dimensions': ['latitude', 'plev39', 'time']},
+                               'ta_tavg-p19-hxy-air': {'dimensions': ['longitude', 'latitude',
+                                                                      'plev19', 'time']}})
+
+
+@pytest.mark.asyncio
+async def test_map_app_set_reduce_key(temp_dir): # pylint: disable=redefined-outer-name
+    ''' 'z' on a mapped source opens the picker; choosing a method stages it and relabels the
+    node in place; 's' saves the object value '''
+    yamlfile, varlist_path = _zonal_fixture(temp_dir, {'ta': 'ta'})
+    session = MapSession(yamlfile)
+    app = MapApp(session)
+    async with app.run_test(size=(120, 40)) as pilot:
+        mapped_node = app.query_one('#cmip_tree').root.children[0].children[1]
+        source_node = mapped_node.children[0]
+        app.on_tree_node_selected(_FakeTreeEvent(source_node, 'cmip_tree'))
+        await pilot.pause()
+        await app.workers.wait_for_complete()
+
+        await pilot.press('z')
+        await pilot.pause()
+        assert isinstance(app.screen, ReduceScreen)
+        await pilot.press('down', 'enter')
+        await pilot.pause()
+        assert not isinstance(app.screen, ReduceScreen)
+        assert session.mapping_reduce('AmonZ', 'atmos', 'ta') == 'zonal_mean'
+        assert str(source_node.label) == 'ta <- atmos:ta  (reduce=zonal_mean)  (unsaved)'
+
+        await pilot.press('z')
+        await pilot.pause()
+        await pilot.press('escape')
+        await pilot.pause()
+        assert session.mapping_reduce('AmonZ', 'atmos', 'ta') == 'zonal_mean'
+
+        await pilot.press('s')
+        await pilot.pause()
+    assert json.loads(varlist_path.read_text(encoding='utf-8')) == \
+        {'ta': {'name': 'ta', 'reduce': 'zonal_mean'}}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('keys, expected', [
+    (('enter',), {'name': 'ta', 'reduce': 'zonal_mean'}),
+    (('escape',), 'ta'),
+], ids=['accept-suggestion', 'decline'])
+async def test_map_app_mapping_zonal_variable_offers_zonal_mean(temp_dir, keys, expected): # pylint: disable=redefined-outer-name
+    ''' 'm' onto a variable with no longitude opens the picker on zonal_mean '''
+    yamlfile, varlist_path = _zonal_fixture(temp_dir)
+    session = MapSession(yamlfile)
+    app = MapApp(session)
+    async with app.run_test(size=(120, 40)) as pilot:
+        unmapped_node = app.query_one('#cmip_tree').root.children[0].children[0]
+        ta_node = next(n for n in unmapped_node.children if n.data['var'] == 'ta')
+        app.on_tree_node_selected(_FakeTreeEvent(ta_node, 'cmip_tree'))
+        pp_tree = app.query_one('#pp_tree')
+        node = pp_tree.root.children[0]
+        for _ in range(3):
+            app.on_tree_node_expanded(_FakeTreeEvent(node, 'pp_tree'))
+            node = node.children[0]
+        app.on_tree_node_selected(_FakeTreeEvent(node, 'pp_tree'))
+        await pilot.pause()
+
+        await pilot.press('m')
+        await pilot.pause()
+        assert isinstance(app.screen, ReduceScreen)
+        assert app.screen.query_one('#reduce_options').highlighted == 1
+        await pilot.press(*keys)
+        await pilot.pause()
+        await pilot.press('s')
+        await pilot.pause()
+    assert json.loads(varlist_path.read_text(encoding='utf-8')) == {'ta': expected}
+
+
+@pytest.mark.asyncio
+async def test_map_app_set_reduce_needs_a_mapping(temp_dir): # pylint: disable=redefined-outer-name
+    ''' 'z' with nothing mapped selected warns instead of opening the picker '''
+    yamlfile, _ = _zonal_fixture(temp_dir)
+    app = MapApp(MapSession(yamlfile))
+    async with app.run_test() as pilot:
+        notifications = []
+        app.notify = lambda message, **kwargs: notifications.append((message, kwargs.get('severity')))
+        await pilot.press('z')
+        await pilot.pause()
+        assert not isinstance(app.screen, ReduceScreen)
         assert any(sev == 'warning' for _msg, sev in notifications)
