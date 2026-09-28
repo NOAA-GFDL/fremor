@@ -106,7 +106,7 @@ fre_logger = logging.getLogger(__name__)
 # plevNN, height2m, landuse -- pass straight through as MIP-table names too) plus the
 # canonical MIP-table-only hybrid-sigma names that INPUT_TO_MIP_VERT_DIM maps input dims onto.
 KNOWN_MIP_VERTICAL_TOKENS = set(ACCEPTED_VERT_DIMS) | {'alevel', 'alevhalf', 'olevel', 'olevhalf'}
-
+MIP_RANGE_FIELDS = ('valid_min', 'valid_max', 'ok_min_mean_abs', 'ok_max_mean_abs')
 
 def _reference_vars_for_table(table_path: str, mip_era: str) -> set:
     """
@@ -719,7 +719,7 @@ def _attrs_finding(mip_units: list, mip_cell_methods: list, files: list) -> dict
 # tape retrieval.
 # ---------------------------------------------------------------------------
 
-_RANGE_FIELDS = ('valid_min', 'valid_max', 'ok_min_mean_abs', 'ok_max_mean_abs')
+
 
 
 def _mip_variable_range_bounds(table_data: dict, var: str, mip_era: str) -> dict:
@@ -732,7 +732,7 @@ def _mip_variable_range_bounds(table_data: dict, var: str, mip_era: str) -> dict
     keys = _matching_variable_keys(variable_entry, var, mip_era)
 
     bounds = {}
-    for field in _RANGE_FIELDS:
+    for field in MIP_RANGE_FIELDS:
         values = set()
         for key in keys:
             raw = variable_entry[key].get(field)

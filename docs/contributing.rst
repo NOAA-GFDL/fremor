@@ -146,11 +146,18 @@ development is being tested with a ``fremor COMMAND *ARGV`` style CLI call, add 
 
 .. code-block:: bash
 
+   fremor -v run ...    # INFO
    fremor -vv run ...
+   fremor -vvv run ...  # DDEBUG for large arrays / dicts
+   fremor -q run ...    # ERROR only; overrides -v
 
 If your development does not fit that category, the next easiest thing is to adjust the base ``logger``
 object in ``fremor/__init__.py``. Adjust it back to the default verbosity level before requesting
 a merge.
+
+For CMOR rewrite debugging specifically, ``-v`` is enough to trigger the post-close
+CMOR logfile re-read in ``fremor.cmor_mixer``; use ``-vvv`` only when you also need
+the larger data-structure dumps emitted at ``DDEBUG``.
 
 
 ``logging`` Practice to Avoid

@@ -4,14 +4,14 @@
 
 #### INPUT CONFIG
 ## check flags, 0 --> yes, 1 --> no
-CHECK_INIT=0
+CHECK_INIT=1
 CHECK_VARLIST=1
 CHECK_FIND=1
 CHECK_CONFIG=1
-#CHECK_CHECK=1 # NEW TODO
-#CHECK_MAP=1 # NEW TODO
-#CHECK_STAGE=1 # NEW TODO
-CHECK_YAML=1
+CHECK_CHECK=1
+CHECK_MAP=1
+CHECK_STAGE=1
+CHECK_YAML=0
 
 ## someday
 #CHECK_RESOLVE=1 # WHEN FRE-CLI INTEGRATION POSSIBLE TODO
@@ -46,6 +46,11 @@ echo_and_run() {
 	"$@"
 }
 
+rm_then_mkdir(){
+	local dir="${1}"
+	rm -rf "${dir}" || echo "no output to remove, OK!" && mkdir "${dir}"
+}
+
 
 FREMOR_INSTALL_E=/home/$USER/Working/fremor
 echo "fremor installed (with -e) in ${FREMOR_INSTALL_E}"
@@ -56,17 +61,24 @@ WORKING_CWD=$PWD
 OUTPUT_CMORIZED_DATA_DIR=/net2/$USER/Working/fremor_testing_cmip7
 
 ## INPUT DIRECTORY DETAILS
-BASE_SRC_DIR=/archive/oar.gfdl.bgrp-account/
-#BASE_SRC_DIR=/work/$USER/ # copied over, no archive dependence
+#BASE_SRC_DIR=/archive/oar.gfdl.bgrp-account/
+BASE_SRC_DIR=/work/$USER/ # copied over, no archive dependence
 
 CMIP7_ESM_DECK_PATH_GUTS=CMIP7/ESM4/DECK/ESM4.5-
-ESM_KIND=historical #picontrol #
+
+#ESM_KIND=historical
+#ESM_KIND=historical-defobbfix
+ESM_KIND=picontrol
+
 TAIL_TARG_DIR=/gfdl.ncrc6-intel25-prod-openmp/pp/
 
 BASE_TARG_DIR=${BASE_SRC_DIR}${CMIP7_ESM_DECK_PATH_GUTS}
 TARG_FREBRONX_PPDIR=${BASE_TARG_DIR}${ESM_KIND}${TAIL_TARG_DIR}
 
-COMPONENT_DIR_STUB_VARLIST_ONLY=atmos_cmip/ts/monthly/5yr/
+CHUNK=5yr
+#CHUNK=1yr
+FREQ=monthly
+COMPONENT_DIR_STUB_VARLIST_ONLY=atmos_cmip/ts/${FREQ}/${CHUNK}/
 TEST_COMPONENT_DIR=${TARG_FREBRONX_PPDIR}${COMPONENT_DIR_STUB_VARLIST_ONLY} # for varlist testing only, random
 
 
@@ -78,7 +90,6 @@ PP_START=0001
 PP_STOP=0006
 
 
-
 #### INIT
 FREMOR_INIT_OUTDIR=${WORKING_CWD}/fremor_init_outdir
 USER_CONFIG=${FREMOR_INIT_OUTDIR}/CMIP7_user_input.json
@@ -87,7 +98,7 @@ if [[ "${CHECK_INIT}" -eq 1 ]]; then
 	echo "not checking fremor init"
 else
 	echo "setting up fremor init check, clobbering any prev made output"
-	rm -rf "${FREMOR_INIT_OUTDIR}" || echo "no init output to remove, OK!" && mkdir "${FREMOR_INIT_OUTDIR}"
+	rm_then_mkdir "${FREMOR_INIT_OUTDIR}"
 
 	echo "running fremor init"
 	echo_and_run fremor -v init \
@@ -109,7 +120,7 @@ if [[ "${CHECK_VARLIST}" -eq 1 ]]; then
 	echo "not checking fremor varlist"
 else
 	echo "setting up fremor varlist check, clobbering any prev made output"
-	rm -rf "${FREMOR_VARLIST_OUTDIR}" || echo "no varlist output to remove, OK!" && mkdir "${FREMOR_VARLIST_OUTDIR}"
+	rm_then_mkdir "${FREMOR_VARLIST_OUTDIR}"
 
 	echo "running fremor varlist"
 	echo_and_run fremor -vv varlist \
@@ -144,8 +155,8 @@ if [[ "${CHECK_CONFIG}" -eq 1 ]]; then
 	echo "not checking fremor config"
 else
 	echo "setting up fremor config check, clobbering any prev made output"
-	rm -rf "${FREMOR_CONFIG_OUTDIR}" || echo "no config output to remove, OK!" && mkdir "${FREMOR_CONFIG_OUTDIR}"
-	rm -rf "${FREMOR_VARLIST_OUTDIR}" || echo "no varlist output to remove, OK!" && mkdir "${FREMOR_VARLIST_OUTDIR}"
+	rm_then_mkdir "${FREMOR_CONFIG_OUTDIR}"
+	rm_then_mkdir "${FREMOR_VARLIST_OUTDIR}"
 
 	echo "running fremor config"
 	echo_and_run fremor -v config \
@@ -153,21 +164,88 @@ else
 				 --mip_tables_dir "${CMIP7_TABLES}" \
 				 --exp_config "${USER_CONFIG}" \
 				 --mip_era "cmip7" \
-				 --freq "monthly" \
-				 --chunk "5yr" \
-				 --grid "g999" \
+				 --freq "${FREQ}" \
+				 --chunk "${CHUNK}" \
+				 --grid "g225" \
 				 --calendar "noleap" \
 				 --output_yaml "${FREMOR_CONFIG_OUTYAML}" \
 				 --output_dir "${OUTPUT_CMORIZED_DATA_DIR}" \
 				 --varlist_dir "${FREMOR_VARLIST_OUTDIR}" \
 				 --strict_varlist \
-				 --pp_comp_glob "*land*" \
 				 --overwrite
+
+#				 --pp_comp_glob "*land*" \
 
 
 	echo "checking that fremor config's output exists, return if not"
 	ls -l "${FREMOR_CONFIG_OUTYAML}" || return
 fi
+
+
+
+#### CHECK
+FREMOR_CHECK_OUTDIR=${WORKING_CWD}/fremor_check_outdir
+FREMOR_CHECK_OUTREPORT=${FREMOR_CHECK_OUTDIR}/report.out
+DMLS_BIN=$(which dmls)
+if [[ "${CHECK_CHECK}" -eq 1 ]]; then
+	echo "not checking fremor check"
+else
+	echo "setting up fremor check check"
+	rm_then_mkdir "${FREMOR_CHECK_OUTDIR}"
+
+	echo "running fremor check"
+	echo_and_run fremor -vv check \
+				 --yamlfile "${FREMOR_CONFIG_OUTYAML}" \
+				 --show-mapped \
+				 --show-unmapped \
+				 --show-multi-mapped \
+				 --check-inputs \
+				 --check-dims \
+				 --check-outputs \
+				 --check-attrs \
+				 --check-range \
+				 --dmls_bin "${DMLS_BIN}" \
+				 --output_report "${FREMOR_CHECK_OUTREPORT}"
+
+#				 --json \
+
+	echo "checking that fremor config's output exists, return if not"
+	ls -l "${FREMOR_CHECK_OUTREPORT}" || return
+fi
+
+
+
+#### MAP
+NCINFO_BIN=$(which ncinfo)
+if [[ "${CHECK_MAP}" -eq 1 ]]; then
+	echo "not checking fremor map"
+else
+	echo "setting up fremor map check"
+
+	echo "running fremor map"
+	echo_and_run fremor -vv map \
+				 --yamlfile "${FREMOR_CONFIG_OUTYAML}" \
+				 --dmls_bin "${DMLS_BIN}" \
+				 --ncinfo_bin "${NCINFO_BIN}"
+fi
+
+#### STAGE
+DMGET_BIN=$(which dmget)
+if [[ "${CHECK_STAGE}" -eq 1 ]]; then
+	echo "not checking fremor stage"
+else
+	echo "setting up fremor stage check"
+
+	echo "running fremor stage"
+	echo_and_run fremor -vv stage \
+				 --yamlfile "${FREMOR_CONFIG_OUTYAML}" \
+				 --start "${PP_START}" \
+				 --stop "${PP_STOP}" \
+				 --dmget_bin "${DMGET_BIN}"
+#				 --dry_run \
+
+fi
+
 
 
 #### YAML, also RUN, because YAML calls RUN
@@ -178,14 +256,14 @@ else
 	echo "setting up fremor yaml check"
 
 	echo "running fremor yaml"
-	echo_and_run fremor -vv yaml \
+	echo_and_run fremor -vv -l fremor_log_output_dir/OUTPUT_LOG.log yaml \
 				 --yamlfile "${FREMOR_CONFIG_OUTYAML}" \
 				 --start "${PP_START}" \
-				 --stop "${PP_STOP}" \
-				 --print_cli_call \
-	             --dry_run
-	#           --run_strict
-	#           --run_one
+				 --stop "${PP_STOP}"
+#				 --print_cli_call \
+#				 --dry_run
+#                --run_strict \
+#                --run_one \
 
 	echo "checking the output cmorized data directory for successfully created output"
 	tree ${OUTPUT_CMORIZED_DATA_DIR}/*/*/CMIP/
@@ -198,5 +276,3 @@ fi
 
 # end where we began
 cd "${WORKING_CWD}" || return
-
-

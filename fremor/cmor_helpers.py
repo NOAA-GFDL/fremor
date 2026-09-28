@@ -95,6 +95,16 @@ def calendars_are_equivalent(cal1: Optional[str], cal2: Optional[str]) -> bool:
     """
     return normalize_calendar(cal1) == normalize_calendar(cal2)
 
+def get_time_calendar_ds(ds = None):
+    """
+    
+    """
+    try:
+        return get_time_calendar_value(ds['time'])
+    except KeyError as exc:
+        fre_logger.error('netCDF4 input dataset does not have a time axis')
+        raise KeyError from exc
+
 def get_time_calendar_value(time_var) -> Optional[str]:
     """
     Read a time variable's calendar/calendar_type attribute and normalize aliases.
@@ -298,9 +308,9 @@ def create_lev_bnds(bound_these: Variable) -> np.ndarray:
     :return: Array of shape (len(bound_these), 2), where each row gives the bounds for a level.
     :rtype: np.ndarray
 
-    .. note:: Logs debug information about the input and output arrays.
+    .. note:: Logs deep-debug information about the input and output arrays.
     """
-    fre_logger.debug('bound_these = \n%s', bound_these)
+    fre_logger.ddebug('bound_these = \n%s', bound_these)
 
     # Initialize a float array to prevent decimal truncation
     the_bnds = np.zeros((len(bound_these), 2), dtype=float)

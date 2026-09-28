@@ -49,14 +49,43 @@ To see all available subcommands:
 Verbosity and Logging
 ---------------------
 
-``fremor`` supports multiple verbosity levels and optional log-file output:
+``fremor`` supports multiple verbosity levels and optional log-file output. These
+flags are global options on the top-level ``fremor`` command, so they must appear
+before the subcommand they modify:
 
 .. code-block:: bash
 
-   fremor -v run ...          # INFO level logging
-   fremor -vv run ...         # DEBUG level logging
-   fremor -q run ...          # ERROR level only (quiet)
-   fremor -l log.txt run ...  # Log to file (appends)
+   fremor -v run ...                   # INFO level logging
+   fremor -vv run ...                  # DEBUG level logging
+   fremor -vvv run ...                 # DDEBUG for large data-structure dumps
+   fremor -q run ...                   # ERROR level only (quiet)
+   fremor -l fremor.log run ...        # Append fremor logs to file
+   fremor --log-file fremor.log run ...  # Same as -l; --log_file also works
+
+* ``-v`` / ``--verbose`` is count-based. ``-v`` enables ``INFO``, ``-vv`` enables
+  ``DEBUG``, and ``-vvv`` enables the custom ``DDEBUG`` level used for large
+  arrays, dictionaries, and other high-volume data-structure dumps.
+* ``-q`` / ``--quiet`` forces ``ERROR`` logging and overrides any ``-v`` flags.
+* ``-l`` / ``--log-file`` / ``--log_file`` appends to the named file while still
+  leaving normal screen output enabled. Place this option before the subcommand;
+  for example, after ``run`` the short ``-l`` flag belongs to ``fremor run``'s
+  varlist argument instead of the global log-file setting.
+
+CMOR Runtime Logfiles
+~~~~~~~~~~~~~~~~~~~~~
+
+When ``fremor run`` (or a ``fremor yaml`` call that dispatches to ``run``) enters
+the CMOR rewrite path, it gives CMOR a logfile path. If
+``fremor.cmor_constants.CMOR_LOG`` is set, that explicit path is used; otherwise
+``fremor`` falls back to a per-file ``.log`` path derived from the temporary
+``.nc`` file being rewritten.
+
+After ``cmor.close()`` fully tears down the CMOR module, ``fremor`` re-reads that
+CMOR logfile for ``INFO``-or-more-verbose runs (``-v``, ``-vv``, ``-vvv``) and
+forwards each line through the standard ``fremor`` logger. It then renames the
+CMOR logfile to match the produced NetCDF filename (``*.nc`` → ``*.log``), and if
+the output first landed under ``CMOR_tmp/``, the ``.log`` file is moved alongside
+the final CMORized output file.
 
 Additional Resources
 --------------------
