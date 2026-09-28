@@ -726,11 +726,7 @@ def cmorize_target_var_files(indir: str = None,
         # the final output file directory will be...
         filedir = Path(filename).parent
         fre_logger.info('FINAL OUTPUT FILE DIR WILL BE filedir = %s', filedir)
-        try:
-            fre_logger.info('ATTEMPTING TO CREATE filedir=%s', filedir)
-            os.makedirs(filedir)
-        except FileExistsError:
-            fre_logger.warning('directory %s already exists!', filedir)
+        os.makedirs(filedir, exist_ok=True)
 
         if Path(local_file_name).resolve() == Path(filename).resolve():
             # cmor.close(), with create_subdirectories enabled, sometimes writes the output file
@@ -750,18 +746,6 @@ def cmorize_target_var_files(indir: str = None,
                     subprocess.run(mv_log_cmd, shell=True, check=True)
             except Exception as exc: # this is the fremor.cmor_constants.CMOR_LOGFILE != None case
                 fre_logger.warning('could not move cmor_logfile next to cmorized file, but moving on. exception was:\nexc = %s', exc)
-
-        # ------ refactor this into function? #TODO
-        # ------ what is the use case for this logic really??
-        filename_no_nc = filename[:filename.rfind('.nc')]
-        chunk_str = filename_no_nc[-6:]
-        if not chunk_str.isdigit():
-            fre_logger.warning('chunk_str is not a digit: chunk_str = %s', chunk_str)
-            filename_corr = f'{filename[:filename.rfind(".nc")]}_{iso_datetime}.nc'
-            mv_cmd = f'mv {filename} {filename_corr}'
-            fre_logger.warning('moving files, strange chunkstr logic...\n%s', mv_cmd)
-            subprocess.run(mv_cmd, shell=True, check=True)
-        # ------ end refactor this into function?
 
         # delete files in work dirs
         if Path(nc_file_work).exists():
