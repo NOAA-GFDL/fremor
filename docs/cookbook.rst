@@ -505,7 +505,7 @@ Tips
 * Use ``fremor config`` to auto-generate a CMOR YAML configuration from a post-processing directory tree — it scans components, cross-references against MIP tables, and writes both variable lists and the YAML that ``fremor yaml`` expects
 * Use ``-t`` with ``fremor varlist`` to cross-reference found variables against a MIP table: matched variables are self-mapped, unmatched variables receive an empty-string value indicating they need manual mapping
 * Use ``--strict_mode`` with ``fremor varlist`` (or ``--strict_varlist`` with ``fremor config``) to suppress output for components where no found variables match the MIP table
-* Increase verbosity when debugging — use ``-v`` to see ``INFO`` logging, and ``-vv`` (or ``-v -v``) for ``DEBUG`` logging
+* Increase verbosity when debugging — use ``-v`` for ``INFO``, ``-vv`` (or ``-v -v``) for ``DEBUG``, and ``-vvv`` for ``DDEBUG`` when you need to inspect large data structures
 * Version control your YAML files — track changes to your CMORization configuration and commit them to git!
 * Check controlled vocabulary — verify grid labels and nominal resolutions are CV-compliant
 * Review experiment config — ensure all required metadata fields are populated; ``fremor run`` verifies this against the CV before starting and names every unfilled field at once
