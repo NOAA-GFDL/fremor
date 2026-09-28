@@ -605,3 +605,45 @@ def test_fre_cmor_run_subtool_unsupported_mip_era(tmp_path):
             json_exp_config = str(bad_exp),
             outdir = OUTDIR,
         )
+
+def test_fre_cmor_run_subtool_empty_indir(tmp_path):
+    """
+    ValueError when the input directory contains no .nc files.
+    """
+    # Create a fresh, empty directory using the tmp_path fixture
+    empty_indir = tmp_path / 'empty_indir'
+    empty_indir.mkdir()
+
+    # The match argument ensures we are catching the specific ValueError from line 1056
+    with pytest.raises(ValueError, match='no files in input target directory'):
+        cmor_run_subtool(indir = str(empty_indir),
+                         json_var_list = VARLIST,
+                         json_table_config = TABLE_CONFIG,
+                         json_exp_config = EXP_CONFIG,
+                         outdir = OUTDIR
+        )
+
+def test_fre_cmor_run_subtool_var_not_in_table(tmp_path, caplog):
+    """
+    Tests line 1028: when a mapped target variable is not in the MIP table,
+    it logs a warning and skips it. If no runnable variables remain, it raises a ValueError.
+    """
+    # Create a dummy varlist containing a target variable that doesn't exist in the MIP table
+    bad_varlist = tmp_path / 'bad_varlist.json'
+    bad_varlist.write_text(json.dumps({
+        "my_local_var": "this_target_var_does_not_exist"
+    }))
+
+    # The function will skip the bogus variable at line 1028 and hit `continue`.
+    # Because it was the only variable, len(vars_to_run) == 0, triggering the ValueError at line 1039.
+    with pytest.raises(ValueError, match='runnable variable list is of length 0'):
+        cmor_run_subtool(
+            indir = INDIR,
+            json_var_list = str(bad_varlist),
+            json_table_config = TABLE_CONFIG,
+            json_exp_config = EXP_CONFIG,
+            outdir = OUTDIR
+        )
+
+    # Verify the specific warning from lines 1029-1031 was successfully logged
+    assert "target_var not found in CMOR variable group" in caplog.text
