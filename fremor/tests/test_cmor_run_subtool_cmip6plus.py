@@ -74,6 +74,7 @@ def test_case_cmip6plus_tas(tmp_path):
     # write a CMIP6 exp config with julian calendar for this test
     exp_cfg_path = tmp_path / 'CMOR_cmip6plus_input.json'
     exp_cfg = dict(_CMIP6_EXP_CONFIG_DATA)
+    exp_cfg['mip_era'] = 'cmip6plus'
     exp_cfg['calendar'] = 'julian'
     exp_cfg_path.write_text(json.dumps(exp_cfg, indent=4))
 
