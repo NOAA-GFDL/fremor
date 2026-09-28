@@ -1,4 +1,6 @@
-"""Tests for CMOR logfile screen output handling."""
+"""
+Tests for CMOR logfile screen output handling.
+"""
 # pylint: disable=protected-access
 
 import logging
@@ -57,11 +59,10 @@ def test_pprint_cmor_logfile_no_filename(tmp_path, caplog):
     """If filename is None, the logfile contents are logged but the file is not renamed."""
     logfile = tmp_path / 'cmor_test.log'
     logfile.write_text('log content\n', encoding='utf-8')
-    
+
     with caplog.at_level(logging.INFO, logger='fremor.cmor_mixer'):
         cmor_mixer._pprint_cmor_logfile(str(logfile), None)
-        
-    assert 'log content' in caplog.messages
-    assert logfile.exists()  # Ensure the original file is left intact
 
-    assert caplog.messages == []
+    assert logfile.exists()  # Ensure the original file is left intact
+    assert 'log content' in caplog.messages
+    assert caplog.messages == ['log content']
