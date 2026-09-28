@@ -924,7 +924,6 @@ def cmor_run_subtool(indir: str = None,
         fre_logger.warning('CMIP7 config detected, will be expecting and enforcing variable brands.')
 
     if exp_cfg_mip_era == 'CMIP6PLUS':
-        #exp_cfg_mip_era = 'CMIP6'
         fre_logger.warning('CMIP6Plus config detected, capability under development, treating as a CMIP6 case for now')
 
     # CHECK optional grid/grid_label/nom_res inputs from exp config, the function raises the potential error conditions
