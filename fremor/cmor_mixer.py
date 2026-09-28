@@ -691,13 +691,8 @@ def cmorize_target_var_files(indir: str = None,
             fre_logger.info('nc_ps_file_work = %s', nc_ps_file_work)
             shutil.copy(nc_ps_file, nc_ps_file_work)
 
-        # TODO think of better way to write this kind of conditional data movement...
         # now we have a file in our targets, point CMOR to the configs and the input file(s)
         make_cmor_write_here = tmp_dir
-        # make sure we know where we are writing, or else!
-        if not Path(make_cmor_write_here).exists():
-            raise ValueError(f'\ntmp_dir = \n{tmp_dir}\ncannot be found/created/resolved!') #uncovered
-
         gotta_go_back_here = os.getcwd()
         try:
             fre_logger.warning('changing directory to: \n%s', make_cmor_write_here)
@@ -723,6 +718,7 @@ def cmorize_target_var_files(indir: str = None,
             fre_logger.warning('finally, changing directory to: \n%s', gotta_go_back_here)
             os.chdir(gotta_go_back_here)
 
+        # the previous chdir by this point is undone
         fre_logger.info('local_file_name = %s', local_file_name)
         filename = local_file_name.replace('/CMOR_tmp/','/')
         fre_logger.info('filename = %s', filename)
