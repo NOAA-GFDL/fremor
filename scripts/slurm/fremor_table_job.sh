@@ -9,6 +9,8 @@
 #   1. list the table's input files and check they exist
 #   2. dmget offline files from tape and verify (dmls) they are disk-resident
 #   3. run `fremor yaml` (MODE=yaml) or `fremor run` (MODE=run)
+#   4. with ARCHIVE=1: move the CMORized .nc files from the temporary outdir
+#      into ARCHIVE_DIR, and CMOR's log files into the table's logs/ directory
 #
 # Environment passed by sbatch --export:
 #   JOB_ENV : env file written by the submitter (MODE, LABEL, TABLE_YAML, ...)
@@ -159,6 +161,57 @@ PYEOF
 }
 
 # ------------------------------------------------------------------------------
+# archiving (ARCHIVE=1). the temporary outdir holds
+#   MODE=yaml: <tmp>/<component>/<table>/<CMIP dirs>/*.nc  (+ .../CMOR_tmp/)
+#   MODE=run : <tmp>/<CMIP dirs>/*.nc                      (+ <tmp>/CMOR_tmp/)
+# ARCHIVE_LEVELS is how many leading directories to drop so only <CMIP dirs> remain
+# ------------------------------------------------------------------------------
+ARCHIVE_LEVELS=0
+[[ ${MODE} == yaml ]] && ARCHIVE_LEVELS=2
+
+# split path $1 (relative to TMP_OUTDIR) into the global array PATH_PARTS
+split_rel() { IFS=/ read -r -a PATH_PARTS <<< "${1#"${TMP_OUTDIR}"/}"; }
+
+# move CMOR's log files out of CMOR_tmp into logs/, prefixed with the dropped
+# levels (e.g. atmos.Amon.cmor_tas.log) so logs from different components can't clash
+collect_cmor_logs() {
+    [[ -d ${TMP_OUTDIR} ]] || return 0
+    local f prefix count=0
+    while IFS= read -r -d '' f; do
+        split_rel "${f}"
+        prefix=$(IFS=.; echo "${PATH_PARTS[*]:0:ARCHIVE_LEVELS}")
+        mv -f "${f}" "${TABLE_WORK}/logs/${prefix:+${prefix}.}$(basename "${f}")"
+        count=$((count + 1))
+    done < <(find "${TMP_OUTDIR}" -path '*/CMOR_tmp/*' -type f -name '*.log' -print0)
+    log "moved ${count} CMOR log files to ${TABLE_WORK}/logs"
+}
+
+# move the CMORized .nc files into ARCHIVE_DIR, keeping the CMIP directory
+# structure. files already present in the archive are overwritten, and listed
+# in archive_overwritten.txt
+archive_outputs() {
+    local overwritten=${TABLE_WORK}/archive_overwritten.txt
+    local f dest count=0
+    : > "${overwritten}"
+    while IFS= read -r -d '' f; do
+        split_rel "${f}"
+        (( ${#PATH_PARTS[@]} > ARCHIVE_LEVELS + 1 )) \
+            || die "unexpected output layout, expected ${ARCHIVE_LEVELS} levels above the CMIP dirs: ${f}"
+        dest=${ARCHIVE_DIR}/$(IFS=/; echo "${PATH_PARTS[*]:ARCHIVE_LEVELS}")
+        [[ -e ${dest} ]] && echo "${dest}" >> "${overwritten}"
+        mkdir -p "$(dirname "${dest}")"
+        mv -f "${f}" "${dest}"
+        count=$((count + 1))
+    done < <(find "${TMP_OUTDIR}" -type f -name '*.nc' -not -path '*/CMOR_tmp/*' -print0)
+    # drop the directory shells left behind (and CMOR_tmp, if nothing else is in it)
+    find "${TMP_OUTDIR}" -mindepth 1 -depth -type d -empty -delete
+    log "archived ${count} files to ${ARCHIVE_DIR}"
+    [[ -s ${overwritten} ]] \
+        && log "WARNING: overwrote $(wc -l < "${overwritten}") existing archive files, see ${overwritten}"
+    return 0
+}
+
+# ------------------------------------------------------------------------------
 # steps
 # ------------------------------------------------------------------------------
 do_stage() {
@@ -189,9 +242,11 @@ do_cmor() {
         log "fremor run -d ${INDIR} -l ${VARLIST} -r ${TABLE_JSON} ${YEAR_ARGS[*]} ${extra[*]}"
         fremor -v -l "${fremor_log}" run \
             -d "${INDIR}" -l "${VARLIST}" -r "${TABLE_JSON}" \
-            -p "${EXP_CONFIG}" -o "${OUTDIR}" \
+            -p "${EXP_CONFIG}" -o "${TMP_OUTDIR:-${OUTDIR}}" \
             "${YEAR_ARGS[@]}" "${extra[@]}" || rc=$?
     fi
+    # keep CMOR's logs even when fremor failed, they hold the real error messages
+    [[ ${ARCHIVE} == 1 ]] && collect_cmor_logs
     [[ ${rc} -eq 0 ]] || die "fremor exited with ${rc}, see ${fremor_log}"
 
     if [[ ${MODE} == yaml && ${POSTCHECK} == 1 ]]; then
@@ -200,6 +255,11 @@ do_cmor() {
         fremor check "${LABEL}" -y "${TABLE_WORK}/fremor_${LABEL}.yaml" --check-outputs \
             -o "${TABLE_WORK}/postcheck_report.json" \
             || log "WARNING: fremor check reported problems, see log above"
+    fi
+    # after the post-check, which looks for outputs in the (temporary) outdir
+    if [[ ${ARCHIVE} == 1 ]]; then
+        STEP=archive
+        archive_outputs
     fi
     touch "${TABLE_WORK}/DONE"
     log "done"
