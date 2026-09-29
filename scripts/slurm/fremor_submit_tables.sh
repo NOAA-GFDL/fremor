@@ -36,7 +36,8 @@ ENV_SETUP='module load fremor'
 MODE=yaml
 
 ## scratch area for per-table yamls, file lists, env files and slurm logs
-## (can also be set in the environment, e.g. to point CONTINUE=1 at an earlier run)
+## (can also be set in the environment). must not exist yet (an empty directory
+## is fine) unless resuming it with --continue
 WORK_DIR=${WORK_DIR:-${HOME}/fremor_jobs/$(date +%Y%m%d_%H%M%S)}
 
 ## 1 -> resume an earlier run in the existing WORK_DIR: skip tables that have a
@@ -147,6 +148,10 @@ command -v fremor >/dev/null || die "fremor not found after ENV_SETUP"
 PYTHON=$(dirname "$(command -v fremor)")/python
 [[ -x ${PYTHON} ]] || PYTHON=python3
 
+if [[ ${CONTINUE} != 1 && -n $(ls -A "${WORK_DIR}" 2>/dev/null) ]]; then
+    die "WORK_DIR already exists: ${WORK_DIR}
+       use --continue=${WORK_DIR} to resume that run, or pick a new WORK_DIR"
+fi
 if [[ ${CONTINUE} == 1 ]]; then
     [[ -d ${WORK_DIR} ]] || die "CONTINUE=1 needs an existing WORK_DIR, not found: ${WORK_DIR}"
     if [[ ${MODE} == yaml && " ${YAML_EXTRA_ARGS[*]:-} " != *" --continue "* ]]; then
