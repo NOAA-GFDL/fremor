@@ -32,6 +32,8 @@ log() { echo "[$(date '+%F %T')] [${STEP}:${LABEL}] $*"; }
 die() { log "ERROR: $*" >&2; exit 1; }
 
 log "host=$(hostname) job=${SLURM_JOB_ID:-none} mode=${MODE}"
+# markers from an earlier submission into this WORK_DIR no longer apply
+rm -f "${TABLE_WORK}/STAGED" "${TABLE_WORK}/DONE"
 cd "${SUBMIT_DIR}"    # relative paths inside the yaml resolve from here
 set +u; eval "${ENV_SETUP}"; set -u
 command -v fremor >/dev/null || die "fremor not found after ENV_SETUP"
