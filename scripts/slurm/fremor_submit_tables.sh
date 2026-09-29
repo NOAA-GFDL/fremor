@@ -71,6 +71,19 @@ STAGE_RETRIES=3       # dmget + verify attempts before giving up
 COPY_TO_LOCAL=0
 LOCAL_ROOT='${TMPDIR}' # expanded inside the job, e.g. '/vftmp/${USER}/${SLURM_JOB_ID}'
 
+## ---------------------------- archive ------------------------------
+## 1 -> CMORize into a per-table temporary outdir (overriding the yaml's outdir /
+## OUTDIR), then move the finished .nc files into ARCHIVE_DIR. MODE=yaml writes
+## <outdir>/<component>/<table>/<CMIP dirs>/*.nc; those first two levels are
+## dropped, so ARCHIVE_DIR gets <CMIP dirs>/*.nc. CMOR's *.log files in CMOR_tmp
+## are moved to the table's logs/ directory
+ARCHIVE=0
+ARCHIVE_DIR=/path/to/archive
+## parent of the per-table temporary outdirs (<root>/<table>/outdir).
+## empty -> WORK_DIR. set a fixed path to resume with --continue: outputs of a
+## failed job are not archived and stay there for the next submission to reuse
+ARCHIVE_TMP_ROOT=
+
 ## ---------------------------- slurm --------------------------------
 SLURM_ACCOUNT=         # --account, empty -> default
 ## each job covers tape recall + CMOR, so JOB_TIME must allow for both
@@ -89,12 +102,19 @@ DRY_RUN=${DRY_RUN:-0}
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 JOB_SCRIPT=${SCRIPT_DIR}/fremor_table_job.sh
 
-die() { echo "ERROR: $*" >&2; exit 1; }
+HISTORY=''
+# hist <text> -> append a timestamped line to ${WORK_DIR}/HISTORY (once it exists)
+hist() {
+    [[ -n ${HISTORY} ]] || return 0
+    printf '[%s] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*" >> "${HISTORY}"
+}
+die() { echo "ERROR: $*" >&2; hist "  aborted: $*"; exit 1; }
 
 [[ -f ${JOB_SCRIPT} ]] || die "job script not found: ${JOB_SCRIPT}"
 [[ ${MODE} == yaml || ${MODE} == run ]] || die "MODE must be yaml or run, got '${MODE}'"
 [[ ${MAX_CONCURRENT} =~ ^[0-9]+$ ]] || die "MAX_CONCURRENT must be a non-negative integer"
 [[ $# -gt 0 ]] && TABLES=("$@")
+CMD_LINE=$(printf '%q ' "$0" "$@")
 
 # fremor must be importable here too (yaml mode splits the yaml with its python env)
 eval "${ENV_SETUP}"
@@ -106,18 +126,46 @@ mkdir -p "${WORK_DIR}"
 WORK_DIR=$(cd "${WORK_DIR}" && pwd)
 echo "work dir: ${WORK_DIR}"
 
+# append-only record of every submission into this WORK_DIR, so rerunning the
+# script here (e.g. to resubmit failed tables) keeps the earlier records
+HISTORY=${WORK_DIR}/HISTORY
+dry=''
+[[ ${DRY_RUN} == 1 ]] && dry=' (dry run, nothing submitted)'
+hist "submit${dry}: ${CMD_LINE% }"
+hist "  cwd: ${PWD}, MODE=${MODE}, years: ${START:-first}-${STOP:-last}"
+if [[ ${MODE} == yaml ]]; then
+    hist "  yaml: ${FREMOR_YAML}, extra args: ${YAML_EXTRA_ARGS[*]:-none}"
+else
+    hist "  exp config: ${EXP_CONFIG}, outdir: ${OUTDIR}"
+fi
+hist "  slurm: ${JOB_PARTITION}, ${JOB_TIME}, ${JOB_MEM}, ${JOB_CPUS} cpu, max concurrent ${MAX_CONCURRENT}"
+
+if [[ ${ARCHIVE} == 1 ]]; then
+    mkdir -p "${ARCHIVE_DIR}" || die "could not create ARCHIVE_DIR ${ARCHIVE_DIR}"
+    ARCHIVE_DIR=$(cd "${ARCHIVE_DIR}" && pwd)
+    ARCHIVE_TMP_ROOT=${ARCHIVE_TMP_ROOT:-${WORK_DIR}}
+    mkdir -p "${ARCHIVE_TMP_ROOT}"
+    ARCHIVE_TMP_ROOT=$(cd "${ARCHIVE_TMP_ROOT}" && pwd)
+    echo "archive dir: ${ARCHIVE_DIR} (temporary outdirs under ${ARCHIVE_TMP_ROOT})"
+    hist "  archive: ${ARCHIVE_DIR}, temporary outdirs under ${ARCHIVE_TMP_ROOT}"
+fi
+
 # ------------------------------------------------------------------------------
 # build the list of per-table targets: LABELS[i] and, for yaml mode, one
 # single-table yaml per label (all other table_targets marked disabled: true,
-# so named ps_component lookups across targets keep working)
+# so named ps_component lookups across targets keep working). with ARCHIVE=1,
+# each yaml's outdir points at that table's temporary outdir
 # ------------------------------------------------------------------------------
 LABELS=()
 if [[ ${MODE} == yaml ]]; then
     [[ -f ${FREMOR_YAML} ]] || die "FREMOR_YAML not found: ${FREMOR_YAML}"
-    "${PYTHON}" - "${FREMOR_YAML}" "${WORK_DIR}" "${TABLES[@]}" > "${WORK_DIR}/tables.txt" <<'PYEOF' \
-        || die "could not split ${FREMOR_YAML} into per-table yamls"
+    tmp_root=''
+    [[ ${ARCHIVE} == 1 ]] && tmp_root=${ARCHIVE_TMP_ROOT}
+    table_list=$("${PYTHON}" - "${FREMOR_YAML}" "${WORK_DIR}" "${tmp_root}" "${TABLES[@]}" \
+        <<'PYEOF'
+
 import copy, os, sys, yaml
-yamlfile, work_dir, wanted = sys.argv[1], sys.argv[2], sys.argv[3:]
+yamlfile, work_dir, tmp_root, wanted = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4:]
 with open(yamlfile, encoding='utf-8') as handle:
     doc = yaml.safe_load(handle)
 targets = doc['cmor']['table_targets']
@@ -131,13 +179,16 @@ for name in names:
     for target in sub['cmor']['table_targets']:
         if target['table_name'] != name:
             target['disabled'] = True
+    if tmp_root:
+        sub['cmor']['directories']['outdir'] = f'{tmp_root}/{name}/outdir'
     out = f'{work_dir}/{name}/fremor_{name}.yaml'
     os.makedirs(os.path.dirname(out), exist_ok=True)
     with open(out, 'w', encoding='utf-8') as handle:
         yaml.safe_dump(sub, handle, sort_keys=False)
     print(name)
 PYEOF
-    mapfile -t LABELS < "${WORK_DIR}/tables.txt"
+    ) || die "could not split ${FREMOR_YAML} into per-table yamls"
+    mapfile -t LABELS <<< "${table_list}"
 else
     RUN_ENTRIES=()
     for entry in "${RUN_TARGETS[@]}"; do
@@ -151,6 +202,7 @@ else
 fi
 [[ ${#LABELS[@]} -gt 0 ]] || die "no tables selected"
 echo "tables (${#LABELS[@]}): ${LABELS[*]}"
+hist "  tables (${#LABELS[@]}): ${LABELS[*]}"
 
 # ------------------------------------------------------------------------------
 # submit helpers
@@ -187,8 +239,6 @@ submit() {
 # per-table: write env file, submit one stage+cmor job. with MAX_CONCURRENT=N,
 # job i waits (afterany) for job i-N, so at most N chains run side by side
 # ------------------------------------------------------------------------------
-SUMMARY=${WORK_DIR}/submitted_jobs.tsv
-printf 'label\tjob\n' > "${SUMMARY}"
 JOB_IDS=()
 
 for i in "${!LABELS[@]}"; do
@@ -204,24 +254,30 @@ for i in "${!LABELS[@]}"; do
         IFS='|' read -r _ TABLE_JSON INDIR VARLIST RUN_ARGS <<< "${RUN_ENTRIES[$i]}"
     fi
 
+    TMP_OUTDIR=''
+    [[ ${ARCHIVE} == 1 ]] && TMP_OUTDIR=${ARCHIVE_TMP_ROOT}/${LABEL}/outdir
+
     # everything the job needs, safely quoted
     SUBMIT_DIR=${PWD}
     {
         declare -p MODE LABEL TABLE_WORK SUBMIT_DIR ENV_SETUP START STOP \
                    TABLE_YAML YAML_EXTRA_ARGS PRECHECK POSTCHECK \
                    TABLE_JSON INDIR VARLIST RUN_ARGS EXP_CONFIG OUTDIR \
-                   DMGET_BATCH STAGE_RETRIES COPY_TO_LOCAL LOCAL_ROOT
+                   DMGET_BATCH STAGE_RETRIES COPY_TO_LOCAL LOCAL_ROOT \
+                   ARCHIVE ARCHIVE_DIR TMP_OUTDIR
     } > "${ENV_FILE}"
 
     dep=''
     if (( MAX_CONCURRENT > 0 && i >= MAX_CONCURRENT )); then
         dep="afterany:${JOB_IDS[i - MAX_CONCURRENT]}"
     fi
-    job_id=$(submit "${LABEL}" "${ENV_FILE}" "${dep}")
+    job_id=$(submit "${LABEL}" "${ENV_FILE}" "${dep}") || die "sbatch failed for ${LABEL}"
     JOB_IDS+=("${job_id}")
 
-    printf '%s\t%s\n' "${LABEL}" "${job_id}" | tee -a "${SUMMARY}"
+    printf '%s\t%s\n' "${LABEL}" "${job_id}"
+    hist "  ${LABEL}: job ${job_id}${dep:+ (${dep})}"
 done
+hist "  submitted ${#JOB_IDS[@]} jobs"
 
-echo "job ids written to ${SUMMARY}"
+echo "job ids appended to ${HISTORY}"
 echo "monitor with: squeue -u ${USER} -o '%.10i %.40j %.9T %.10M %R' | grep fremor_"
