@@ -14,6 +14,11 @@
 #   ./fremor_submit_tables.sh                 # all tables from the config below
 #   ./fremor_submit_tables.sh Amon Omon       # only these tables (overrides TABLES)
 #   DRY_RUN=1 ./fremor_submit_tables.sh       # print sbatch commands, submit nothing
+#   ./fremor_submit_tables.sh --continue=~/fremor_jobs/20260929_101500
+#                                             # resubmit the tables of that earlier
+#                                             # run that have no DONE marker yet
+#   ./fremor_submit_tables.sh --continue      # same, for the WORK_DIR set below
+#                                             # (CONTINUE=1 in the env works too)
 #
 # The per-table job body lives in fremor_table_job.sh (same directory).
 # ==============================================================================
@@ -31,7 +36,15 @@ ENV_SETUP='module load fremor'
 MODE=yaml
 
 ## scratch area for per-table yamls, file lists, env files and slurm logs
-WORK_DIR=${HOME}/fremor_jobs/$(date +%Y%m%d_%H%M%S)
+## (can also be set in the environment, e.g. to point CONTINUE=1 at an earlier run)
+WORK_DIR=${WORK_DIR:-${HOME}/fremor_jobs/$(date +%Y%m%d_%H%M%S)}
+
+## 1 -> resume an earlier run in the existing WORK_DIR: skip tables that have a
+## DONE marker or whose previous job is still queued/running, and (MODE=yaml)
+## add --continue so chunks already CMORized are not redone. set a fixed
+## ARCHIVE_TMP_ROOT, or leave it empty (-> WORK_DIR), so those chunks are found.
+## MODE=run has no --continue, so unfinished tables are CMORized from scratch
+CONTINUE=${CONTINUE:-0}
 
 ## optional year bounds (YYYY), passed as --start/--stop. empty -> use yaml / all
 START=
@@ -113,8 +126,20 @@ die() { echo "ERROR: $*" >&2; hist "  aborted: $*"; exit 1; }
 [[ -f ${JOB_SCRIPT} ]] || die "job script not found: ${JOB_SCRIPT}"
 [[ ${MODE} == yaml || ${MODE} == run ]] || die "MODE must be yaml or run, got '${MODE}'"
 [[ ${MAX_CONCURRENT} =~ ^[0-9]+$ ]] || die "MAX_CONCURRENT must be a non-negative integer"
-[[ $# -gt 0 ]] && TABLES=("$@")
 CMD_LINE=$(printf '%q ' "$0" "$@")
+# command line: [--continue[=WORK_DIR]] [TABLE ...]
+ARG_TABLES=()
+for arg in "$@"; do
+    case ${arg} in
+        --continue)   CONTINUE=1 ;;
+        --continue=*) CONTINUE=1; WORK_DIR=${arg#--continue=}
+                      WORK_DIR=${WORK_DIR/#\~/${HOME}}
+                      [[ -n ${WORK_DIR} ]] || die "--continue= needs a WORK_DIR" ;;
+        -*)           die "unknown option: ${arg}" ;;
+        *)            ARG_TABLES+=("${arg}") ;;
+    esac
+done
+[[ ${#ARG_TABLES[@]} -gt 0 ]] && TABLES=("${ARG_TABLES[@]}")
 
 # fremor must be importable here too (yaml mode splits the yaml with its python env)
 eval "${ENV_SETUP}"
@@ -122,6 +147,12 @@ command -v fremor >/dev/null || die "fremor not found after ENV_SETUP"
 PYTHON=$(dirname "$(command -v fremor)")/python
 [[ -x ${PYTHON} ]] || PYTHON=python3
 
+if [[ ${CONTINUE} == 1 ]]; then
+    [[ -d ${WORK_DIR} ]] || die "CONTINUE=1 needs an existing WORK_DIR, not found: ${WORK_DIR}"
+    if [[ ${MODE} == yaml && " ${YAML_EXTRA_ARGS[*]:-} " != *" --continue "* ]]; then
+        YAML_EXTRA_ARGS+=(--continue)
+    fi
+fi
 mkdir -p "${WORK_DIR}"
 WORK_DIR=$(cd "${WORK_DIR}" && pwd)
 echo "work dir: ${WORK_DIR}"
@@ -131,7 +162,9 @@ echo "work dir: ${WORK_DIR}"
 HISTORY=${WORK_DIR}/HISTORY
 dry=''
 [[ ${DRY_RUN} == 1 ]] && dry=' (dry run, nothing submitted)'
-hist "submit${dry}: ${CMD_LINE% }"
+resume=''
+[[ ${CONTINUE} == 1 ]] && resume=' (continue)'
+hist "submit${resume}${dry}: ${CMD_LINE% }"
 hist "  cwd: ${PWD}, MODE=${MODE}, years: ${START:-first}-${STOP:-last}"
 if [[ ${MODE} == yaml ]]; then
     hist "  yaml: ${FREMOR_YAML}, extra args: ${YAML_EXTRA_ARGS[*]:-none}"
@@ -201,6 +234,37 @@ else
     done
 fi
 [[ ${#LABELS[@]} -gt 0 ]] || die "no tables selected"
+
+# CONTINUE=1: keep only tables that are neither finished nor still in the queue
+if [[ ${CONTINUE} == 1 ]]; then
+    keep_labels=() keep_entries=() finished=() queued=()
+    for i in "${!LABELS[@]}"; do
+        label=${LABELS[$i]}
+        if [[ -e ${WORK_DIR}/${label}/DONE ]]; then
+            finished+=("${label}")
+            continue
+        fi
+        prev_job=$(cat "${WORK_DIR}/${label}/JOBID" 2>/dev/null || true)
+        if [[ -n ${prev_job} && ${prev_job} != DRYRUN_* ]] \
+           && [[ -n $(squeue -h -j "${prev_job}" -o %i 2>/dev/null || true) ]]; then
+            queued+=("${label}(${prev_job})")
+            continue
+        fi
+        keep_labels+=("${label}")
+        [[ ${MODE} == run ]] && keep_entries+=("${RUN_ENTRIES[$i]}")
+    done
+    echo "already done (${#finished[@]}): ${finished[*]:-none}"
+    echo "still queued/running (${#queued[@]}): ${queued[*]:-none}"
+    hist "  skipped, already done (${#finished[@]}): ${finished[*]:-none}"
+    hist "  skipped, still queued/running (${#queued[@]}): ${queued[*]:-none}"
+    if [[ ${#keep_labels[@]} -eq 0 ]]; then
+        echo "nothing left to submit"
+        hist "  nothing left to submit"
+        exit 0
+    fi
+    LABELS=("${keep_labels[@]}")
+    [[ ${MODE} == run ]] && RUN_ENTRIES=("${keep_entries[@]}")
+fi
 echo "tables (${#LABELS[@]}): ${LABELS[*]}"
 hist "  tables (${#LABELS[@]}): ${LABELS[*]}"
 
@@ -273,6 +337,8 @@ for i in "${!LABELS[@]}"; do
     fi
     job_id=$(submit "${LABEL}" "${ENV_FILE}" "${dep}") || die "sbatch failed for ${LABEL}"
     JOB_IDS+=("${job_id}")
+    # lets a later CONTINUE=1 run tell whether this job is still queued/running
+    echo "${job_id}" > "${TABLE_WORK}/JOBID"
 
     printf '%s\t%s\n' "${LABEL}" "${job_id}"
     hist "  ${LABEL}: job ${job_id}${dep:+ (${dep})}"
