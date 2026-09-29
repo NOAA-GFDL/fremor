@@ -605,3 +605,91 @@ def test_fre_cmor_run_subtool_unsupported_mip_era(tmp_path):
             json_exp_config = str(bad_exp),
             outdir = OUTDIR,
         )
+
+def test_fre_cmor_run_subtool_empty_indir(tmp_path):
+    """
+    ValueError when the input directory contains no .nc files.
+    """
+    # Create a fresh, empty directory using the tmp_path fixture
+    empty_indir = tmp_path / 'empty_indir'
+    empty_indir.mkdir()
+
+    # The match argument ensures we are catching the specific ValueError from line 1056
+    with pytest.raises(ValueError, match='no files in input target directory'):
+        cmor_run_subtool(indir = str(empty_indir),
+                         json_var_list = VARLIST,
+                         json_table_config = TABLE_CONFIG,
+                         json_exp_config = EXP_CONFIG,
+                         outdir = OUTDIR
+        )
+
+def test_fre_cmor_run_subtool_var_not_in_table(tmp_path, caplog):
+    """
+    Tests line 1028: when a mapped target variable is not in the MIP table,
+    it logs a warning and skips it. If no runnable variables remain, it raises a ValueError.
+    """
+    # Create a dummy varlist containing a target variable that doesn't exist in the MIP table
+    bad_varlist = tmp_path / 'bad_varlist.json'
+    bad_varlist.write_text(json.dumps({
+        "my_local_var": "this_target_var_does_not_exist"
+    }))
+
+    # The function will skip the bogus variable at line 1028 and hit `continue`.
+    # Because it was the only variable, len(vars_to_run) == 0, triggering the ValueError at line 1039.
+    with pytest.raises(ValueError, match='runnable variable list is of length 0'):
+        cmor_run_subtool(
+            indir = INDIR,
+            json_var_list = str(bad_varlist),
+            json_table_config = TABLE_CONFIG,
+            json_exp_config = EXP_CONFIG,
+            outdir = OUTDIR
+        )
+
+    # Verify the specific warning from lines 1029-1031 was successfully logged
+    assert "target_var not found in CMOR variable group" in caplog.text
+
+def test_fre_cmor_run_subtool_missing_input_file(tmp_path, caplog):
+    """
+    Tests line 674: when a valid runnable variable is successfully mapped, 
+    but its corresponding NetCDF file is missing from the input directory.
+    Uses full cmor_run_subtool execution to naturally reach the warning block.
+    """
+    # Create isolated directories
+    indir = tmp_path / 'indir'
+    indir.mkdir()
+    outdir = tmp_path / 'outdir'
+    outdir.mkdir()
+
+    # Copy a valid NetCDF file into the input directory, but name it for a different 
+    # variable ('dummy_var'). This tricks glob.glob() into thinking the directory is valid 
+    # and ensures get_iso_datetime_ranges() doesn't crash on an empty or invalid file.
+    dummy_file_path = indir / f'reduced_ocean_monthly_1x1deg.{DATETIMES_INPUTFILE}.dummy_var.nc'
+    shutil.copy(FULL_INPUTFILE, dummy_file_path)
+
+    # Create a varlist targeting 'sos', which is a valid variable in the Omon MIP table.
+    # This guarantees 'sos' gets added to `vars_to_run` and passes table validation.
+    missing_varlist = tmp_path / 'missing_varlist.json'
+    missing_varlist.write_text(json.dumps({
+        "sos": "sos"
+    }))
+
+    # Execute the full subtool
+    cmor_run_subtool(
+        indir = str(indir),
+        json_var_list = str(missing_varlist),
+        json_table_config = TABLE_CONFIG,
+        json_exp_config = EXP_CONFIG,
+        outdir = str(outdir),
+        run_one_mode = True,
+        grid_label = GRID_LABEL,
+        grid = GRID,
+        nom_res = NOM_RES,
+        calendar_type = CALENDAR_TYPE
+    )
+
+    # The expected missing file path that cmorize_target_var_files will construct and fail to find
+    expected_missing_file = str(indir / f"reduced_ocean_monthly_1x1deg.{DATETIMES_INPUTFILE}.sos.nc")
+
+    # Verify the specific warning from line 674 was logged before the loop skipped
+    assert "input file not found, omitting:" in caplog.text
+    assert expected_missing_file in caplog.text

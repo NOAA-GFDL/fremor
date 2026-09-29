@@ -691,13 +691,8 @@ def cmorize_target_var_files(indir: str = None,
             fre_logger.info('nc_ps_file_work = %s', nc_ps_file_work)
             shutil.copy(nc_ps_file, nc_ps_file_work)
 
-        # TODO think of better way to write this kind of conditional data movement...
         # now we have a file in our targets, point CMOR to the configs and the input file(s)
         make_cmor_write_here = tmp_dir
-        # make sure we know where we are writing, or else!
-        if not Path(make_cmor_write_here).exists():
-            raise ValueError(f'\ntmp_dir = \n{tmp_dir}\ncannot be found/created/resolved!') #uncovered
-
         gotta_go_back_here = os.getcwd()
         try:
             fre_logger.warning('changing directory to: \n%s', make_cmor_write_here)
@@ -715,6 +710,8 @@ def cmorize_target_var_files(indir: str = None,
                                                       json_table_config,
                                                       prev_path=nc_fls[i] )
         except Exception as exc:
+            cmor_logfile = CMOR_LOG if CMOR_LOG is not None else nc_file_work.replace('.nc','.log')
+            _pprint_cmor_logfile(cmor_logfile, None)            
             raise Exception(
                 'problem with rewrite_netcdf_file_var. '
                 f'exc={exc}\n'
@@ -723,14 +720,7 @@ def cmorize_target_var_files(indir: str = None,
             fre_logger.warning('finally, changing directory to: \n%s', gotta_go_back_here)
             os.chdir(gotta_go_back_here)
 
-#        assert False, 'made it to break-point for current work, good job'
-
-        # now that CMOR has rewritten things... we can take our post-rewriting actions
-        # first, remove /CMOR_tmp/ from the output path.
-        if not Path(local_file_name).is_absolute():
-            raise ValueError(f'local_file_name should be an absolute path, not a relative one. \n '
-                             f'local_file_name = {local_file_name}')
-
+        # the previous chdir by this point is undone
         fre_logger.info('local_file_name = %s', local_file_name)
         filename = local_file_name.replace('/CMOR_tmp/','/')
         fre_logger.info('filename = %s', filename)
@@ -738,11 +728,7 @@ def cmorize_target_var_files(indir: str = None,
         # the final output file directory will be...
         filedir = Path(filename).parent
         fre_logger.info('FINAL OUTPUT FILE DIR WILL BE filedir = %s', filedir)
-        try:
-            fre_logger.info('ATTEMPTING TO CREATE filedir=%s', filedir)
-            os.makedirs(filedir)
-        except FileExistsError:
-            fre_logger.warning('directory %s already exists!', filedir)
+        os.makedirs(filedir, exist_ok=True)
 
         if Path(local_file_name).resolve() == Path(filename).resolve():
             # cmor.close(), with create_subdirectories enabled, sometimes writes the output file
@@ -762,18 +748,6 @@ def cmorize_target_var_files(indir: str = None,
                     subprocess.run(mv_log_cmd, shell=True, check=True)
             except Exception as exc: # this is the fremor.cmor_constants.CMOR_LOGFILE != None case
                 fre_logger.warning('could not move cmor_logfile next to cmorized file, but moving on. exception was:\nexc = %s', exc)
-
-        # ------ refactor this into function? #TODO
-        # ------ what is the use case for this logic really??
-        filename_no_nc = filename[:filename.rfind('.nc')]
-        chunk_str = filename_no_nc[-6:]
-        if not chunk_str.isdigit():
-            fre_logger.warning('chunk_str is not a digit: chunk_str = %s', chunk_str)
-            filename_corr = f'{filename[:filename.rfind(".nc")]}_{iso_datetime}.nc'
-            mv_cmd = f'mv {filename} {filename_corr}'
-            fre_logger.warning('moving files, strange chunkstr logic...\n%s', mv_cmd)
-            subprocess.run(mv_cmd, shell=True, check=True)
-        # ------ end refactor this into function?
 
         # delete files in work dirs
         if Path(nc_file_work).exists():
@@ -950,8 +924,7 @@ def cmor_run_subtool(indir: str = None,
         fre_logger.warning('CMIP7 config detected, will be expecting and enforcing variable brands.')
 
     if exp_cfg_mip_era == 'CMIP6PLUS':
-        exp_cfg_mip_era = 'CMIP6'
-        fre_logger.warning('CMIP6Plus config detected, capability under development, treating as a CMIP6 case for now')
+        fre_logger.warning('CMIP6Plus config detected, will use mip-cmor-tables fork at github.com/ilaflott')
 
     # CHECK optional grid/grid_label/nom_res inputs from exp config, the function raises the potential error conditions
     if any( [ grid_label is not None,
