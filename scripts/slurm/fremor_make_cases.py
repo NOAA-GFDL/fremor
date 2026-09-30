@@ -25,7 +25,8 @@ Columns:
   takes the type of the template's value (int / float / str). An empty cell keeps
   the template's value.
 - helper columns: a column that is not a key of the template json but is used as
-  ``{column}`` in some value or pattern (e.g. ``case`` below) only fills patterns.
+  ``{column}`` in some value or pattern (e.g. ``case`` in the ``--pp-dir`` example
+  below) only fills patterns.
   Any other column not in the template json is an error (catches typos), unless
   ``--allow-new-keys`` adds it to the json.
 
