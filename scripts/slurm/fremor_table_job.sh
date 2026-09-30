@@ -28,7 +28,7 @@ set -euo pipefail
 source "${JOB_ENV}"   # sourced at top level so declared arrays stay global
 
 STEP=stage
-log() { echo "[$(date '+%F %T')] [${STEP}:${LABEL}] $*"; }
+log() { echo "[$(date '+%F %T')] [${STEP}:${CASE_NAME:+${CASE_NAME}/}${LABEL}] $*"; }
 die() { log "ERROR: $*" >&2; exit 1; }
 
 log "host=$(hostname) job=${SLURM_JOB_ID:-none} mode=${MODE}"

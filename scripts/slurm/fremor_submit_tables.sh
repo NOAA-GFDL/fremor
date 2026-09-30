@@ -19,26 +19,37 @@
 #                                             # run that have no DONE marker yet
 #   ./fremor_submit_tables.sh --continue      # same, for the WORK_DIR set below
 #                                             # (CONTINUE=1 in the env works too)
+#   CASE_NAME=esm4_hist_r1 FREMOR_YAML=... ./fremor_submit_tables.sh
+#                                             # one case of many: its own work dir,
+#                                             # archive dir and slurm job names
+#
+# Settings marked [env] below can also be set in the environment, which is how
+# fremor_make_cases.py's generated submit_all.sh runs one submission per case.
 #
 # The per-table job body lives in fremor_table_job.sh (same directory).
 # ==============================================================================
 set -euo pipefail
 
 # ==============================================================================
-# USER CONFIG -- edit this block
+# USER CONFIG -- edit this block. [env] -> the environment overrides the value
 # ==============================================================================
+
+## [env] short name telling cases (experiments / ensemble members) apart, e.g.
+## esm4_hist_r1. goes into the default WORK_DIR and ARCHIVE_DIR and into the
+## slurm job names (fremor_<CASE_NAME>_<table>). letters, digits, . _ - only.
+## empty -> single-case behaviour
+CASE_NAME=${CASE_NAME:-}
 
 ## how to make `fremor` available inside the batch jobs (eval'd in each job)
 ENV_SETUP='module load fremor'
 #ENV_SETUP='source /path/to/miniforge3/etc/profile.d/conda.sh && conda activate fremor'
 
-## workflow mode: "yaml" -> fremor yaml, "run" -> fremor run
-MODE=yaml
+## [env] workflow mode: "yaml" -> fremor yaml, "run" -> fremor run
+MODE=${MODE:-yaml}
 
-## scratch area for per-table yamls, file lists, env files and slurm logs
-## (can also be set in the environment). must not exist yet (an empty directory
-## is fine) unless resuming it with --continue
-WORK_DIR=${WORK_DIR:-${HOME}/fremor_jobs/$(date +%Y%m%d_%H%M%S)}
+## [env] scratch area for per-table yamls, file lists, env files and slurm logs.
+## must not exist yet (an empty directory is fine) unless resuming it with --continue
+WORK_DIR=${WORK_DIR:-${HOME}/fremor_jobs/${CASE_NAME:+${CASE_NAME}/}$(date +%Y%m%d_%H%M%S)}
 
 ## 1 -> resume an earlier run in the existing WORK_DIR: skip tables that have a
 ## DONE marker or whose previous job is still queued/running, and (MODE=yaml)
@@ -47,13 +58,13 @@ WORK_DIR=${WORK_DIR:-${HOME}/fremor_jobs/$(date +%Y%m%d_%H%M%S)}
 ## MODE=run has no --continue, so unfinished tables are CMORized from scratch
 CONTINUE=${CONTINUE:-0}
 
-## optional year bounds (YYYY), passed as --start/--stop. empty -> use yaml / all
-START=
-STOP=
+## [env] optional year bounds (YYYY), passed as --start/--stop. empty -> use yaml / all
+START=${START:-}
+STOP=${STOP:-}
 
 ## ---------------------------- MODE=yaml ----------------------------
-## self-contained CMOR yaml (as written by `fremor config`)
-FREMOR_YAML=/path/to/cmor.yaml
+## [env] self-contained CMOR yaml (as written by `fremor config`)
+FREMOR_YAML=${FREMOR_YAML:-/path/to/cmor.yaml}
 ## tables to process. empty -> every enabled table_target in FREMOR_YAML
 TABLES=()
 ## extra flags for `fremor yaml`, e.g. (--run_strict), or (--continue) to resubmit
@@ -65,9 +76,9 @@ PRECHECK=1
 POSTCHECK=1
 
 ## ---------------------------- MODE=run -----------------------------
-## experiment config json and CMOR output root, shared by all targets
-EXP_CONFIG=/path/to/CMOR_input.json
-OUTDIR=/path/to/cmorized_output
+## [env] experiment config json and CMOR output root, shared by all targets
+EXP_CONFIG=${EXP_CONFIG:-/path/to/CMOR_input.json}
+OUTDIR=${OUTDIR:-/path/to/cmorized_output${CASE_NAME:+/${CASE_NAME}}}
 ## one entry per table:
 ##   "label|table_json|indir|varlist_json|extra fremor run args (optional)"
 RUN_TARGETS=(
@@ -76,9 +87,14 @@ RUN_TARGETS=(
 )
 
 ## ---------------------------- staging ------------------------------
-## max table jobs running at once (each recalls from tape then CMORizes);
-## keep small to be kind to the tape system. 1 -> strictly serial, 0 -> no limit
-MAX_CONCURRENT=4
+## [env] max table jobs running at once (each recalls from tape then CMORizes);
+## keep small to be kind to the tape system. 1 -> strictly serial, 0 -> no limit.
+## the limit covers this submission only, unless JOB_QUEUE_FILE is set
+MAX_CONCURRENT=${MAX_CONCURRENT:-4}
+## [env] file shared by several submissions (e.g. one per case) that each appends
+## its job ids to; MAX_CONCURRENT then limits the jobs of all of them together,
+## by chaining new jobs behind the still-queued jobs listed there. empty -> off
+JOB_QUEUE_FILE=${JOB_QUEUE_FILE:-}
 DMGET_BATCH=500       # files per dmget call
 STAGE_RETRIES=3       # dmget + verify attempts before giving up
 ## 1 -> copy staged inputs to node-local ${LOCAL_ROOT} before running CMOR
@@ -91,12 +107,14 @@ LOCAL_ROOT='${TMPDIR}' # expanded inside the job, e.g. '/vftmp/${USER}/${SLURM_J
 ## <outdir>/<component>/<table>/<CMIP dirs>/*.nc; those first two levels are
 ## dropped, so ARCHIVE_DIR gets <CMIP dirs>/*.nc. CMOR's *.log files in CMOR_tmp
 ## are moved to the table's logs/ directory
-ARCHIVE=0
-ARCHIVE_DIR=/path/to/archive
+## [env] ARCHIVE and ARCHIVE_DIR. the default ARCHIVE_DIR keeps cases apart; drop
+## the CASE_NAME part to collect all cases in one CMIP directory tree
+ARCHIVE=${ARCHIVE:-0}
+ARCHIVE_DIR=${ARCHIVE_DIR:-/path/to/archive${CASE_NAME:+/${CASE_NAME}}}
 ## parent of the per-table temporary outdirs (<root>/<table>/outdir).
 ## empty -> WORK_DIR. set a fixed path to resume with --continue: outputs of a
-## failed job are not archived and stay there for the next submission to reuse
-ARCHIVE_TMP_ROOT=
+## failed job are not archived and stay there for the next submission to reuse [env]
+ARCHIVE_TMP_ROOT=${ARCHIVE_TMP_ROOT:-}
 
 ## ---------------------------- slurm --------------------------------
 SLURM_ACCOUNT=         # --account, empty -> default
@@ -127,6 +145,10 @@ die() { echo "ERROR: $*" >&2; hist "  aborted: $*"; exit 1; }
 [[ -f ${JOB_SCRIPT} ]] || die "job script not found: ${JOB_SCRIPT}"
 [[ ${MODE} == yaml || ${MODE} == run ]] || die "MODE must be yaml or run, got '${MODE}'"
 [[ ${MAX_CONCURRENT} =~ ^[0-9]+$ ]] || die "MAX_CONCURRENT must be a non-negative integer"
+[[ -z ${CASE_NAME} || ${CASE_NAME} =~ ^[A-Za-z0-9._-]+$ ]] \
+    || die "CASE_NAME may only hold letters, digits, '.', '_' and '-', got '${CASE_NAME}'"
+# slurm job names: fremor_<CASE_NAME>_<table>, or fremor_<table> without a case
+JOB_PREFIX=fremor_${CASE_NAME:+${CASE_NAME}_}
 CMD_LINE=$(printf '%q ' "$0" "$@")
 # command line: [--continue[=WORK_DIR]] [TABLE ...]
 ARG_TABLES=()
@@ -170,13 +192,13 @@ dry=''
 resume=''
 [[ ${CONTINUE} == 1 ]] && resume=' (continue)'
 hist "submit${resume}${dry}: ${CMD_LINE% }"
-hist "  cwd: ${PWD}, MODE=${MODE}, years: ${START:-first}-${STOP:-last}"
+hist "  cwd: ${PWD}, MODE=${MODE}, case: ${CASE_NAME:-none}, years: ${START:-first}-${STOP:-last}"
 if [[ ${MODE} == yaml ]]; then
     hist "  yaml: ${FREMOR_YAML}, extra args: ${YAML_EXTRA_ARGS[*]:-none}"
 else
     hist "  exp config: ${EXP_CONFIG}, outdir: ${OUTDIR}"
 fi
-hist "  slurm: ${JOB_PARTITION}, ${JOB_TIME}, ${JOB_MEM}, ${JOB_CPUS} cpu, max concurrent ${MAX_CONCURRENT}"
+hist "  slurm: ${JOB_PARTITION}, ${JOB_TIME}, ${JOB_MEM}, ${JOB_CPUS} cpu, max concurrent ${MAX_CONCURRENT}${JOB_QUEUE_FILE:+ (shared via ${JOB_QUEUE_FILE})}"
 
 if [[ ${ARCHIVE} == 1 ]]; then
     mkdir -p "${ARCHIVE_DIR}" || die "could not create ARCHIVE_DIR ${ARCHIVE_DIR}"
@@ -289,7 +311,7 @@ submit() {
     local label=$1 env_file=$2 dep=$3
     local args
     mapfile -t args < <(common_sbatch_args)
-    args+=(--job-name="fremor_${label}"
+    args+=(--job-name="${JOB_PREFIX}${label}"
            --output="${WORK_DIR}/${label}/logs/%x.%j.out"
            --export=ALL,JOB_ENV="${env_file}"
            --partition="${JOB_PARTITION}" --time="${JOB_TIME}" --mem="${JOB_MEM}"
@@ -304,11 +326,24 @@ submit() {
     fi
 }
 
+# still_queued <job id> -> true if the job is pending or running (dry-run ids count)
+still_queued() {
+    [[ $1 == DRYRUN_* ]] && return 0
+    [[ -n $(squeue -h -j "$1" -o %i 2>/dev/null || true) ]]
+}
+
 # ------------------------------------------------------------------------------
 # per-table: write env file, submit one stage+cmor job. with MAX_CONCURRENT=N,
-# job i waits (afterany) for job i-N, so at most N chains run side by side
+# job n waits (afterany) for job n-N, so at most N chains run side by side.
+# with JOB_QUEUE_FILE, n counts the jobs of earlier submissions listed there too;
+# a job that has already left the queue needs no waiting for
 # ------------------------------------------------------------------------------
 JOB_IDS=()
+QUEUE_IDS=()   # earlier submissions' job ids, followed by this one's
+if [[ -n ${JOB_QUEUE_FILE} ]]; then
+    mkdir -p "$(dirname "${JOB_QUEUE_FILE}")"
+    [[ -s ${JOB_QUEUE_FILE} ]] && mapfile -t QUEUE_IDS < "${JOB_QUEUE_FILE}"
+fi
 
 for i in "${!LABELS[@]}"; do
     LABEL=${LABELS[$i]}
@@ -329,7 +364,7 @@ for i in "${!LABELS[@]}"; do
     # everything the job needs, safely quoted
     SUBMIT_DIR=${PWD}
     {
-        declare -p MODE LABEL TABLE_WORK SUBMIT_DIR ENV_SETUP START STOP \
+        declare -p MODE CASE_NAME LABEL TABLE_WORK SUBMIT_DIR ENV_SETUP START STOP \
                    TABLE_YAML YAML_EXTRA_ARGS PRECHECK POSTCHECK \
                    TABLE_JSON INDIR VARLIST RUN_ARGS EXP_CONFIG OUTDIR \
                    DMGET_BATCH STAGE_RETRIES COPY_TO_LOCAL LOCAL_ROOT \
@@ -337,11 +372,15 @@ for i in "${!LABELS[@]}"; do
     } > "${ENV_FILE}"
 
     dep=''
-    if (( MAX_CONCURRENT > 0 && i >= MAX_CONCURRENT )); then
-        dep="afterany:${JOB_IDS[i - MAX_CONCURRENT]}"
+    n=${#QUEUE_IDS[@]}
+    if (( MAX_CONCURRENT > 0 && n >= MAX_CONCURRENT )); then
+        prev_job=${QUEUE_IDS[n - MAX_CONCURRENT]}
+        still_queued "${prev_job}" && dep="afterany:${prev_job}"
     fi
     job_id=$(submit "${LABEL}" "${ENV_FILE}" "${dep}") || die "sbatch failed for ${LABEL}"
     JOB_IDS+=("${job_id}")
+    QUEUE_IDS+=("${job_id}")
+    [[ -n ${JOB_QUEUE_FILE} && ${DRY_RUN} != 1 ]] && echo "${job_id}" >> "${JOB_QUEUE_FILE}"
     # lets a later CONTINUE=1 run tell whether this job is still queued/running
     echo "${job_id}" > "${TABLE_WORK}/JOBID"
 
@@ -351,4 +390,4 @@ done
 hist "  submitted ${#JOB_IDS[@]} jobs"
 
 echo "job ids appended to ${HISTORY}"
-echo "monitor with: squeue -u ${USER} -o '%.10i %.40j %.9T %.10M %R' | grep fremor_"
+echo "monitor with: squeue -u ${USER} -o '%.10i %.40j %.9T %.10M %R' | grep ${JOB_PREFIX}"
