@@ -92,7 +92,6 @@ from collections import defaultdict, namedtuple
 from pathlib import Path
 from typing import Optional, Sequence
 
-import click
 import yaml
 from netCDF4 import Dataset
 from textual import work
