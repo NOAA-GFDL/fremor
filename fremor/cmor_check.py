@@ -1326,5 +1326,5 @@ def cmor_check_subtool(
             json.dump(report, handle, indent=2)
         fre_logger.info('wrote check report to %s', output_report)
 
-    fre_logger.info(f'complete in {time.monotonic() - started_at:.1f}s', err=True)
+    fre_logger.info(f'complete in {time.monotonic() - started_at:.1f}s')
     return report
