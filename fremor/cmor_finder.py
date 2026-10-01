@@ -215,13 +215,13 @@ def make_simple_varlist( dir_targ: str,
     if len(all_nc_files) == 1:
         fre_logger.debug('Warning: Only one file found matching the pattern.')
 
-    fre_logger.debug('Files found matching pattern. Number of files: %d', len(all_nc_files))
+    fre_logger.info('Files found matching pattern. Number of files: %d', len(all_nc_files))
 
     mip_vars = None
     if json_mip_table is not None:
         try:
             # read in mip vars to check against later
-            fre_logger.debug('attempting to read in variable entries in specified mip table')
+            fre_logger.info('attempting to read in variable entries in specified mip table')
             full_mip_vars_list=get_json_file_data(json_mip_table)['variable_entry'].keys()
 
         except Exception as exc:
@@ -230,7 +230,7 @@ def make_simple_varlist( dir_targ: str,
 
         fre_logger.debug('attempting to make mip variable list')
         mip_vars=[ key.split('_')[0] for key in full_mip_vars_list ]
-        fre_logger.info('mip vars extracted for comparison when making var list: %s', mip_vars)
+        fre_logger.ddebug('mip vars extracted for comparison when making var list: %s', mip_vars)
 
     # build deduplicated list of unique candidate variable names to push through comparison below
     candidate_var_list = []
@@ -238,7 +238,7 @@ def make_simple_varlist( dir_targ: str,
         var_name=os.path.basename(targetfile).split('.')[-2]
         if var_name not in candidate_var_list:
             candidate_var_list.append(var_name)
-    fre_logger.info('candidate vars extracted for comparison when making var list: %s', candidate_var_list)
+    fre_logger.ddebug('candidate vars extracted for comparison when making var list: %s', candidate_var_list)
 
     # dict of variable names extracted from all filenames across all datetimes.
     # If a MIP table is provided, variables that match a MIP variable name get
@@ -273,7 +273,8 @@ def make_simple_varlist( dir_targ: str,
     # Write the variable list to the output JSON file
     if output_variable_list is not None:
         try:
-            fre_logger.debug('writing output variable list, %s', list(var_list.keys()))
+            fre_logger.info('writing output variable list')
+            fre_logger.ddebug('variables in list: %s', list(var_list.keys()))
             with open(output_variable_list, 'w', encoding='utf-8') as f:
                 json.dump(var_list, f, indent=4)
         except Exception as exc:

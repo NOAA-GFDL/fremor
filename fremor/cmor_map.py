@@ -92,7 +92,6 @@ from collections import defaultdict, namedtuple
 from pathlib import Path
 from typing import Optional, Sequence
 
-import click
 import yaml
 from netCDF4 import Dataset
 from textual import work
@@ -1365,11 +1364,10 @@ def cmor_map_subtool(
     :rtype: None
     """
     started_at = time.monotonic()
-    click.echo('fremor map: loading configuration and variable lists...', err=True)
+    fre_logger.info('loading configuration and variable lists...')
     session = MapSession(yamlfile, table_patterns, ncinfo_bin, dmls_bin)
-    click.echo(
-        f'fremor map: loaded {len(session.table_names)} MIP table(s) in '
+    fre_logger.debug(
+        f'loaded {len(session.table_names)} MIP table(s) in '
         f'{time.monotonic() - started_at:.1f}s; starting interface...',
-        err=True,
     )
     MapApp(session).run()

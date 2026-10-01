@@ -1127,7 +1127,7 @@ def test_cli_fremor_yaml_misplaced_global_verbose_flag():
     # Test with a short flag (-v) on the yaml subcommand
     result_v = runner.invoke(fremor, args=['yaml', '-v'])
     assert result_v.exit_code == 2
-    assert "Error: The '-v' flag is in the wrong spot." in result_v.output
+    assert "Error: The \"-v\" flag is in the wrong spot." in result_v.output
     assert "Global flags must be placed before the command (e.g., `fremor -v yaml`)." in result_v.output
 
 
@@ -1141,7 +1141,7 @@ def test_cli_fremor_run_misplaced_global_quiet_flag():
     # Test with a long flag (--quiet) on the run subcommand
     result_q = runner.invoke(fremor, args=['run', '--quiet'])
     assert result_q.exit_code == 2
-    assert "Error: The '--quiet' flag is in the wrong spot." in result_q.output
+    assert "Error: The \"--quiet\" flag is in the wrong spot." in result_q.output
     assert "Global flags must be placed before the command (e.g., `fremor --quiet run`)." in result_q.output
 
 def test_cli_fremor_genuinely_unknown_flag():
