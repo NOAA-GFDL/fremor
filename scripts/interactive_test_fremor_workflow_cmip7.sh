@@ -57,18 +57,16 @@ echo "fremor installed (with -e) in ${FREMOR_INSTALL_E}"
 
 WORKING_CWD=$PWD
 
-## OUTPUT CMORIZED DATA DIR
-OUTPUT_CMORIZED_DATA_DIR=/net2/$USER/Working/fremor_testing_cmip7
 
 ## INPUT DIRECTORY DETAILS
-#BASE_SRC_DIR=/archive/oar.gfdl.bgrp-account/
-BASE_SRC_DIR=/work/$USER/ # copied over, no archive dependence
+BASE_SRC_DIR=/archive/oar.gfdl.bgrp-account/
+#BASE_SRC_DIR=/work/$USER/ # copy over and use this for no archive dependence
 
 CMIP7_ESM_DECK_PATH_GUTS=CMIP7/ESM4/DECK/ESM4.5-
 
 #ESM_KIND=historical
-#ESM_KIND=historical-defobbfix
-ESM_KIND=picontrol
+ESM_KIND=historical-defobbfix
+#ESM_KIND=picontrol
 
 TAIL_TARG_DIR=/gfdl.ncrc6-intel25-prod-openmp/pp/
 
@@ -81,6 +79,8 @@ FREQ=monthly
 COMPONENT_DIR_STUB_VARLIST_ONLY=atmos_cmip/ts/${FREQ}/${CHUNK}/
 TEST_COMPONENT_DIR=${TARG_FREBRONX_PPDIR}${COMPONENT_DIR_STUB_VARLIST_ONLY} # for varlist testing only, random
 
+## OUTPUT CMORIZED DATA DIR
+OUTPUT_CMORIZED_DATA_DIR=/net2/$USER/Working/fremor_testing_cmip7_${ESM_KIND}
 
 #### ACTION
 echo "cd'ing to working dir ${WORKING_CWD}"
@@ -89,9 +89,8 @@ cd "${WORKING_CWD}" || return
 PP_START=0001
 PP_STOP=0006
 
-
 #### INIT
-FREMOR_INIT_OUTDIR=${WORKING_CWD}/fremor_init_outdir
+FREMOR_INIT_OUTDIR=${WORKING_CWD}/fremor_init_${ESM_KIND}_outdir
 USER_CONFIG=${FREMOR_INIT_OUTDIR}/CMIP7_user_input.json
 CMIP7_TABLES=${FREMOR_INIT_OUTDIR}/cmip7-cmor-tables-main/tables
 if [[ "${CHECK_INIT}" -eq 1 ]]; then
@@ -114,7 +113,7 @@ fi
 
 
 #### VARLIST
-FREMOR_VARLIST_OUTDIR=${WORKING_CWD}/fremor_varlist_outdir
+FREMOR_VARLIST_OUTDIR=${WORKING_CWD}/fremor_varlist_${ESM_KIND}_outdir
 FREMOR_VARLIST_OUTPUT=${FREMOR_VARLIST_OUTDIR}/foo.list
 if [[ "${CHECK_VARLIST}" -eq 1 ]]; then
 	echo "not checking fremor varlist"
@@ -149,7 +148,7 @@ fi
 
 
 #### CONFIG
-FREMOR_CONFIG_OUTDIR=${WORKING_CWD}/fremor_config_outdir
+FREMOR_CONFIG_OUTDIR=${WORKING_CWD}/fremor_config_${ESM_KIND}_outdir
 FREMOR_CONFIG_OUTYAML=${FREMOR_CONFIG_OUTDIR}/cmor.yaml
 if [[ "${CHECK_CONFIG}" -eq 1 ]]; then
 	echo "not checking fremor config"
@@ -184,7 +183,7 @@ fi
 
 
 #### CHECK
-FREMOR_CHECK_OUTDIR=${WORKING_CWD}/fremor_check_outdir
+FREMOR_CHECK_OUTDIR=${WORKING_CWD}/fremor_check_${ESM_KIND}_outdir
 FREMOR_CHECK_OUTREPORT=${FREMOR_CHECK_OUTDIR}/report.out
 DMLS_BIN=$(which dmls)
 if [[ "${CHECK_CHECK}" -eq 1 ]]; then
@@ -256,7 +255,7 @@ else
 	echo "setting up fremor yaml check"
 
 	echo "running fremor yaml"
-	echo_and_run fremor -vv -l fremor_log_output_dir/OUTPUT_LOG.log yaml \
+	echo_and_run fremor -vv -l fremor_log_output_${ESM_KIND}_dir/OUTPUT_LOG.log yaml \
 				 --yamlfile "${FREMOR_CONFIG_OUTYAML}" \
 				 --start "${PP_START}" \
 				 --stop "${PP_STOP}"
@@ -265,12 +264,12 @@ else
 #                --run_strict \
 #                --run_one \
 
-	echo "checking the output cmorized data directory for successfully created output"
-	tree ${OUTPUT_CMORIZED_DATA_DIR}/*/*/CMIP/
+#	echo "checking the output cmorized data directory for successfully created output"
+#	tree ${OUTPUT_CMORIZED_DATA_DIR}/*/*/CMIP/
 
-	echo "checking the output cmorized data directory for created output"
-	echo "number of left-behind tmp outputs (without interpolated pressure style coordinate vars is:"
-	ls ${OUTPUT_CMORIZED_DATA_DIR}/*/*/CMOR_tmp/*nc  | wc -l # | grep -v '\.ps\.' | grep -v '\.phalf\.' | grep -v -c '\.pfull\.'
+#	echo "checking the output cmorized data directory for created output"
+#	echo "number of left-behind tmp outputs (without interpolated pressure style coordinate vars is:"
+#	ls ${OUTPUT_CMORIZED_DATA_DIR}/*/*/CMOR_tmp/*nc  | wc -l # | grep -v '\.ps\.' | grep -v '\.phalf\.' | grep -v -c '\.pfull\.'
 fi
 
 
