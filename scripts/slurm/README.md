@@ -36,8 +36,8 @@ Contents:
 - **fremor** installed as an environment module or a conda environment. The submitter
   loads it through `ENV_SETUP`, both on the login node and inside every job.
 - **PyYAML**, which comes with fremor. The submitter splits the yaml with the Python
-  from the fremor environment. Run `fremor_make_cases.py` with that Python too, for
-  example after `module load fremor`.
+  from the fremor environment. `fremor_make_cases.py` runs with any Python 3.6+ that has
+  PyYAML, including the system `python3`.
 - *Optional:* the DMF tape tools **`dmget`** and **`dmls`**. If they're missing, jobs
   skip the tape recall and treat all inputs as ordinary disk files.
 
@@ -359,7 +359,7 @@ python fremor_make_cases.py cases.csv \
 | `--yaml-template` | CMOR yaml of a working case (required). Its table targets and variable lists are reused unchanged. |
 | `--out-dir` | Where the generated files go (required). |
 | `--pp-dir`, `--outdir`, `--archive-dir` | Patterns for rows without that column. |
-| `--jobs-root` | Parent of the per-case work directories. Default `${HOME}/fremor_jobs`. |
+| `--jobs-root` | Parent of the per-case work directories. Default `${HOME}/fremor_jobs`. A relative path is taken from the directory you run the generator in. |
 | `--submitter` | The `fremor_submit_tables.sh` to call. Default: the one next to the script. |
 | `--allow-new-keys` | Allow CSV columns that aren't keys of the template JSON. |
 | `--force` | Overwrite previously generated files. |

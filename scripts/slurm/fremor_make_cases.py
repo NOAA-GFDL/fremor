@@ -83,6 +83,23 @@ def fill(pattern, row, what):
         sys.exit(f'case {row.get("case_name")}: cannot fill {what} {pattern!r}: {exc!r}')
 
 
+def dump_yaml(doc):
+    """
+    ``doc`` as block-style yaml text, keys in their original order. PyYAML < 5.1 (e.g. a
+    system python3.6) has no ``sort_keys`` and always sorts, so it gets a dumper whose
+    mappings are written from item lists, which PyYAML leaves in the order given
+    """
+    try:
+        return yaml.safe_dump(doc, sort_keys=False, default_flow_style=False)
+    except TypeError:
+        class OrderedDumper(yaml.SafeDumper): # pylint: disable=too-many-ancestors
+            """ SafeDumper keeping dict insertion order """
+        OrderedDumper.add_representer(
+            dict, lambda dumper, data: dumper.represent_mapping(
+                'tag:yaml.org,2002:map', list(data.items())))
+        return yaml.dump(doc, Dumper=OrderedDumper, default_flow_style=False)
+
+
 def fields(pattern):
     """ the column names a pattern refers to, e.g. {'case'} for '/pp/{case}_{x:0>2}' """
     names = set()
@@ -131,7 +148,7 @@ def read_cases(csv_path):
     return rows
 
 
-def main(): # pylint: disable=too-many-locals,too-many-statements
+def main(): # pylint: disable=too-many-locals,too-many-statements,too-many-branches
     """ parse the arguments, write every case's json and yaml, then submit_all.sh """
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -149,7 +166,8 @@ def main(): # pylint: disable=too-many-locals,too-many-statements
     parser.add_argument('--archive-dir',
                         help='ARCHIVE_DIR pattern for rows without an archive_dir column')
     parser.add_argument('--jobs-root', default='${HOME}/fremor_jobs',
-                        help='parent of the per-case work dirs (default: %(default)s)')
+                        help='parent of the per-case work dirs (default: %(default)s); '
+                             'a relative path is taken from the current directory')
     parser.add_argument('--submitter', default=str(SCRIPT_DIR / 'fremor_submit_tables.sh'),
                         help='fremor_submit_tables.sh to call (default: next to this script)')
     parser.add_argument('--allow-new-keys', action='store_true',
@@ -180,6 +198,11 @@ def main(): # pylint: disable=too-many-locals,too-many-statements
     exp_keys = sorted(columns - helpers)
 
     out_dir = Path(args.out_dir).expanduser().resolve()
+    # left as given when it starts with $ (expanded by submit_all.sh), else made absolute
+    # so the work dirs do not depend on where submit_all.sh is run from
+    jobs_root = args.jobs_root.rstrip('/') or '/'
+    if not jobs_root.startswith('$'):
+        jobs_root = str(Path(jobs_root).expanduser().resolve())
     template_outdir = yaml_template['cmor']['directories']['outdir'].rstrip('/')
     patterns = {'pp_dir': args.pp_dir,
                 'outdir': args.outdir or template_outdir + '/{case_name}'}
@@ -211,12 +234,12 @@ def main(): # pylint: disable=too-many-locals,too-many-statements
             directories[col] = fill(pattern, row, col)
         doc['cmor']['exp_json'] = str(exp_path)
 
+        # serialize first, so a failure cannot leave half-written files behind
+        exp_text = json.dumps(exp, indent=4) + '\n'
+        yaml_text = dump_yaml(doc)
         case_dir.mkdir(parents=True, exist_ok=True)
-        with open(exp_path, 'w', encoding='utf-8') as handle:
-            json.dump(exp, handle, indent=4)
-            handle.write('\n')
-        with open(yaml_path, 'w', encoding='utf-8') as handle:
-            yaml.safe_dump(doc, handle, sort_keys=False)
+        exp_path.write_text(exp_text, encoding='utf-8')
+        yaml_path.write_text(yaml_text, encoding='utf-8')
 
         # env for this case's submission. WORK_DIR keeps ${HOME} etc. unexpanded
         env = {'CASE_NAME': name, 'FREMOR_YAML': str(yaml_path)}
@@ -226,7 +249,7 @@ def main(): # pylint: disable=too-many-locals,too-many-statements
                 env[var] = fill(value, row, col)
         assigns = ' '.join(f'{var}={shlex.quote(val)}' for var, val in env.items())
         submit_lines.append(
-            f'run_case {shlex.quote(name)} {assigns} WORK_DIR="{args.jobs_root}/{name}"')
+            f'run_case {shlex.quote(name)} {assigns} WORK_DIR="{jobs_root}/{name}"')
 
         changed = ', '.join(f'{k}={exp[k]!r}' for k in exp_keys if k in row)
         print(f'{name}: pp_dir={directories["pp_dir"]}  {changed}')
