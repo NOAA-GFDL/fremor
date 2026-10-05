@@ -8,6 +8,7 @@ import pytest
 
 from fremor.cmor_helpers import (
     calendars_are_equivalent,
+    get_time_calendar_ds,
     get_time_calendar_value,
     normalize_calendar,
     update_calendar_type,
@@ -270,3 +271,15 @@ def test_get_time_calendar_missing_returns_none():
     """
     fake_time = _FakeTime()
     assert get_time_calendar_value(fake_time) is None
+
+def test_get_time_calendar_ds_success():
+    """ get_time_calendar_ds returns the normalized calendar when a 'time' variable is present """
+    fake_time = _FakeTime(calendar='NoLeap')
+    mock_ds = {'time': fake_time}
+    assert get_time_calendar_ds(mock_ds) == '365_day'
+
+def test_get_time_calendar_ds_missing_time():
+    """ get_time_calendar_ds raises a KeyError when the 'time' variable is missing from the dataset """
+    mock_ds = {'lat': [0, 1, 2]} # Missing 'time' key
+    with pytest.raises(KeyError):
+        get_time_calendar_ds(mock_ds)

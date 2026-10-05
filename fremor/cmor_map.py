@@ -117,10 +117,11 @@ from textual.widgets import Button, Footer, Input, Label, OptionList, Static, Tr
 from textual.widgets.option_list import Option
 
 from .cmor_check import _build_table_report, _date_range_from_filename, \
-    _DMLS_DISK_RESIDENT_STATES, _dmls_state_for_file, \
-    _find_dmls_bin, _is_file_staged, _matching_variable_keys, _mip_table_paths, \
+    _dmls_state_for_file, _find_dmls_bin, _is_file_staged, _matching_variable_keys, _mip_table_paths, \
     _select_table_names, _varlists_by_table_from_yaml
 from .cmor_config import _bronx_to_iso_chunk, _load_config_yaml
+
+from .cmor_constants import DMLS_DISK_RESIDENT_STATES
 from .cmor_helpers import get_json_file_data, iso_to_bronx_chunk, table_declares_ps
 from .cmor_reduce import REDUCE_METHODS, parse_varlist_value, varlist_target
 
@@ -540,7 +541,7 @@ class MapSession: # pylint: disable=too-many-public-methods
                                             table_names)
         self.varlists_by_table = _varlists_by_table_from_yaml(selected_table_targets)
         self.varlist_dir = _infer_varlist_dir(table_targets)
-        self.dirty_keys = set()  # {(table_name, component_name, local_key), ...} -- unsaved
+        self.dirty_keys = set()  # varlist entries with staged-but-unsaved edits
         self._baseline = _snapshot_varlists(self.varlists_by_table)  # state as of last save
         self._history = []  # [_Edit, ...] most-recent last -- undo() pops from the end
 
@@ -1608,7 +1609,7 @@ class MapApp(App):
         a preview, since opening/inspecting it would otherwise silently trigger (or block on)
         a tape retrieval."""
         dmls_state = _dmls_state_for_file(Path(path), self.session.dmls_bin)
-        on_tape = (dmls_state not in _DMLS_DISK_RESIDENT_STATES if dmls_state is not None
+        on_tape = (dmls_state not in DMLS_DISK_RESIDENT_STATES if dmls_state is not None
                   else not _is_file_staged(Path(path)))
         if on_tape:
             text = _format_tape_message(local_key, path, dmls_state)

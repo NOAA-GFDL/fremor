@@ -17,7 +17,7 @@ import fremor
 ROOTDIR = Path(fremor.__file__).parent / 'tests' / 'test_files'
 
 CMIP6_TABLE_CONFIG     = ROOTDIR / 'cmip6-cmor-tables' / 'Tables' / 'CMIP6_Omon.json'
-CMIP6PLUS_TABLE_CONFIG = ROOTDIR / 'mip-cmor-tables'   / 'Tables' / 'MIP_OPmon.json'
+CMIP6PLUS_TABLE_CONFIG = ROOTDIR / 'mip-cmor-tables'   / 'Tables' / 'MIP_APmon.json'
 CMIP7_TABLE_CONFIG     = ROOTDIR / 'cmip7-cmor-tables' / 'tables' / 'CMIP7_ocean.json'
 
 INDIR = ROOTDIR / 'ocean_sos_var_file'
@@ -87,9 +87,9 @@ _CMIP6_EXP_CONFIG_DATA = {
 
 _CMIP6PLUS_EXP_CONFIG_DATA = {
     '#note': ' **** CMIP6Plus experiment config for testing ****',
-    'source_type': 'AOGCM ISM AER',
-    'experiment_id': 'piControl-withism',
-    'activity_id': 'ISMIP6',
+    'source_type': 'AGCM AER CHEM',
+    'experiment_id': 'amip-aer',
+    'activity_id': 'CERESMIP',
     'sub_experiment_id': 'none',
     'realization_index': '3',
     'initialization_index': '1',
@@ -104,8 +104,8 @@ _CMIP6PLUS_EXP_CONFIG_DATA = {
     'branch_method': 'no parent',
     'branch_time_in_child': 59400.0,
     'branch_time_in_parent': 0.0,
-    'institution_id': 'PCMDI',
-    'source_id': 'PCMDI-test-1-0',
+    'institution_id': 'NOAA-GFDL',
+    'source_id': 'GFDL-CM4',
     'calendar': 'julian',
     'grid': 'FOO_BAR_PLACEHOLD',
     'grid_label': 'gr',
@@ -119,7 +119,7 @@ _CMIP6PLUS_EXP_CONFIG_DATA = {
     'references': 'Model described by Koder and Tolkien (J. Geophys. Res., 2001, 576-591).  Also see http://www.GICC.su/giccm/doc/index.html.  The ssp245 simulation is described in Dorkey et al. \'(Clim. Dyn., 2003, 323-357.)\'',
     'sub_experiment': 'none',
     'institution': '',
-    'source': 'PCMDI-test 1.0 (1989)',
+    'source': 'GFDL-CM4 (2018)',
     # CMOR resolves these relative to the MIP table's directory; PCMDI/mip-cmor-tables keeps
     # its auxiliary tables in Auxillary_files/, a sibling of Tables/, and ships no CV
     # (CMIP6Plus_CV.json comes from WCRP-CMIP/CMIP6Plus_CVs).

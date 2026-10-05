@@ -104,10 +104,16 @@ from netCDF4 import Dataset
 from .cmor_check_exp import ( check_exp_config as _check_exp_config, find_emd_grid_cells_dir, grid_finding,
                               grid_label_spec, load_cv )
 from .cmor_config import _load_config_yaml
-from .cmor_constants import ACCEPTED_VERT_DIMS, INPUT_TO_MIP_VERT_DIM
+
 from .cmor_reduce import parse_varlist_value
 from .cmor_helpers import ( find_ps_companion, get_json_file_data, get_vertical_dimension,
                             iso_to_bronx_chunk, resolve_named_ps_source )
+from .cmor_constants import (
+    ACCEPTED_VERT_DIMS,
+    CMOR_CHECK_CATEGORY_WIDTH,
+    DMLS_DISK_RESIDENT_STATES,
+    INPUT_TO_MIP_VERT_DIM,
+)
 from .cmor_stage import _year_bound
 
 fre_logger = logging.getLogger(__name__)
@@ -117,7 +123,7 @@ fre_logger = logging.getLogger(__name__)
 # plevNN, height2m, landuse -- pass straight through as MIP-table names too) plus the
 # canonical MIP-table-only hybrid-sigma names that INPUT_TO_MIP_VERT_DIM maps input dims onto.
 KNOWN_MIP_VERTICAL_TOKENS = set(ACCEPTED_VERT_DIMS) | {'alevel', 'alevhalf', 'olevel', 'olevhalf'}
-
+MIP_RANGE_FIELDS = ('valid_min', 'valid_max', 'ok_min_mean_abs', 'ok_max_mean_abs')
 
 def _reference_vars_for_table(table_path: str, mip_era: str) -> set:
     """
@@ -272,12 +278,6 @@ def _parse_dmls_states(stdout: str) -> dict:
     return states
 
 
-# disk-resident dmls states -- anything else (an explicit 'OFL', or any other/unrecognized
-# state code) counts as not yet staged. Shared with fremor map's single-file pp-preview
-# check (cmor_map.py's _load_preview), which must use the same resident/non-resident split.
-_DMLS_DISK_RESIDENT_STATES = {'REG', 'DUL'}
-
-
 def _dmls_offline_files(paths: Sequence[Path], dmls_bin: Optional[str] = None) -> Optional[set]:
     """Best-effort, single batched ``dmls -l`` query (like ``fremor stage``'s one-shot dmget)
     for which of the given paths are offline (not yet staged). Returns None -- meaning "fall
@@ -300,7 +300,7 @@ def _dmls_offline_files(paths: Sequence[Path], dmls_bin: Optional[str] = None) -
     if any(str(path) not in states for path in paths):
         return None
     return {filename for filename, state in states.items()
-            if state not in _DMLS_DISK_RESIDENT_STATES}
+            if state not in DMLS_DISK_RESIDENT_STATES}
 
 
 def _dmls_state_for_file(path: Path, dmls_bin: Optional[str] = None) -> Optional[str]:
@@ -462,6 +462,17 @@ def _index_output_files(outdir: Optional[str]) -> list:
     return list(Path(outdir).rglob('*.nc'))
 
 
+def _cmip7_expected_output_prefixes(table_data: Optional[dict], var: str) -> list:
+    """CMIP7 output filenames start with ``<variable_id><branding_suffix>``, so expected
+    prefixes come from the table's branded ``variable_entry`` keys rather than the table name."""
+    variable_entry = (table_data or {}).get('variable_entry', {})
+    prefixes = [
+        key for key in _matching_variable_keys(variable_entry, var, 'cmip7')
+        if key.startswith(f'{var}_')
+    ]
+    return prefixes or [var]
+
+
 def _expected_output_prefixes(table_data: Optional[dict], var: str, table_name: str,
                               mip_era: str) -> list:
     """Filename prefixes CMOR would give `var`'s output in this MIP table, e.g. ``'tas_Amon'``
@@ -473,12 +484,7 @@ def _expected_output_prefixes(table_data: Optional[dict], var: str, table_name: 
     brand) if no brand can be resolved, since a loose match is more useful than skipping the
     variable outright."""
     if mip_era.lower() == 'cmip7':
-        variable_entry = (table_data or {}).get('variable_entry', {})
-        prefixes = [
-            key for key in _matching_variable_keys(variable_entry, var, mip_era)
-            if key.startswith(f'{var}_')
-        ]
-        return prefixes or [var]
+        return _cmip7_expected_output_prefixes(table_data, var)
     return [f'{var}_{table_name}']
 
 
@@ -813,7 +819,7 @@ def _attrs_finding(mip_units: list, mip_cell_methods: list, files: list) -> dict
 # tape retrieval.
 # ---------------------------------------------------------------------------
 
-_RANGE_FIELDS = ('valid_min', 'valid_max', 'ok_min_mean_abs', 'ok_max_mean_abs')
+
 
 
 def _mip_variable_range_bounds(table_data: dict, var: str, mip_era: str) -> dict:
@@ -826,7 +832,7 @@ def _mip_variable_range_bounds(table_data: dict, var: str, mip_era: str) -> dict
     keys = _matching_variable_keys(variable_entry, var, mip_era)
 
     bounds = {}
-    for field in _RANGE_FIELDS:
+    for field in MIP_RANGE_FIELDS:
         values = set()
         for key in keys:
             raw = variable_entry[key].get(field)
@@ -1061,17 +1067,13 @@ def _build_table_report(table_path: str, mip_era: str, varlists_by_table: dict,
     return report_entry
 
 
-# width the category label + count column is padded to, so every category line's trailing
-# note starts in the same column regardless of label length ("MULTIPLY-MAPPED" is the longest).
-_CATEGORY_WIDTH = 20
-
-
 def _category_line(label: str, count: int, note: str, nonzero_fg: str = 'yellow') -> str:
     """One aligned, color-coded summary line for a coverage category -- green when the
     category is empty (nothing to worry about), `nonzero_fg` otherwise."""
     color = 'green' if count == 0 else nonzero_fg
-    head = click.style(f'{label:<{_CATEGORY_WIDTH}}{count:>5}', bold=True, fg=color)
+    head = click.style(f'{label:<{CMOR_CHECK_CATEGORY_WIDTH}}{count:>5}', bold=True, fg=color)
     return f'  {head}  {click.style(note, dim=True)}'
+
 
 
 # report key holding the experiment-config findings, alongside the per-table entries
@@ -1140,16 +1142,113 @@ def _coverage_finding(coverage: Optional[dict], common_span: Optional[tuple]) ->
         text += f', missing years: {", ".join(coverage["missing_years"])}'
     return text
 
+def _staging_findings(var_entry: dict) -> list:
+    """Render abnormal staging results; successful staging stays silent to keep the report short."""
+    staging = var_entry.get('staging')
+    if staging is None or (staging['status'] == 'staged' and not staging['gaps']):
+        return []
+
+    color = 'red' if staging['status'] in ('unstaged', 'missing') else 'yellow'
+    findings = [(color, f'staging={staging["status"]}')]
+    if staging['unstaged_files']:
+        findings[0] = (
+            color,
+            f'staging={staging["status"]} ({len(staging["unstaged_files"])} file(s) not yet staged)',
+        )
+    if staging['gaps']:
+        findings.append((color, f'date-range gaps: {", ".join(staging["gaps"])}'))
+    return findings
+
+
+def _dims_findings(var_entry: dict) -> list:
+    """Render abnormal dimension-check results; normal results stay silent."""
+    dims = var_entry.get('dims')
+    if dims is None or (dims['status'] == 'ok' and not dims.get('missing_ps_file')):
+        return []
+
+    color = 'red' if dims['status'] not in ('ok', 'unknown') else 'yellow'
+    findings = [(color, f'dims={dims["status"]}')]
+    if dims['status'] not in ('ok', 'unknown'):
+        findings[0] = (
+            color,
+            (f'dims={dims["status"]} (table wants {dims.get("mip_table_vertical_dims")}, '
+             f'input has {dims.get("input_vertical_dim")})'),
+        )
+    if dims.get('missing_ps_file'):
+        findings.append((color, f'missing companion ps file: {dims["missing_ps_file"]}'))
+    return findings
+
+
+def _output_findings(var_entry: dict) -> list:
+    """Render output-production status. Unlike staging/dims, successful output is shown too."""
+    output = var_entry.get('output')
+    if output is None:
+        return []
+    if output['status'] == 'produced' and not output['gaps']:
+        return [('green', f'output=produced ({output["file_count"]} file(s))')]
+
+    color = 'red' if output['status'] == 'missing' else 'yellow'
+    findings = [(color, f'output={output["status"]}')]
+    if output['gaps']:
+        findings.append((color, f'date-range gaps: {", ".join(output["gaps"])}'))
+    return findings
+
+
+def _attrs_findings(var_entry: dict) -> list:
+    """Render abnormal attribute-check results."""
+    attrs = var_entry.get('attrs')
+    if attrs is None or attrs['status'] == 'ok':
+        return []
+    if attrs['status'] == 'unknown':
+        return [('yellow', f'attrs=unknown ({attrs.get("reason")})')]
+
+    findings = []
+    for field_name in ('units', 'cell_methods'):
+        field = attrs[field_name]
+        if field['status'] != 'ok':
+            color = 'red' if field['status'] == 'mismatch' else 'yellow'
+            findings.append((color, (
+                f'{field_name}={field["status"]} '
+                f'(table wants {field["mip_table"]}, input has {field["input"]!r})'
+            )))
+    return findings
+
+
+def _range_findings(var_entry: dict) -> list:
+    """Render abnormal value-range-check results."""
+    range_ = var_entry.get('range')
+    if range_ is None or range_['status'] == 'ok':
+        return []
+    if range_['status'] == 'out_of_range':
+        return [('red', 'range=out_of_range: ' + '; '.join(range_['problems']))]
+    if range_['status'] == 'skipped_offline':
+        return [('yellow', f'range=skipped_offline ({range_.get("reason")})')]
+    return [('yellow', f'range=unknown ({range_.get("reason")})')]
+
+
+def _file_findings(var_entry: dict) -> list:
+    """Flatten the per-variable file checks into display rows."""
+    findings = []
+    findings.extend(_staging_findings(var_entry))
+    findings.extend(_dims_findings(var_entry))
+    findings.extend(_output_findings(var_entry))
+    findings.extend(_attrs_findings(var_entry))
+    findings.extend(_range_findings(var_entry))
+    return findings
+
+
 
 def _print_report(report: dict, show_mapped: bool = False,
                   show_unmapped: bool = False, show_multi_mapped: bool = False) -> None:
+
     if EXP_CONFIG_REPORT_KEY in report:
         _print_exp_config_report(report[EXP_CONFIG_REPORT_KEY])
-    for table_name in sorted(report):
-        if table_name == EXP_CONFIG_REPORT_KEY:
-            continue
+    for table_index, table_name in enumerate(sorted(
+            name for name in report if name != EXP_CONFIG_REPORT_KEY)):
+
         entry = report[table_name]
-        click.echo()
+        if table_index:
+            click.echo()
         click.echo(click.style(f'[{table_name}]', bold=True, fg='cyan') +
                    click.style(f'  {entry["reference_var_count"]} variables required by table',
                                dim=True))
@@ -1213,6 +1312,7 @@ def _print_report(report: dict, show_mapped: bool = False,
             common_span = _print_coverage_summary(files)
             for var in sorted(files):
                 var_entry = files[var]
+
                 findings = []  # (color, text) pairs to render under this variable
 
                 coverage_text = _coverage_finding(var_entry.get('coverage'), common_span)
@@ -1285,6 +1385,7 @@ def _print_report(report: dict, show_mapped: bool = False,
                     else:
                         findings.append(('yellow', f'range=unknown ({range_.get("reason")})'))
 
+
                 if not findings:
                     continue
                 click.echo(f'    {var}')
@@ -1351,11 +1452,13 @@ def cmor_check_subtool(
     :param check_staging: if True, for every one-to-one-mapped variable also check whether its
         input files exist under pp_dir and whether they're staged/disk-resident (best-effort,
         via ``dmls`` if available else a stat-only heuristic), plus a filename-only scan for
+
         gaps between chunk date ranges and each variable's time coverage (reported under
         ``coverage``: first/last date, years covered, missing years incl. any shortfall
         against the start/stop run bounds). The human-readable output omits normal staging
         results, prints one TIME COVERAGE line per table, and lists only variables whose
         coverage is incomplete or differs from the table's most common span.
+
     :type check_staging: bool
     :param check_dims: if True, for every one-to-one-mapped variable also check whether a
         representative input file's vertical dimension matches what the MIP table declares

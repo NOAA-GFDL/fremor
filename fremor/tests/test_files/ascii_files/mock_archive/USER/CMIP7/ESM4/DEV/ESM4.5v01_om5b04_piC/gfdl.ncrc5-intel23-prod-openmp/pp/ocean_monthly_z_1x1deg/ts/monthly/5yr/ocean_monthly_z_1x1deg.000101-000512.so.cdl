@@ -5,7 +5,6 @@ dimensions:
 	lon = 2 ;
 	time = UNLIMITED ; // (60 currently)
 	z_l = 35 ;
-	z_i = 36 ;
 variables:
 	double lat(lat) ;
 		lat:long_name = "latitude" ;
@@ -44,11 +43,6 @@ variables:
 	double time_bnds(time, bnds) ;
 		time_bnds:units = "days since 0001-01-01 00:00:00" ;
 		time_bnds:long_name = "time axis boundaries" ;
-	double z_i(z_i) ;
-		z_i:units = "meters" ;
-		z_i:long_name = "Depth at interface" ;
-		z_i:axis = "Z" ;
-		z_i:positive = "down" ;
 	double z_l(z_l) ;
 		z_l:units = "meters" ;
 		z_l:long_name = "Depth at cell center" ;
@@ -4354,10 +4348,6 @@ data:
   1733, 1764,
   1764, 1794,
   1794, 1825 ;
-
- z_i = 0, 5, 15, 25, 40, 62.5, 87.5, 112.5, 137.5, 175, 225, 275, 350, 450, 
-    550, 650, 750, 850, 950, 1050, 1150, 1250, 1350, 1450, 1625, 1875, 2250, 
-    2750, 3250, 3750, 4250, 4750, 5250, 5750, 6250, 6750 ;
 
  z_l = 2.5, 10, 20, 32.5, 51.25, 75, 100, 125, 156.25, 200, 250, 312.5, 400, 
     500, 600, 700, 800, 900, 1000, 1100, 1200, 1300, 1400, 1537.5, 1750, 
