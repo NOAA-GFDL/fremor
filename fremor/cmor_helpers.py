@@ -21,7 +21,12 @@ Functions
 - ``print_data_minmax(ds_variable, desc)``
 - ``from_ds_get_this(from_ds, var_name)``
 - ``find_statics_file(bronx_file_path)``
+
+- ``table_declares_ps(mip_var_cfgs)``
+- ``find_ps_companion(var_file, local_var, ps_source, ps_fallback)``
+- ``resolve_named_ps_source(table_target, table_targets, pp_dir, freq)``
 - ``create_lev_bnds(bound_these)``
+
 - ``get_iso_datetime_ranges(var_filenames, iso_daterange_arr, start, stop)``
 - ``check_dataset_for_ocean_grid(ds)``
 - ``get_vertical_dimension(ds, target_var)``
@@ -97,7 +102,7 @@ def calendars_are_equivalent(cal1: Optional[str], cal2: Optional[str]) -> bool:
 
 def get_time_calendar_ds(ds = None):
     """
-    
+
     """
     try:
         return get_time_calendar_value(ds['time'])
@@ -296,7 +301,130 @@ def find_statics_file( bronx_file_path: str) -> Optional[str]:
     fre_logger.warning('no statics file found, returning None')
     return None
 
-def create_lev_bnds(bound_these: Variable) -> np.ndarray:
+
+
+def table_declares_ps(mip_var_cfgs: dict) -> bool:
+    """
+    Return True if a MIP table declares a surface-pressure ``ps`` variable entry.
+
+    :param mip_var_cfgs: MIP table, as loaded from its JSON config.
+    :type mip_var_cfgs: dict
+    :return: True if the table has a ``ps`` entry (CMIP6/CMIP6Plus) or a branded ``ps_*`` entry (CMIP7).
+    :rtype: bool
+    """
+    return any(var == 'ps' or var.startswith('ps_')
+               for var in (mip_var_cfgs or {}).get('variable_entry', {}))
+
+
+def _find_ps_in_source(source: dict, datetime_str: str, searched: list, desc: str) -> Optional[str]:
+    """Look for a same-date ``<source['indir']>/*.<datetime>.<source['local_var']>.nc`` file."""
+    pattern = f"*.{datetime_str}.{source['local_var']}.nc"
+    searched.append(f"{source['indir']}/{pattern} ({desc} '{source['local_var']}')")
+    matches = sorted(Path(source['indir']).glob(pattern))
+    if len(matches) > 1:
+        fre_logger.warning('multiple ps files match %s in %s, using %s', pattern, source['indir'], matches[0])
+    return str(matches[0]) if matches else None
+
+
+def find_ps_companion( var_file: Union[str, Path],
+                       local_var: str,
+                       ps_source: Optional[dict] = None,
+                       ps_fallback: Optional[dict] = None ) -> tuple:
+    """
+    Find the surface-pressure file a hybrid-sigma variable's input file needs, and the name of the
+    ps variable inside it. Up to three places are searched, in order:
+
+    1. ``ps_source``, the table's own mapped ps variable -- a same-date file
+       ``<ps_source['indir']>/*.<datetime>.<ps_source['local_var']>.nc``, read as ``ps_source['local_var']``.
+    2. the same-date ``.ps.nc`` file sitting next to ``var_file``, read as ``ps``.
+    3. ``ps_fallback``, the table target's ``ps_component`` from the cmor yaml -- searched like ``ps_source``.
+
+    :param var_file: Path to the variable's input file, named ``<set>.<datetime>.<local_var>.nc``.
+    :type var_file: str or Path
+    :param local_var: Modeler's variable name, as it appears in ``var_file``'s name.
+    :type local_var: str
+    :param ps_source: Optional ``{'indir': ..., 'local_var': ...}`` locating the table's mapped ps variable.
+    :type ps_source: dict, optional
+    :param ps_fallback: Optional ``{'indir': ..., 'local_var': ...}`` locating a user-named ps component,
+                        see ``resolve_named_ps_source``.
+    :type ps_fallback: dict, optional
+    :return: ``(ps_file, ps_var, searched)`` -- the ps file path (None if not found), the variable name to
+             read from it, and a description of every place searched, for error messages.
+    :rtype: tuple
+    """
+    var_file = Path(var_file)
+    stem = var_file.name[:-len(f'.{local_var}.nc')]
+    datetime_str = stem.rsplit('.', 1)[-1]
+    searched = []
+
+    if ps_source is not None:
+        ps_file = _find_ps_in_source(ps_source, datetime_str, searched, 'table-mapped ps variable')
+        if ps_file is not None:
+            return ps_file, ps_source['local_var'], searched
+
+    adjacent = var_file.with_name(f'{stem}.ps.nc')
+    searched.append(f'{adjacent} (companion .ps.nc file)')
+    if adjacent.is_file():
+        return str(adjacent), 'ps', searched
+
+    if ps_fallback is not None:
+        ps_file = _find_ps_in_source(ps_fallback, datetime_str, searched, 'ps_component variable')
+        if ps_file is not None:
+            return ps_file, ps_fallback['local_var'], searched
+
+    return None, 'ps', searched
+
+
+def resolve_named_ps_source( table_target: dict,
+                             table_targets: List[dict],
+                             pp_dir: Union[str, Path],
+                             freq: str ) -> Optional[dict]:
+    """
+    Resolve a cmor yaml table target's optional ``ps_component`` (and ``ps_local_name``, default ``ps``)
+    into the input directory holding that component's surface pressure, at the table's ``freq``.
+
+    The component's ``chunk`` and ``data_series_type`` are taken from its entry in this table target's
+    ``target_components``, else from any other table target listing it, else from this table target's
+    first component -- the ps file has to share the variables' date ranges to be found anyway.
+
+    :param table_target: The cmor yaml table target.
+    :type table_target: dict
+    :param table_targets: Every table target in the cmor yaml, searched for the component's entry.
+    :type table_targets: list of dict
+    :param pp_dir: The cmor yaml's pp directory.
+    :type pp_dir: str or Path
+    :param freq: The table target's resolved frequency, e.g. 'monthly'.
+    :type freq: str
+    :return: ``{'indir': ..., 'local_var': ...}``, or None if the table target names no ``ps_component``.
+    :rtype: dict or None
+    """
+    ps_component = table_target.get('ps_component')
+    if not ps_component:
+        return None
+
+    own_components = table_target.get('target_components') or []
+    candidates = own_components + [
+        comp for other in table_targets if other is not table_target
+        for comp in other.get('target_components') or [] ]
+    component = next((comp for comp in candidates if comp['component_name'] == ps_component), None)
+    if component is None:
+        if not own_components:
+            raise ValueError(f"table target {table_target.get('table_name')} names ps_component "
+                             f"{ps_component} but has no target_components to take its chunk from")
+        component = own_components[0]
+        fre_logger.warning('ps_component %s is not a target component anywhere in the cmor yaml, '
+                           'assuming chunk %s and data_series_type %s from component %s',
+                           ps_component, component['chunk'], component['data_series_type'],
+                           component['component_name'])
+
+    indir = (f"{pp_dir}/{ps_component}/{component['data_series_type']}/{freq}/"
+             f"{iso_to_bronx_chunk(component['chunk'])}")
+    return {'indir': indir, 'local_var': table_target.get('ps_local_name') or 'ps'}
+
+
+def create_lev_bnds( bound_these: Variable = None,
+                     with_these: Variable = None) -> np.ndarray:
+
     """
     Create a vertical level bounds array dynamically from a set of midpoints.
 
@@ -888,7 +1016,7 @@ def filter_brands( brands: list,
 
     filtered_brands = []
     for brand in brands:
-        
+
         mip_key = f'{target_var}_{brand}'
         mip_dims = mip_var_cfgs['variable_entry'][mip_key]['dimensions']
         mip_standard_name = mip_var_cfgs['variable_entry'][mip_key]['standard_name']

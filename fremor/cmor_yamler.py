@@ -22,10 +22,64 @@ from typing import Optional
 import yaml
 
 from .cmor_mixer import cmor_run_subtool
+from .cmor_reduce import varlist_target
 from .cmor_helpers import ( check_path_existence, iso_to_bronx_chunk,
-                            get_bronx_freq_from_mip_table )
+                            get_bronx_freq_from_mip_table, get_json_file_data,
+                            table_declares_ps, resolve_named_ps_source )
 
 fre_logger = logging.getLogger(__name__)
+
+
+def _component_indir(pp_dir: str, freq: str, targ_comp_config: dict) -> str:
+    """Input directory holding one target component's time series for a table target."""
+    bronx_chunk = iso_to_bronx_chunk(targ_comp_config['chunk'])
+    data_series_type = targ_comp_config['data_series_type']
+    return f"{pp_dir}/{targ_comp_config['component_name']}/{data_series_type}/{freq}/{bronx_chunk}"
+
+
+def _find_table_ps_source(json_mip_table_config: str, table_components_list: list,
+                          pp_dir: str, freq: str) -> tuple:
+    """
+    Look through a table target's component variable lists for a local variable mapped to the
+    table's ps. The user is responsible for that mapping being correct.
+
+    :return: ``(ps_source, ps_component_name)``, where ps_source is ``{'indir': ..., 'local_var': ...}``,
+             or ``(None, None)`` if the table has no ps entry or no component maps one.
+    :rtype: tuple
+    """
+    try:
+        mip_var_cfgs = get_json_file_data(json_mip_table_config)
+    except Exception:  # pylint: disable=broad-except
+        # an unreadable table is reported when the table's components run, not here
+        fre_logger.warning('could not read %s while looking for a ps entry, skipping', json_mip_table_config)
+        return None, None
+    if not table_declares_ps(mip_var_cfgs):
+        return None, None
+
+    ps_mappings = []
+    for targ_comp_config in table_components_list:
+        try:
+            var_list = get_json_file_data(os.path.expandvars(targ_comp_config['variable_list']))
+        except Exception:  # pylint: disable=broad-except
+            # an unreadable variable list is reported when its component runs, not here
+            fre_logger.warning('could not read %s while looking for a ps mapping, skipping it',
+                               targ_comp_config['variable_list'])
+            continue
+        for local_var, value in var_list.items():
+            if varlist_target(value) == 'ps':
+                ps_mappings.append((targ_comp_config, local_var))
+
+    if not ps_mappings:
+        return None, None
+    if len(ps_mappings) > 1:
+        fre_logger.warning('multiple ps mappings found for %s: %s, using the first',
+                           json_mip_table_config,
+                           [(comp['component_name'], local_var) for comp, local_var in ps_mappings])
+
+    ps_comp_config, ps_local_var = ps_mappings[0]
+    ps_source = {'indir': _component_indir(pp_dir, freq, ps_comp_config), 'local_var': ps_local_var}
+    return ps_source, ps_comp_config['component_name']
+
 
 def cmor_yaml_subtool( yamlfile: str = None,
                        opt_var_name: Optional[str] = None,
@@ -35,7 +89,8 @@ def cmor_yaml_subtool( yamlfile: str = None,
                        start: Optional[str] = None,
                        stop: Optional[str] = None,
                        calendar_type: Optional[str] = None,
-                       print_cli_call: bool = True):
+                       print_cli_call: bool = True,
+                       skip_existing: bool = False):
     """
     Main driver for CMORization using self-contained CMOR YAML configuration files.
     This routine parses the CMOR YAML, resolves and checks all required
@@ -62,6 +117,9 @@ def cmor_yaml_subtool( yamlfile: str = None,
         the equivalent ``fremor run`` CLI invocation; when False, print
         the Python ``cmor_run_subtool(...)`` call instead.
     :type print_cli_call: bool
+    :param skip_existing: If True, skip input files whose CMOR output already exists under the
+        table/component output directory, and only CMORize the missing ones.
+    :type skip_existing: bool
     :raises FileNotFoundError: If required paths do not exist.
     :raises OSError: If output directories cannot be created.
     :raises ValueError: If required configuration is missing or inconsistent.
@@ -217,16 +275,33 @@ def cmor_yaml_subtool( yamlfile: str = None,
                 raise ValueError('gridding dictionary, if present, must have all three fields be non-empty.')
 
         table_components_list = cmor_yaml_table_target['target_components']
+
+        # if the table maps a ps variable, CMORize its component first and use that ps as the
+        # surface-pressure companion for every hybrid-sigma variable in the table.
+        ps_source, ps_component = _find_table_ps_source(
+            json_mip_table_config, table_components_list, pp_dir, freq)
+        if ps_source is not None:
+            fre_logger.info('table %s maps ps to %s in component %s, using it as the '
+                            'surface-pressure companion', table_name, ps_source['local_var'], ps_component)
+            table_components_list = (
+                [comp for comp in table_components_list if comp['component_name'] == ps_component] +
+                [comp for comp in table_components_list if comp['component_name'] != ps_component] )
+
+        # the table target's optional ps_component, searched after the companion .ps.nc file
+        ps_fallback = resolve_named_ps_source(
+            cmor_yaml_table_target, cmor_yaml_dict['table_targets'], pp_dir, freq)
+        if ps_fallback is not None:
+            fre_logger.info('table %s names ps_component, will fall back to %s in %s',
+                            table_name, ps_fallback['local_var'], ps_fallback['indir'])
+
         for targ_comp_config in table_components_list:
             component = targ_comp_config['component_name']
-            bronx_chunk = iso_to_bronx_chunk(targ_comp_config['chunk'])
-            data_series_type = targ_comp_config['data_series_type']
 
             json_var_list = os.path.expandvars(
                 targ_comp_config['variable_list']
             )
             fre_logger.info('json_var_list = %s', json_var_list)
-            indir = f'{pp_dir}/{component}/{data_series_type}/{freq}/{bronx_chunk}'
+            indir = _component_indir(pp_dir, freq, targ_comp_config)
             fre_logger.info('indir = %s', indir)
 
             fre_logger.info('PROCESSING: ( %s, %s )', table_name, component)
@@ -251,6 +326,10 @@ def cmor_yaml_subtool( yamlfile: str = None,
                                           f'    --calendar {calendar_type} \\'+'\n' + \
                                           f'    --opt_var_name {opt_var_name} \\' + \
                                            '\n' )
+                    if (ps_source is not None and component != ps_component) or ps_fallback is not None:
+                        fre_logger.info('--DRY RUN NOTE--- the yaml run also passes ps_source = %s and '
+                                        'ps_fallback = %s, which fremor run has no flags for',
+                                        ps_source, ps_fallback)
                 else:
                     fre_logger.info( '%s', '--DRY RUN CALL---\n' + \
                                            'cmor_run_subtool(\n' + \
@@ -266,7 +345,10 @@ def cmor_yaml_subtool( yamlfile: str = None,
                                           f'    start = {start} ,\n' + \
                                           f'    stop = {stop} ,\n' + \
                                           f'    calendar_type = {calendar_type} ,\n' + \
-                                          f'    opt_var_name = {opt_var_name}' + \
+                                          f'    opt_var_name = {opt_var_name} ,\n' + \
+                                          f'    ps_source = {ps_source} ,\n' + \
+                                          f'    ps_fallback = {ps_fallback} ,\n' + \
+                                          f'    skip_existing = {skip_existing}' + \
                                            ')\n' )
                 continue
             try:
@@ -283,7 +365,10 @@ def cmor_yaml_subtool( yamlfile: str = None,
                     nom_res = nom_res ,
                     start = start ,
                     stop = stop ,
-                    calendar_type = calendar_type
+                    calendar_type = calendar_type ,
+                    ps_source = ps_source ,
+                    ps_fallback = ps_fallback ,
+                    skip_existing = skip_existing
                 )
             except Exception as exc: #uncovered
                 fre_logger.warning(

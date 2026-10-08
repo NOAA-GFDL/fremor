@@ -77,6 +77,26 @@ def test_collect_stage_files_uses_mappings_bounds_and_ps(tmp_path, mip_era):
     ])
 
 
+def test_collect_stage_files_includes_ps_component(tmp_path):
+    """A table target's ps_component contributes its in-range ps files."""
+    yamlfile, input_dir = _stage_case(tmp_path)
+    ps_dir = tmp_path / 'pp' / 'atmos_ps' / 'ts' / 'monthly' / '5yr'
+    ps_dir.mkdir(parents=True)
+    for name in ('atmos_ps.199501-199912.ps.nc', 'atmos_ps.200001-200412.ps.nc'):
+        (ps_dir / name).touch()
+    config = yaml.safe_load(yamlfile.read_text(encoding='utf-8'))
+    config['cmor']['table_targets'][0]['ps_component'] = 'atmos_ps'
+    yamlfile.write_text(yaml.safe_dump(config, sort_keys=False), encoding='utf-8')
+
+    result = collect_stage_files(str(yamlfile))
+
+    assert result == sorted([
+        str((input_dir / 'atmos.199501-199912.ps.nc').resolve()),
+        str((input_dir / 'atmos.199501-199912.temp.nc').resolve()),
+        str((ps_dir / 'atmos_ps.199501-199912.ps.nc').resolve()),
+    ])
+
+
 def test_collect_stage_files_cli_bounds_override_yaml(tmp_path):
     """Explicit bounds take precedence over bounds stored in YAML."""
     yamlfile, input_dir = _stage_case(tmp_path)

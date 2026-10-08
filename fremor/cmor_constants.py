@@ -185,6 +185,32 @@ MIP_ERA_RESOURCE_FALLBACKS = {
     'CMIP7'    : {'grids': ['CMIP7_grids.json']},
 }
 
+# ---------------------------------------------------------------------------
+# CMIP7 grid-label definitions (used by cmor_init and cmor_check_exp)
+# ---------------------------------------------------------------------------
+# The CMIP7 CV only describes each grid_label in prose ("... regular latitude longitude grid
+# type and 1.25 x 1.0 degree resolution."), and several labels share that description while
+# differing only in where the grid starts (e.g. g224/g225/g230). The exact layout -- grid_type,
+# x/y_resolution, westernmost_longitude/southernmost_latitude, n_cells -- is registered in the
+# Essential Model Documentation (EMD), one JSON file per label, browsable at
+# https://wcrp-cmip.github.io/Essential-Model-Documentation/docs/grid_viewer/horizontal/
+EMD_REPO_URL = 'https://github.com/WCRP-CMIP/Essential-Model-Documentation'
+EMD_DATA_BRANCH = 'src-data'
+EMD_HORIZONTAL_GRID_CELL_URL = ('https://raw.githubusercontent.com/WCRP-CMIP/'
+                                'Essential-Model-Documentation/src-data/horizontal_grid_cell')
+# directory name fremor init saves the EMD horizontal grid cells under, beside the MIP tables
+EMD_GRID_CELL_DIRNAME = 'emd_horizontal_grid_cell'
+
+# Tolerance, in degrees, when comparing input coordinates against a grid-label spec.
+GRID_SPEC_TOLERANCE_DEG = 1.0e-3
+
+# CF calendar names (CF-1.11 section 4.4.1), plus the deprecated alias 'gregorian'.
+CF_CALENDARS = [
+    'standard', 'gregorian', 'proleptic_gregorian', 'julian', 'noleap', '365_day',
+    'all_leap', '366_day', '360_day', 'none', 'utc', 'tai',
+]
+
+
 # Upstream source for the CMIP6Plus controlled vocabulary, which is not shipped
 # with the CMIP6Plus MIP tables (used by cmor_init to fetch it alongside them).
 CMIP6PLUS_CV_URL = ('https://raw.githubusercontent.com/WCRP-CMIP/CMIP6Plus_CVs/'

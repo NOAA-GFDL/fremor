@@ -136,6 +136,38 @@ entry (rather than writing a file full of empty-value entries), use ``--strict_m
 If no variables match, nothing is written and the tool exits without error. This is useful for
 batch workflows where many components are checked against many tables and most pairs have no overlap.
 
+.. _varlist-reduce:
+
+**Reducing the input (zonal means)**
+
+A value can also be an object naming the MIP variable together with a ``reduce`` method applied to
+the input before CMORization. This writes a zonal-mean table (e.g. CMIP6 ``AERmonZ``, CMIP6Plus
+``APmonZ``, or a CMIP7 ``-hy-`` brand such as ``ta_tavg-p39-hy-air``) straight from the lat-lon time
+series already used for the lat-lon table:
+
+.. code-block:: json
+
+   {
+       "ta": {"name": "ta", "reduce": "zonal_mean"},
+       "ua": {"name": "ua", "reduce": "zonal_mean"}
+   }
+
+* ``name`` — the MIP table variable, as a plain value would give it (``""`` means unmapped)
+* ``reduce`` — optional. ``zonal_mean`` averages over longitude, weighted by the longitude cell widths
+  (``lon_bnds``) when present and ignoring missing values; latitude circles with no valid data stay
+  missing. It needs a 1-D longitude axis, so data on a native tripolar or cubed-sphere grid must be
+  regridded to lat-lon first. The ``lon`` coordinate and its bounds are dropped, so CMOR sees a
+  latitude-only variable
+
+Only the working copy CMOR reads is reduced; the pp files are never modified. The key is still the
+local variable name in the pp filenames and files. Set the zonal-mean table target's ``gridding`` to
+the grid label you want to publish, e.g. ``grz``/``gr1z`` in CMIP6, since CMOR does not add the ``z``
+itself. ``fremor check``, ``fremor stage`` and ``fremor map`` all read object values;
+``fremor check`` lists any malformed ones under ``INVALID``. In ``fremor map``, ``z`` sets or removes
+the reduce method of the selected mapping, mapping a zonal-mean table variable with ``m`` offers
+``zonal_mean`` straight away, and the reduce method is shown next to the mapping and kept when the
+mapping is re-pointed.
+
 To verify variables exist in MIP tables, search for variable definitions:
 
 .. code-block:: bash
@@ -461,6 +493,38 @@ Prepare the CMOR YAML (``cmor_yamls/ocean_cmor.yaml``):
              variable_list: "/path/to/ocean_varlist.json"
              data_series_type: "ts"
              chunk: "P1Y"
+
+Surface pressure for hybrid-sigma variables
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Variables on hybrid-sigma model levels (e.g. ``cl``, ``ta`` on ``alevel``) need surface pressure
+from a file whose filename has the same date range. ``fremor`` looks for it in three places, in order:
+
+1. **The table's own mapped ps.** If the MIP table has a ``ps`` entry and one of the table target's
+   variable lists maps a local variable to ``ps``, that variable is used, read by its local name.
+   Its component is CMORized first. Making sure the mapping is correct is up to you.
+2. **The companion** ``.ps.nc`` **file** next to the variable's input file.
+3. **The table target's** ``ps_component``, for tables with no ``ps`` entry of their own
+   (e.g. CMIP6Plus ``APmonLev``, whose ``ps`` lives in ``APmon``):
+
+.. code-block:: yaml
+
+   table_targets:
+     - table_name: "APmonLev"
+       freq: "monthly"
+       ps_component: "atmos"     # optional: component whose time series holds surface pressure
+       ps_local_name: "ps"       # optional: variable name in that component's files, default "ps"
+       target_components:
+         - component_name: "atmos_level_cmip"
+           variable_list: "/path/to/atmos_level_varlist.json"
+           data_series_type: "ts"
+           chunk: "P5Y"
+
+The ``ps_component`` directory uses the table target's ``freq``. Its ``chunk`` and ``data_series_type``
+come from that component's entry in this table target or, failing that, in any other table target;
+if it is listed nowhere, those of the table target's first component are assumed. If none of the three
+places has the file, ``fremor`` stops with an error listing every place it searched.
+``fremor check --check-dims`` and ``fremor stage`` search the same places.
 
 Test with dry run:
 

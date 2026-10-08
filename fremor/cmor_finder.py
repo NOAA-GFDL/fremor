@@ -10,7 +10,10 @@ Functions
 ---------
 - ``print_var_content(table_config_file, var_name)``
 - ``cmor_find_subtool(json_var_list, json_table_config_dir, opt_var_name)``
-- ``make_simple_varlist(dir_targ, output_variable_list, json_mip_table)``
+- ``make_simple_varlist(dir_targ, output_variable_list, json_mip_table, check_freq)``
+- ``detect_input_frequency(nc_file, var_name)``
+- ``mip_entry_frequency(var_entry)``
+- ``frequency_mismatch(input_freq, table_freq)``
 
 Notes
 -----
@@ -18,14 +21,20 @@ These utilities are intended to make it easier to inspect and extract variable i
 tables, avoiding the need for manual shell scripting and ad-hoc file inspection.
 """
 
+from functools import lru_cache
 import glob
 import json
 import logging
 import os
 from pathlib import Path
+import re
 from typing import Optional, Dict, IO
 
+import numpy as np
+from netCDF4 import Dataset, Variable
+
 from .cmor_helpers import get_json_file_data
+from .cmor_reduce import varlist_target
 from .cmor_constants import DO_NOT_PRINT_LIST
 
 fre_logger = logging.getLogger(__name__)
@@ -175,12 +184,181 @@ def cmor_find_subtool( json_var_list: Optional[str] = None,
         fre_logger.info('looking for %s variables worth of info', len(var_list))
         for var in var_list:
             print_var_content_in_dir_w_mip_tables(json_table_configs=json_table_configs,
-                                                  var_name=var_list[var])
+                                                  var_name=varlist_target(var_list[var]))
+
+# base frequencies recognized from an input file's time spacing, as (name, low, high) in days
+_SPACING_TO_BASE_FREQ = (
+    ('subhr', 0.0, 0.99 / 24),
+    ('1hr', 0.99 / 24, 1.01 / 24),
+    ('3hr', 2.97 / 24, 3.03 / 24),
+    ('6hr', 5.94 / 24, 6.06 / 24),
+    ('day', 0.99, 1.01),
+    ('mon', 27.5, 31.5),
+    ('yr', 359.0, 367.0),
+    ('dec', 3590.0, 3670.0),
+)
+_TIME_UNIT_IN_DAYS = {'d': 1.0, 'h': 1.0 / 24, 'm': 1.0 / 1440, 's': 1.0 / 86400}
+
+
+def _base_freq_from_spacing(spacing_days: float) -> Optional[str]:
+    """Classify a time step (in days) as a MIP base frequency, e.g. 29.5 -> 'mon'."""
+    for name, low, high in _SPACING_TO_BASE_FREQ:
+        if low <= spacing_days < high:
+            return name
+    return None
+
+
+def _time_unit_in_days(units: str) -> Optional[float]:
+    """Length of one unit of a CF time units string in days, e.g. 'hours since ...' -> 1/24."""
+    match = re.match(r'\s*(day|hour|hr|minute|min|second|sec|s\b|d\b|h\b)', units or '', re.IGNORECASE)
+    if match is None:
+        return None
+    return _TIME_UNIT_IN_DAYS[match.group(1)[0].lower()]
+
+
+def _input_sampling(var: Variable, time_var: Optional[Variable]) -> Optional[str]:
+    """How an input variable samples time: 'clim' (climatological time axis), 'point'
+    (``time: point``), 'mean' (any other ``time:`` cell method, e.g. mean/maximum/sum), or
+    None if the file does not say."""
+    if time_var is not None and getattr(time_var, 'climatology', None) is not None:
+        return 'clim'
+    match = re.search(r'time\s*:\s*(\w+)', getattr(var, 'cell_methods', '') or '')
+    if match is None:
+        return None
+    return 'point' if match.group(1) == 'point' else 'mean'
+
+
+def _time_spacing_days(ds: Dataset, time_var: Variable) -> Optional[float]:
+    """Median time step of a time axis in days, or for a single time step the width of its
+    bounds; None if neither is available or the units are not understood."""
+    unit_days = _time_unit_in_days(getattr(time_var, 'units', ''))
+    if unit_days is None:
+        return None
+    values = np.asarray(time_var[:], dtype=float)
+    if values.size > 1:
+        return float(np.median(np.diff(values))) * unit_days
+    bounds_name = getattr(time_var, 'climatology', None) or getattr(time_var, 'bounds', None)
+    if values.size == 1 and bounds_name in ds.variables:
+        bounds = np.asarray(ds.variables[bounds_name][:], dtype=float).ravel()
+        return float(bounds[-1] - bounds[0]) * unit_days
+    return None
+
+
+@lru_cache(maxsize=None)
+def detect_input_frequency(nc_file: str, var_name: str) -> Dict[str, Optional[str]]:
+    """
+    Work out the actual frequency of a variable in a pp file from the file itself, rather than
+    from the directory it sits in.
+
+    The base frequency comes from the median spacing of the time axis (or, for a file holding a
+    single time step, the width of its time bounds). The sampling comes from the time axis'
+    ``climatology`` attribute and the variable's ``cell_methods``.
+
+    :param nc_file: Path to a netCDF file holding ``var_name``.
+    :type nc_file: str
+    :param var_name: Name of the variable in the file.
+    :type var_name: str
+    :return: dict with ``base`` ('fx', 'subhr', '1hr', '3hr', '6hr', 'day', 'mon', 'yr',
+        'dec', or None if unknown) and ``sampling`` ('fixed', 'clim', 'point', 'mean', or None
+        if unknown). Both are None if the file cannot be read.
+    :rtype: dict
+
+    .. note:: Results are cached per (file, variable), since ``fremor config`` checks the same
+        files against every MIP table. Reading a file that is offline on tape recalls it.
+    """
+    unknown = {'base': None, 'sampling': None}
+    try:
+        with Dataset(nc_file, 'r') as ds:
+            var = ds.variables[var_name]
+            time_dims = [dim for dim in var.dimensions
+                         if dim == 'time' or ds.dimensions[dim].isunlimited()
+                         or getattr(ds.variables.get(dim), 'axis', '') == 'T']
+            if not time_dims:
+                return {'base': 'fx', 'sampling': 'fixed'}
+            time_var = ds.variables.get(time_dims[0])
+            sampling = _input_sampling(var, time_var)
+            if time_var is None:
+                return {'base': None, 'sampling': sampling}
+
+            spacing = _time_spacing_days(ds, time_var)
+            base = _base_freq_from_spacing(spacing) if spacing is not None else None
+            return {'base': base, 'sampling': sampling}
+    except Exception as exc: # pylint: disable=broad-exception-caught
+        fre_logger.warning('could not read the time axis of %s in %s, not checking its frequency: %s',
+                           var_name, nc_file, exc)
+        return unknown
+
+
+def mip_entry_frequency(var_entry: dict) -> Dict[str, Optional[str]]:
+    """
+    The frequency a MIP table variable entry asks for, in the same terms as
+    ``detect_input_frequency``.
+
+    The sampling comes from the entry's time dimension (``time`` -> 'mean', ``time1`` -> 'point',
+    ``time2``/``time3`` -> 'clim', none -> 'fixed'), which both CMIP6 and CMIP7 tables carry.
+    The base frequency comes from the entry's ``frequency`` field, e.g. 'monPt' -> 'mon'. CMIP7
+    tables have no ``frequency`` field, so for CMIP7 only the sampling is known.
+
+    :param var_entry: One ``variable_entry`` value from a MIP table.
+    :type var_entry: dict
+    :return: dict with ``base`` and ``sampling``, either of which may be None if not known.
+    :rtype: dict
+    """
+    dims = var_entry.get('dimensions') or []
+    if isinstance(dims, str):
+        dims = dims.split()
+    time_dims = [dim for dim in dims if dim.startswith('time')]
+    if not time_dims:
+        sampling = 'fixed'
+    else:
+        sampling = {'time': 'mean', 'time1': 'point', 'time2': 'clim', 'time3': 'clim'}.get(time_dims[0])
+
+    freq = var_entry.get('frequency')
+    base = None
+    if freq == 'fx' or sampling == 'fixed':
+        base = 'fx'
+    elif freq:
+        base = re.sub(r'(Pt|CM|C)$', '', freq)
+    return {'base': base, 'sampling': sampling}
+
+
+def frequency_mismatch(input_freq: Dict[str, Optional[str]],
+                       table_freq: Dict[str, Optional[str]]) -> Optional[str]:
+    """
+    Compare an input file's frequency with a MIP table entry's. Only what is known on both
+    sides is compared, so an unreadable file or a CMIP7 entry's missing base frequency never
+    counts as a mismatch.
+
+    :return: A short reason if they are inconsistent, e.g. 'input mon vs table day', else None.
+    :rtype: str or None
+    """
+    for key in ('base', 'sampling'):
+        have, want = input_freq.get(key), table_freq.get(key)
+        if have is not None and want is not None and have != want:
+            return f'input {key} {have} vs table {want}'
+    return None
+
+
+def _input_freq_matches_table(nc_files: list, var_name: str, mip_var: str,
+                              variable_entries: dict, json_mip_table: str) -> bool:
+    """Whether the frequency of ``var_name``'s first input file is consistent with at least
+    one of the table's entries for ``mip_var`` (a CMIP7 table may hold several brands)."""
+    var_files = sorted(f for f in nc_files if os.path.basename(f).split('.')[-2] == var_name)
+    input_freq = detect_input_frequency(var_files[0], var_name)
+    entries = [entry for key, entry in variable_entries.items() if key.split('_')[0] == mip_var]
+    reasons = [frequency_mismatch(input_freq, mip_entry_frequency(entry)) for entry in entries]
+    if None in reasons:
+        return True
+    fre_logger.info('%s not mapped to %s in %s, its frequency does not match the table (%s)',
+                    var_name, mip_var, Path(json_mip_table).name, '; '.join(sorted(set(reasons))))
+    return False
+
 
 def make_simple_varlist( dir_targ: str,
                          output_variable_list: Optional[str],
                          return_none_if_no_mip_vars: Optional[bool] = False,
-                         json_mip_table: Optional[str] = None) -> Optional[Dict[str, str]]:
+                         json_mip_table: Optional[str] = None,
+                         check_freq: bool = False) -> Optional[Dict[str, str]]:
     """
     Generate a JSON file containing a list of variable names from NetCDF files in a specified directory.
     This function searches for NetCDF files in the given directory, or a subdirectory, 'ts/monthly/5yr',
@@ -195,6 +373,10 @@ def make_simple_varlist( dir_targ: str,
     :type return_none_if_no_mip_vars: bool
     :param json_mip_table: target table for making the var list. found variables are included if they are in the table
     :type json_mip_table: str
+    :param check_freq: also require the frequency of the variable's input files (read from the first file's
+        time axis and cell_methods, see ``detect_input_frequency``) to be consistent with at least one of the
+        table's entries for that variable. A variable failing this is treated like one not in the table.
+    :type check_freq: bool
     :raises OSError: if the outputfile cannot be written
     :return: Dictionary of variable names (keys == values), or None if no files are found or an error occurs
     :rtype: dict or None
@@ -222,7 +404,7 @@ def make_simple_varlist( dir_targ: str,
         try:
             # read in mip vars to check against later
             fre_logger.debug('attempting to read in variable entries in specified mip table')
-            full_mip_vars_list=get_json_file_data(json_mip_table)['variable_entry'].keys()
+            full_mip_vars_list=get_json_file_data(json_mip_table)['variable_entry']
 
         except Exception as exc:
             raise Exception( 'problem opening mip table and getting variable entry data.'
@@ -249,14 +431,15 @@ def make_simple_varlist( dir_targ: str,
         fre_logger.debug('candidate var_name = %s', var_name)
 
         if mip_vars is not None:
-            is_mip_var = False
             for mip_var in mip_vars:
                 if var_name.lower() != mip_var.lower():
                     continue
+                if check_freq and not _input_freq_matches_table(
+                        all_nc_files, var_name, mip_var, full_mip_vars_list, json_mip_table):
+                    break
                 var_list[var_name] = mip_var
-                is_mip_var = True
                 break
-            if not is_mip_var:
+            if var_name not in var_list:
                 fre_logger.debug('%s is not a mip var name', var_name)
                 if not return_none_if_no_mip_vars:
                     var_list[var_name] = ''

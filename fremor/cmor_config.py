@@ -89,6 +89,7 @@ def _load_config_yaml(yamlfile: str) -> dict:
         CMORized-output root, as written in the yaml -- None if absent, and never checked for
         existence here since a run may simply not have happened yet), ``table_targets``,
         ``start``/``stop`` (the run's year bounds, as written in the yaml -- None if absent),
+        ``exp_json`` (the experiment configuration path, env vars expanded -- None if absent),
         ``yaml_doc`` (the fully parsed yaml document, for callers that need to write changes
         -- e.g. a disabled flag toggled in ``fremor map`` -- back to ``yamlfile``).
     :rtype: dict
@@ -126,6 +127,8 @@ def _load_config_yaml(yamlfile: str) -> dict:
         'table_targets': cmor_yaml_dict.get('table_targets') or [],
         'start': cmor_yaml_dict.get('start'),
         'stop': cmor_yaml_dict.get('stop'),
+        'exp_json': (os.path.expandvars(cmor_yaml_dict['exp_json'])
+                     if cmor_yaml_dict.get('exp_json') else None),
         'yaml_doc': yaml_doc,
     }
 
@@ -144,7 +147,8 @@ def cmor_config_subtool(
         chunk: str = '5yr',
         grid: str = 'g999',
         overwrite: bool = False,
-        calendar_type: str = 'noleap'
+        calendar_type: str = 'noleap',
+        check_freq: bool = False
 ):
     """
     Generate a CMOR YAML configuration file from a post-processing directory tree.
@@ -179,6 +183,11 @@ def cmor_config_subtool(
     :type overwrite: bool
     :param calendar_type: Calendar type string, e.g. 'noleap', '360_day'. Default 'noleap'.
     :type calendar_type: str
+    :param check_freq: If True, only map a variable to a MIP table when the actual frequency of its
+        input files (read from the files' time axis and cell_methods) is consistent with the table's
+        frequency for that variable, e.g. daily data is not mapped to Amon, and time-mean data is not
+        mapped to a ``Pt`` (point) entry. Default False.
+    :type check_freq: bool
     :raises FileNotFoundError: If pp_dir or mip_tables_dir do not exist.
     :raises ValueError: If no MIP tables are found after filtering.
     :return: Path to the written output YAML file.
@@ -284,7 +293,8 @@ def cmor_config_subtool(
                     dir_targ=dir_targ,
                     return_none_if_no_mip_vars=strict_varlist,
                     output_variable_list=variable_list,
-                    json_mip_table=mip_table
+                    json_mip_table=mip_table,
+                    check_freq=check_freq
                 )
 
             except Exception as exc:

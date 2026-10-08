@@ -32,7 +32,9 @@ Glossary
       ``fremor varlist`` and consumed by ``fremor run``. When generated with a MIP table (``-t``),
       variables that match a MIP entry are self-mapped (key == value); variables with no MIP match
       receive an empty-string value as a signal that manual mapping is required. Use ``--strict_mode``
-      to suppress output entirely when no variables match the target MIP table.
+      to suppress output entirely when no variables match the target MIP table. A value may also be an
+      object, ``{"name": <MIP variable>, "reduce": <method>}``, that reduces the input before
+      CMORization -- see :ref:`varlist-reduce`.
 
    experiment configuration
       A JSON file containing experiment-level metadata required by CMOR (e.g. ``experiment_id``,
