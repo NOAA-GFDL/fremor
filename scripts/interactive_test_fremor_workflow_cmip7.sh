@@ -10,7 +10,7 @@ CHECK_FIND=1
 CHECK_CONFIG=1
 CHECK_CHECK=1
 CHECK_MAP=1
-CHECK_STAGE=0
+CHECK_STAGE=1
 CHECK_YAML=0
 
 ## someday
@@ -65,17 +65,20 @@ BASE_SRC_DIR=/archive/oar.gfdl.bgrp-account/
 CMIP7_ESM_DECK_PATH_GUTS=CMIP7/ESM4/DECK/ESM4.5-
 
 #ESM_KIND=historical
-ESM_KIND=historical-defobbfix
-#ESM_KIND=picontrol
+#ESM_KIND=historical-defobbfix
+ESM_KIND=picontrol
 
 TAIL_TARG_DIR=/gfdl.ncrc6-intel25-prod-openmp/pp/
 
 BASE_TARG_DIR=${BASE_SRC_DIR}${CMIP7_ESM_DECK_PATH_GUTS}
 TARG_FREBRONX_PPDIR=${BASE_TARG_DIR}${ESM_KIND}${TAIL_TARG_DIR}
 
-#CHUNK=5yr
+PP_START=0001
+PP_STOP=0006
+
+CHUNK=5yr
 #CHUNK=4yr
-CHUNK=1yr
+#CHUNK=1yr
 FREQ=monthly
 #FREQ=annual
 COMPONENT_DIR_STUB_VARLIST_ONLY=atmos_cmip/ts/${FREQ}/${CHUNK}/
@@ -86,17 +89,15 @@ OUTPUT_CMORIZED_DATA_DIR=/net2/$USER/Working/fremor_testing_cmip7_${ESM_KIND}
 
 # I don't always want to remove the logging output because sometimes i need to look at it.
 FREMOR_LOGFILE_OUTDIR=fremor_log_output_${ESM_KIND}_dir/
-if [ ! -d $FREMOR_LOGFILE_DIR ]; then
-   mkdir $FREMOR_LOGFILE_DIR
-fi
+rm_then_mkdir "${FREMOR_LOGFILE_OUTDIR}"
+#if [ ! -d $FREMOR_LOGFILE_DIR ]; then
+#   mkdir $FREMOR_LOGFILE_DIR
+#fi
 
 
 #### ACTION
 echo "cd'ing to working dir ${WORKING_CWD}"
 cd "${WORKING_CWD}" || return
-
-PP_START=0001
-PP_STOP=0006
 
 #### INIT
 FREMOR_INIT_OUTDIR=${WORKING_CWD}/fremor_init_${ESM_KIND}_outdir
@@ -275,11 +276,11 @@ else
 	echo_and_run fremor -vv -l "${FREMOR_YAML_LOGFILE}" yaml \
 				 --yamlfile "${FREMOR_CONFIG_OUTYAML}" \
 				 --start "${PP_START}" \
-				 --stop "${PP_STOP}"
-#				 --print_cli_call \
-#				 --dry_run
+				 --stop "${PP_STOP}" \
+				 --print_cli_call \
+                 --run_one \
+				 --dry_run
 #                --run_strict \
-#                --run_one \
 
 	echo "checking the output cmorized data directory for successfully created output"
 	tree ${OUTPUT_CMORIZED_DATA_DIR}/*/*/CMIP/
