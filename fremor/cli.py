@@ -41,18 +41,18 @@ class FremorCommand(click.Command):
     and provide a user-friendly error message.
     """
     def make_context(self, info_name, args, parent=None, **extra):
-            try:
-                return super().make_context(info_name, args, parent=parent, **extra)
-            except click.NoSuchOption as e:
-                if e.option_name in MISPLACED_GLOBAL_FLAGS:
-                    # Provide the clear, specific error message requested in #219
-                    click.secho(
-                        f"Error: The '{e.option_name}' flag is in the wrong spot. "
-                        f"Global flags must be placed before the command (e.g., `fremor {e.option_name} {info_name}`).",
-                        fg="red", err=True
-                    )
-                    sys.exit(2)
-                raise # Re-raise if it's a genuinely unknown flag
+        try:
+            return super().make_context(info_name, args, parent=parent, **extra)
+        except click.NoSuchOption as e:
+            if e.option_name in MISPLACED_GLOBAL_FLAGS:
+                # Provide the clear, specific error message requested in #219
+                click.secho(
+                    f'Error: The "{e.option_name}" flag is in the wrong spot. '
+                    f'Global flags must be placed before the command (e.g., `fremor {e.option_name} {info_name}`).',
+                    fg="red", err=True
+                )
+                sys.exit(2)
+            raise # Re-raise if it's a genuinely unknown flag
 
 class FremorGroup(click.Group):
     """Main group that automatically uses FremorCommand for all subcommands."""
@@ -338,11 +338,13 @@ def run(indir, varlist, table_config, exp_config, outdir, run_one, opt_var_name,
 
 
 @fremor.command('varlist')
-@click.option('-d', '--dir-targ', '--dir_targ', type=str, required=True, help='Target directory')
+@click.option('-d', '--dir-targ', '--dir_targ', type=str, required=True,
+              help='Target directory')
 @click.option('--strict_mode', is_flag = True, default = False,
               help=VARLIST_STRICT_MODE_HELP,
               required=False)
-@click.option('-o', '--output-variable-list', '--output_variable_list', type=str, required=True, help='Output variable list file')
+@click.option('-o', '--output-variable-list', '--output_variable_list', type=str, required=True,
+              help='Output variable list file')
 @click.option('-t', '--mip-table', '--mip_table', type=str, required=False, default=None,
               help='Target MIP table for making variable list')
 def varlist_(dir_targ, strict_mode, output_variable_list, mip_table):

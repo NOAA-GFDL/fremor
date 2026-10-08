@@ -177,7 +177,7 @@ def rewrite_netcdf_file_var( mip_var_cfgs: dict = None,
             fre_logger.warning('cmip7 case, extracted multiple brands %s, attempting disambiguation',
                                brands)
             var_cell_methods = getattr(ds.variables[local_var], 'cell_methods', None)
-            var_standard_name = getattr(ds.variables[local_var], 'standard_name', None) 
+            var_standard_name = getattr(ds.variables[local_var], 'standard_name', None)
             fre_logger.info('grabbed cell_methods = %s', var_cell_methods)
             var_brand = filter_brands(
                 brands, target_var, mip_var_cfgs,
@@ -711,7 +711,7 @@ def cmorize_target_var_files(indir: str = None,
                                                       prev_path=nc_fls[i] )
         except Exception as exc:
             cmor_logfile = CMOR_LOG if CMOR_LOG is not None else nc_file_work.replace('.nc','.log')
-            _pprint_cmor_logfile(cmor_logfile, None)            
+            _pprint_cmor_logfile(cmor_logfile, None)
             raise Exception(
                 'problem with rewrite_netcdf_file_var. '
                 f'exc={exc}\n'
@@ -1006,7 +1006,7 @@ def cmor_run_subtool(indir: str = None,
 
         fre_logger.info('%s found in %s', var_list[local_var], Path(json_table_config).name)
         vars_to_run[local_var] = var_list[local_var]
-    fre_logger.info('vars_to_run = %s', vars_to_run)
+    fre_logger.debug('vars_to_run = %s', vars_to_run)
 
     # CHECK that there's at least one variable to run after comparing use inputs vars to MIP config input vars
     if len(vars_to_run) < 1:
