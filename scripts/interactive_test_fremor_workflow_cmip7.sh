@@ -8,10 +8,10 @@ CHECK_INIT=1
 CHECK_VARLIST=1
 CHECK_FIND=1
 CHECK_CONFIG=1
-CHECK_CHECK=0
+CHECK_CHECK=1
 CHECK_MAP=1
-CHECK_STAGE=1
-CHECK_YAML=1
+CHECK_STAGE=0
+CHECK_YAML=0
 
 ## someday
 #CHECK_RESOLVE=1 # WHEN FRE-CLI INTEGRATION POSSIBLE TODO
@@ -272,7 +272,7 @@ else
 	echo "setting up fremor yaml check"
 
 	echo "running fremor yaml"
-	echo_and_run fremor -vvv -l "${FREMOR_YAML_LOGFILE}" yaml \
+	echo_and_run fremor -vv -l "${FREMOR_YAML_LOGFILE}" yaml \
 				 --yamlfile "${FREMOR_CONFIG_OUTYAML}" \
 				 --start "${PP_START}" \
 				 --stop "${PP_STOP}"
@@ -281,12 +281,12 @@ else
 #                --run_strict \
 #                --run_one \
 
-#	echo "checking the output cmorized data directory for successfully created output"
-#	tree ${OUTPUT_CMORIZED_DATA_DIR}/*/*/CMIP/
+	echo "checking the output cmorized data directory for successfully created output"
+	tree ${OUTPUT_CMORIZED_DATA_DIR}/*/*/CMIP/
 
-#	echo "checking the output cmorized data directory for created output"
-#	echo "number of left-behind tmp outputs (without interpolated pressure style coordinate vars is:"
-#	ls ${OUTPUT_CMORIZED_DATA_DIR}/*/*/CMOR_tmp/*nc  | wc -l # | grep -v '\.ps\.' | grep -v '\.phalf\.' | grep -v -c '\.pfull\.'
+	echo "checking the output cmorized data directory for created output"
+	echo "number of left-behind tmp outputs (without interpolated pressure style coordinate vars is:"
+	ls ${OUTPUT_CMORIZED_DATA_DIR}/*/*/CMOR_tmp/*nc  | wc -l | grep -v '\.ps\.' | grep -v '\.phalf\.' | grep -v -c '\.pfull\.'
 fi
 
 

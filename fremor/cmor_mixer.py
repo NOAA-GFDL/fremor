@@ -1006,7 +1006,7 @@ def cmor_run_subtool(indir: str = None,
 
         fre_logger.info('%s found in %s', var_list[local_var], Path(json_table_config).name)
         vars_to_run[local_var] = var_list[local_var]
-    fre_logger.info('vars_to_run = %s', vars_to_run)
+    fre_logger.debug('vars_to_run = %s', vars_to_run)
 
     # CHECK that there's at least one variable to run after comparing use inputs vars to MIP config input vars
     if len(vars_to_run) < 1:

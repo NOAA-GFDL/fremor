@@ -365,21 +365,21 @@ def get_iso_datetime_ranges( var_filenames: List[str],
     if stop is not None and len(stop) == 4:
         stop_yr_int = int(stop)
         start_stop_filter = True
-    fre_logger.debug('start_yr_int = %s', start_yr_int)
-    fre_logger.debug(' stop_yr_int = %s', stop_yr_int)
+    fre_logger.ddebug('start_yr_int = %s', start_yr_int)
+    fre_logger.ddebug(' stop_yr_int = %s', stop_yr_int)
 
     if iso_daterange_arr is None:
         raise ValueError(
             'this function requires the list one desires to fill with datetime ranges from filenames')
 
     for filename in var_filenames:
-        fre_logger.debug('filename = %s', filename)
+        fre_logger.ddebug('filename = %s', filename)
         iso_daterange = filename.split('.')[-3]  # '????????-????????'
-        fre_logger.debug('iso_daterange = %s', iso_daterange)
+        fre_logger.ddebug('iso_daterange = %s', iso_daterange)
 
         if start_stop_filter:
             iso_datetimes = iso_daterange.split('-')
-            fre_logger.debug('iso_datetimes = %s', iso_datetimes)
+            fre_logger.ddebug('iso_datetimes = %s', iso_datetimes)
             if start is not None and int(iso_datetimes[0][0:4]) < start_yr_int:
                 continue
             if stop is not None and int(iso_datetimes[1][0:4]) > stop_yr_int:
