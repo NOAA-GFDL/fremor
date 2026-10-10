@@ -11,6 +11,7 @@ Functions
 - ``print_var_content(table_config_file, var_name)``
 - ``cmor_find_subtool(json_var_list, json_table_config_dir, opt_var_name)``
 - ``make_simple_varlist(dir_targ, output_variable_list, json_mip_table, check_freq)``
+- ``make_static_varlist(static_file, output_variable_list, json_mip_table)``
 - ``detect_input_frequency(nc_file, var_name)``
 - ``mip_entry_frequency(var_entry)``
 - ``frequency_mismatch(input_freq, table_freq)``
@@ -21,7 +22,7 @@ These utilities are intended to make it easier to inspect and extract variable i
 tables, avoiding the need for manual shell scripting and ad-hoc file inspection.
 """
 
-from functools import lru_cache
+from functools import lru_cache, partial
 import glob
 import json
 import logging
@@ -33,7 +34,7 @@ from typing import Optional, Dict, IO
 import numpy as np
 from netCDF4 import Dataset, Variable
 
-from .cmor_helpers import get_json_file_data
+from .cmor_helpers import get_json_file_data, static_file_variables
 from .cmor_reduce import varlist_target
 from .cmor_constants import DO_NOT_PRINT_LIST
 
@@ -354,6 +355,72 @@ def _input_freq_matches_table(nc_files: list, var_name: str, mip_var: str,
     return False
 
 
+def _read_mip_variable_entries(json_mip_table: str) -> dict:
+    """The ``variable_entry`` mapping of a MIP table, for matching found variables against."""
+    try:
+        fre_logger.debug('attempting to read in variable entries in specified mip table')
+        return get_json_file_data(json_mip_table)['variable_entry']
+    except Exception as exc:
+        raise Exception( 'problem opening mip table and getting variable entry data.'
+                        f'exc = {exc}') from exc
+
+
+def _build_and_write_varlist(candidate_var_list: list,
+                             output_variable_list: Optional[str],
+                             return_none_if_no_mip_vars: Optional[bool],
+                             mip_vars: Optional[list],
+                             accept_fn=None) -> Optional[Dict[str, str]]:
+    """
+    Match candidate (local) variable names case-insensitively against ``mip_vars`` and write the
+    resulting ``{local_var: mip_var}`` variable list as JSON. Shared by ``make_simple_varlist`` and
+    ``make_static_varlist``.
+
+    A candidate matching a MIP variable gets self-mapped (its value is the MIP variable name);
+    one that does not gets an empty string as value, signaling that it needs manual mapping by
+    the user -- or is left out entirely if ``return_none_if_no_mip_vars``. ``accept_fn(var_name,
+    mip_var)``, if given, can still veto a name match (e.g. a frequency mismatch), which is then
+    treated like no match. Without ``mip_vars``, every candidate maps to itself.
+
+    :return: The variable list, or None if ``return_none_if_no_mip_vars`` and nothing matched.
+    :rtype: dict or None
+    """
+    var_list: Dict[str, str] = {}
+    for var_name in candidate_var_list:
+        fre_logger.debug('candidate var_name = %s', var_name)
+
+        if mip_vars is not None:
+            for mip_var in mip_vars:
+                if var_name.lower() != mip_var.lower():
+                    continue
+                if accept_fn is not None and not accept_fn(var_name, mip_var):
+                    break
+                var_list[var_name] = mip_var
+                break
+            if var_name not in var_list:
+                fre_logger.debug('%s is not a mip var name', var_name)
+                if not return_none_if_no_mip_vars:
+                    var_list[var_name] = ''
+        else:
+            fre_logger.warning('no mip variable list to compare to, setting found variable name value to key.')
+            var_list[var_name] = var_name
+
+    if return_none_if_no_mip_vars and len(var_list) == 0:
+        fre_logger.warning('WARNING: all found variables have no known corresponding mip variable name.'
+                           'returning None and not writing variable list!'
+                           'return_none_if_no_mip_vars was True!')
+        return None
+
+    # Write the variable list to the output JSON file
+    if output_variable_list is not None:
+        try:
+            fre_logger.debug('writing output variable list, %s', list(var_list.keys()))
+            with open(output_variable_list, 'w', encoding='utf-8') as f:
+                json.dump(var_list, f, indent=4)
+        except Exception as exc:
+            raise OSError('output variable list created but cannot be written') from exc
+    return var_list
+
+
 def make_simple_varlist( dir_targ: str,
                          output_variable_list: Optional[str],
                          return_none_if_no_mip_vars: Optional[bool] = False,
@@ -399,20 +466,19 @@ def make_simple_varlist( dir_targ: str,
 
     fre_logger.debug('Files found matching pattern. Number of files: %d', len(all_nc_files))
 
-    mip_vars = None
+    mip_vars, accept_fn = None, None
     if json_mip_table is not None:
-        try:
-            # read in mip vars to check against later
-            fre_logger.debug('attempting to read in variable entries in specified mip table')
-            full_mip_vars_list=get_json_file_data(json_mip_table)['variable_entry']
-
-        except Exception as exc:
-            raise Exception( 'problem opening mip table and getting variable entry data.'
-                            f'exc = {exc}') from exc
+        # read in mip vars to check against later
+        full_mip_vars_list = _read_mip_variable_entries(json_mip_table)
 
         fre_logger.debug('attempting to make mip variable list')
         mip_vars=[ key.split('_')[0] for key in full_mip_vars_list ]
         fre_logger.info('mip vars extracted for comparison when making var list: %s', mip_vars)
+
+        if check_freq:
+            # called as accept_fn(var_name, mip_var)
+            accept_fn = partial(_input_freq_matches_table, all_nc_files,
+                                variable_entries=full_mip_vars_list, json_mip_table=json_mip_table)
 
     # build deduplicated list of unique candidate variable names to push through comparison below
     candidate_var_list = []
@@ -422,43 +488,56 @@ def make_simple_varlist( dir_targ: str,
             candidate_var_list.append(var_name)
     fre_logger.info('candidate vars extracted for comparison when making var list: %s', candidate_var_list)
 
-    # dict of variable names extracted from all filenames across all datetimes.
-    # If a MIP table is provided, variables that match a MIP variable name get
-    # self-mapped (key==value). Variables NOT in the MIP table get an empty string
-    # as value, signaling they need manual mapping by the user.
-    var_list: Dict[str, str] = {}
-    for var_name in candidate_var_list:
-        fre_logger.debug('candidate var_name = %s', var_name)
+    return _build_and_write_varlist(candidate_var_list, output_variable_list,
+                                    return_none_if_no_mip_vars, mip_vars, accept_fn)
 
-        if mip_vars is not None:
-            for mip_var in mip_vars:
-                if var_name.lower() != mip_var.lower():
-                    continue
-                if check_freq and not _input_freq_matches_table(
-                        all_nc_files, var_name, mip_var, full_mip_vars_list, json_mip_table):
-                    break
-                var_list[var_name] = mip_var
-                break
-            if var_name not in var_list:
-                fre_logger.debug('%s is not a mip var name', var_name)
-                if not return_none_if_no_mip_vars:
-                    var_list[var_name] = ''
-        else:
-            fre_logger.warning('no mip variable list to compare to, setting found variable name value to key.')
-            var_list[var_name] = var_name
 
-    if return_none_if_no_mip_vars and len(var_list) == 0:
-        fre_logger.warning('WARNING: all found variables have no known corresponding mip variable name.'
-                           'returning None and not writing variable list!'
-                           'return_none_if_no_mip_vars was True!')
+def make_static_varlist( static_file: str,
+                         output_variable_list: Optional[str],
+                         return_none_if_no_mip_vars: Optional[bool] = False,
+                         json_mip_table: Optional[str] = None) -> Optional[Dict[str, str]]:
+    """
+    Generate a JSON variable list from a FRE static file, ``<pp_dir>/<component>/<component>.static.nc``,
+    which -- unlike time series -- holds many variables in one file. The candidates are the file's
+    time-invariant data variables (see ``static_file_variables``), matched only against the table's
+    fixed (time-invariant, fx) entries: CMIP6 ``fx``/``Ofx``-style tables, or the CMIP7 ``ti`` brands
+    within a realm table.
+
+    :param static_file: Path to the component's static file.
+    :type static_file: str
+    :param output_variable_list: The path to the output JSON file where the variable list will be saved.
+    :type output_variable_list: str
+    :param return_none_if_no_mip_vars: return None if all values (mip vars) are empty for all keys in output varlist
+    :type return_none_if_no_mip_vars: bool
+    :param json_mip_table: target table for making the var list. found variables are matched against its
+        fixed entries. A table without any fixed entry yields None, and no variable list is written.
+    :type json_mip_table: str
+    :raises OSError: if the outputfile cannot be written
+    :return: Dictionary of variable names, or None if the file has no candidates or the table no fixed entries.
+    :rtype: dict or None
+    """
+    if not Path(static_file).is_file():
+        fre_logger.error('static file not found: %s', static_file)
         return None
 
-    # Write the variable list to the output JSON file
-    if output_variable_list is not None:
-        try:
-            fre_logger.debug('writing output variable list, %s', list(var_list.keys()))
-            with open(output_variable_list, 'w', encoding='utf-8') as f:
-                json.dump(var_list, f, indent=4)
-        except Exception as exc:
-            raise OSError('output variable list created but cannot be written') from exc
-    return var_list
+    candidate_var_list = static_file_variables(static_file)
+    if not candidate_var_list:
+        fre_logger.warning('no time-invariant data variables found in %s', static_file)
+        return None
+    fre_logger.info('candidate vars extracted from static file %s: %s', static_file, candidate_var_list)
+
+    mip_vars = None
+    if json_mip_table is not None:
+        full_mip_vars_list = _read_mip_variable_entries(json_mip_table)
+        mip_vars = []
+        for key, entry in full_mip_vars_list.items():
+            if mip_entry_frequency(entry)['sampling'] == 'fixed' and key.split('_')[0] not in mip_vars:
+                mip_vars.append(key.split('_')[0])
+        if not mip_vars:
+            fre_logger.info('no fixed (time-invariant) entries in %s, not making a static variable list',
+                            Path(json_mip_table).name)
+            return None
+        fre_logger.info('fixed mip vars extracted for comparison when making var list: %s', mip_vars)
+
+    return _build_and_write_varlist(candidate_var_list, output_variable_list,
+                                    return_none_if_no_mip_vars, mip_vars)

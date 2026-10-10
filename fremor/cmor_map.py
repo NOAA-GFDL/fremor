@@ -44,6 +44,12 @@ file's own chunk directory) alongside the new varlist, so ``fremor yaml`` will a
 it once saved -- a varlist with no yaml entry pointing at it would otherwise be silently
 never consumed.
 
+A component's static file (``<component>.static.nc``, holding all its time-invariant fields)
+shows up in the pp browser as a ``static`` node next to its time-series freq directories,
+listing the variables inside it. Those can only be mapped into a static table target
+(``freq: 'static'``, as written by ``fremor config --freq static``), and a component staged
+from one gets ``data_series_type='static'`` and no chunk.
+
 Mapping/clearing a variable only stages the change in memory -- nothing is written to disk
 until the user explicitly saves, so the tree doesn't collapse/re-categorize after every
 single edit while batching changes across many variables. The affected node is marked in
@@ -121,8 +127,9 @@ from .cmor_check import _build_table_report, _date_range_from_filename, \
     _select_table_names, _varlists_by_table_from_yaml
 from .cmor_config import _bronx_to_iso_chunk, _load_config_yaml
 
-from .cmor_constants import DMLS_DISK_RESIDENT_STATES
-from .cmor_helpers import get_json_file_data, iso_to_bronx_chunk, table_declares_ps
+from .cmor_constants import DMLS_DISK_RESIDENT_STATES, STATIC_DATA_SERIES_TYPE, STATIC_FREQ
+from .cmor_helpers import ( get_json_file_data, iso_to_bronx_chunk, static_file_path, static_file_variables,
+                            table_declares_ps )
 from .cmor_reduce import REDUCE_METHODS, parse_varlist_value, varlist_target
 
 fre_logger = logging.getLogger(__name__)
@@ -151,6 +158,12 @@ def _discover_chunks(component_dir: str, freq: str) -> list:
     if not freq_dir.is_dir():
         return []
     return sorted(p.name for p in freq_dir.iterdir() if p.is_dir())
+
+
+def _discover_static_file(component_dir: str) -> Optional[str]:
+    """The component's static file, <component_dir>/<component>.static.nc, if there is one."""
+    static_file = static_file_path(Path(component_dir).parent, Path(component_dir).name)
+    return static_file if Path(static_file).is_file() else None
 
 
 def _discover_nc_files(component_dir: str, freq: str, chunk: str) -> list:
@@ -584,7 +597,8 @@ class MapSession: # pylint: disable=too-many-public-methods
         values themselves, not where they came from)."""
         table_path = self.table_paths[table_name]
         report = _build_table_report(table_path, self.mip_era, self.varlists_by_table,
-                                     show_mapped=True)
+                                     show_mapped=True,
+                                     fixed_only=self.table_freq(table_name) == STATIC_FREQ)
         report.pop('table_name', None)
         mapped_sources = _mapped_sources(table_name, self.varlists_by_table)
         report['unknown_sources'] = {
@@ -603,7 +617,8 @@ class MapSession: # pylint: disable=too-many-public-methods
         return {key: variable_entry[key] for key in keys}
 
     def set_mapping(self, table_name: str, component_name: str, local_key: str,
-                    cmip_var: str, chunk: Optional[str] = None) -> None:
+                    cmip_var: str, chunk: Optional[str] = None,
+                    data_series_type: str = 'ts') -> None:
         """Stage data[local_key] = cmip_var for the component's variable_list, creating an
         in-memory entry (placed in the varlist directory inferred from the yaml's existing
         variable_list entries) if this component/table pair had no varlist yet in the yaml.
@@ -615,9 +630,11 @@ class MapSession: # pylint: disable=too-many-public-methods
         ever discover a file under) is staged alongside the new varlist, using `chunk`
         (bronx-form, e.g. '5yr' -- the chunk directory the mapped pp file actually came from)
         as its chunk. Without this, the new varlist would be an orphan file fremor yaml never
-        reads, since it only iterates variable_list paths already present in the yaml.
+        reads, since it only iterates variable_list paths already present in the yaml. A pp
+        variable from the component's static file instead stages a
+        ``data_series_type='static'`` entry, which has no chunk, and a ``_static`` varlist.
 
-        :raises ValueError: if `chunk` is omitted while creating a first-ever
+        :raises ValueError: if `chunk` is omitted while creating a first-ever time-series
             target_components entry for component_name, or no existing variable_list entry
             anywhere in the yaml exists to infer a varlist directory from.
         """
@@ -637,11 +654,14 @@ class MapSession: # pylint: disable=too-many-public-methods
                     f'cannot create a new varlist for component {component_name!r} in table '
                     f'{table_name!r}: no existing variable_list entries in the yaml to infer '
                     'a varlist directory from')
-            fname = f'{self.era_upper}_{table_name}_{component_name}.list'
+            static = data_series_type == STATIC_DATA_SERIES_TYPE
+            # same naming as fremor config --freq static
+            list_suffix = f'_{STATIC_FREQ}' if static else ''
+            fname = f'{self.era_upper}_{table_name}_{component_name}{list_suffix}.list'
             path = f'{self.varlist_dir}/{fname}'
 
             if not already_declared:
-                if chunk is None:
+                if chunk is None and not static:
                     raise ValueError(
                         f'cannot map component {component_name!r} into table {table_name!r}: '
                         'it has no target_components entry yet and no chunk was given to '
@@ -649,12 +669,14 @@ class MapSession: # pylint: disable=too-many-public-methods
                         'never reads')
                 target_components = self.table_targets_by_name[table_name].setdefault(
                     'target_components', [])
-                target_components.append({
+                new_component = {
                     'component_name': component_name,
                     'variable_list': path,
-                    'data_series_type': 'ts',
-                    'chunk': _bronx_to_iso_chunk(chunk),
-                })
+                    'data_series_type': data_series_type,
+                }
+                if not static:
+                    new_component['chunk'] = _bronx_to_iso_chunk(chunk)
+                target_components.append(new_component)
                 self.new_target_components.add((table_name, component_name))
                 fre_logger.info('staged new target_components entry for %s/%s (not yet saved)',
                                 table_name, component_name)
@@ -1425,11 +1447,12 @@ class MapApp(App):
         tree.root.data = {'kind': 'root'}
         for component_dir in _discover_pp_components(self.session.pp_dir):
             has_ts = (Path(component_dir) / 'ts').is_dir()
+            has_static = _discover_static_file(component_dir) is not None
             tree.root.add(
                 Path(component_dir).name,
                 data={'kind': 'component', 'path': component_dir,
                       'component': Path(component_dir).name},
-                allow_expand=has_ts,
+                allow_expand=has_ts or has_static,
             )
         tree.root.expand()
 
@@ -1458,6 +1481,13 @@ class MapApp(App):
             for freq in _discover_freqs(data['path']):
                 node.add(freq, data={'kind': 'freq', 'path': data['path'],
                                      'component': data['component'], 'freq': freq})
+            static_file = _discover_static_file(data['path'])
+            if static_file is not None:
+                node.add(STATIC_FREQ, data={'kind': 'static', 'path': data['path'],
+                                            'component': data['component'], 'freq': STATIC_FREQ,
+                                            'static_file': static_file})
+        elif kind == 'static':
+            self._populate_static_node(node, data)
         elif kind == 'freq':
             for chunk in _discover_chunks(data['path'], data['freq']):
                 node.add(chunk, data={'kind': 'chunk', 'path': data['path'],
@@ -1474,6 +1504,32 @@ class MapApp(App):
                     data={'kind': 'pp_var', 'path': files[0][0], 'component': data['component'],
                           'local_key': local_var, 'freq': data['freq'], 'chunk': data['chunk'],
                           'files': files})
+
+    def _populate_static_node(self, node, data: dict) -> None:
+        """List the time-invariant variables in a component's static file as pp_var leaves --
+        unless the file is still on tape, since reading it would trigger (or block on) a
+        tape retrieval."""
+        static_file = data['static_file']
+        dmls_state = _dmls_state_for_file(Path(static_file), self.session.dmls_bin)
+        on_tape = (dmls_state not in DMLS_DISK_RESIDENT_STATES if dmls_state is not None
+                   else not _is_file_staged(Path(static_file)))
+        if on_tape:
+            node.add_leaf(f'(still on tape, stage {Path(static_file).name} to list its variables)',
+                          data={'kind': 'info'})
+            return
+        try:
+            local_vars = static_file_variables(static_file)
+        except Exception as exc:  # pylint: disable=broad-except
+            fre_logger.warning('could not read static file %s: %s', static_file, exc)
+            node.add_leaf(f'(could not read {Path(static_file).name})', data={'kind': 'info'})
+            return
+        for local_var in local_vars:
+            usage_count = self.session.usage_count(data['component'], local_var)
+            node.add_leaf(
+                f'{local_var}  [{STATIC_FREQ}]  (used {usage_count}x)',
+                data={'kind': 'pp_var', 'path': static_file, 'component': data['component'],
+                      'local_key': local_var, 'freq': STATIC_FREQ, 'chunk': None,
+                      'files': [(static_file, None)]})
 
     def on_tree_node_expanded(self, event: Tree.NodeExpanded) -> None:
         if event.control.id != 'pp_tree':
@@ -1526,14 +1582,20 @@ class MapApp(App):
         mismatched_fallback = None  # (freq_node, ancestor_nodes, file_node) under a different freq
         for freq_node in component_node.children:
             self._ensure_pp_node_populated(freq_node)
-            for chunk_node in freq_node.children:
-                self._ensure_pp_node_populated(chunk_node)
-                for child_node in chunk_node.children:
+            # a static node lists its variables directly, a freq node by chunk
+            if (freq_node.data or {}).get('kind') == 'static':
+                leaf_parents = [(freq_node, [component_node, freq_node])]
+            else:
+                leaf_parents = []
+                for chunk_node in freq_node.children:
+                    self._ensure_pp_node_populated(chunk_node)
+                    leaf_parents.append((chunk_node, [component_node, freq_node, chunk_node]))
+            for parent_node, ancestor_nodes in leaf_parents:
+                for child_node in parent_node.children:
                     child_data = child_node.data or {}
                     if child_data.get('local_key') != local_key:
                         continue
                     file_node = child_node
-                    ancestor_nodes = [component_node, freq_node, chunk_node]
                     if table_freq is None or (freq_node.data or {}).get('freq') == table_freq:
                         self._select_pp_tree_node(ancestor_nodes, file_node)
                         return True
@@ -1662,6 +1724,12 @@ class MapApp(App):
         local_key = self.selected_pp['local_key']
         table_freq = self.session.table_freq(table_name)
         pp_freq = self.selected_pp.get('freq')
+        if pp_freq == STATIC_FREQ and table_freq != STATIC_FREQ:
+            self.notify(
+                f'{local_key} comes from {component}\'s static file, but {table_name} is not a '
+                f'static table target (freq "{STATIC_FREQ}") -- map time-invariant variables in a '
+                f'cmor yaml made by fremor config --freq {STATIC_FREQ} instead.', severity='error')
+            return
         if table_freq and pp_freq and table_freq != pp_freq:
             self.notify(
                 f'{table_name} is configured for freq "{table_freq}", but the selected pp '
@@ -1688,8 +1756,9 @@ class MapApp(App):
         old_local_key = self.selected_cmip.get('local_key')
 
         try:
-            self.session.set_mapping(table_name, component, local_key, cmip_var,
-                                     chunk=self.selected_pp.get('chunk'))
+            self.session.set_mapping(
+                table_name, component, local_key, cmip_var, chunk=self.selected_pp.get('chunk'),
+                data_series_type=STATIC_DATA_SERIES_TYPE if pp_freq == STATIC_FREQ else 'ts')
         except ValueError as exc:
             self.notify(str(exc), severity='error')
             return

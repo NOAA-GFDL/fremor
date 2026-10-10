@@ -8,6 +8,10 @@ smaller piece which contains another. ``fremor run`` leads directly to ``cmor_ru
 ``cmorize_target_var_files`` once per variable in a variable list, and calls ``rewrite_netcdf_file_var`` once per found
 datetime for a given variable. Functions within ``cmor_helpers`` assist with the CMORization process.
 
+Given a FRE static file, ``<pp_dir>/<component>/<component>.static.nc``, instead of a directory, its
+time-invariant variables are CMORized, without a time axis, into fixed (fx) MIP table entries -- one
+output per variable, all read from that one file.
+
 Functions
 ---------
 - ``resolve_cmip7_brand(...)``
@@ -47,7 +51,8 @@ from .cmor_helpers import ( from_ds_get_this, create_lev_bnds,
                             update_calendar_type, filter_brands,
                             normalize_calendar, get_time_calendar_ds, get_time_calendar_value,
                             calendars_are_equivalent,
-                            resolve_mip_era_table_resource, find_ps_companion, table_declares_ps )
+                            resolve_mip_era_table_resource, find_ps_companion, table_declares_ps,
+                            is_static_file )
 from .cmor_reduce import REDUCE_METHODS, apply_reduce, parse_varlist_value
 
 from .cmor_tripolar import load_tripolar_grid
@@ -58,6 +63,10 @@ from .cmor_constants import ( ACCEPTED_VERT_DIMS, NON_HYBRID_SIGMA_COORDS, ALT_H
                               CMOR_LAT_AXIS_NAME, CMOR_LON_AXIS_NAME )
 
 fre_logger = logging.getLogger(__name__)
+
+# stands in for an input file's date range when CMORizing from a FRE static file -- the same
+# field the static file's name, <component>.static.nc, has where a time series has its dates
+STATIC_ISO_DATETIME = 'static'
 
 
 def _scalar_z_coords(ds: nc.Dataset, local_var: str) -> dict:
@@ -82,6 +91,12 @@ def _scalar_z_coords(ds: nc.Dataset, local_var: str) -> dict:
     except AttributeError:
         pass
     return scalar_z_coords
+
+
+def _has_time_dim(ds: nc.Dataset, local_var: str) -> bool:
+    """Whether ``local_var`` varies in time, i.e. has a ``time*`` dimension. Fields from a FRE
+    static file do not, and are CMORized without a time axis, into fixed (fx) MIP entries."""
+    return any(dim.startswith('time') for dim in ds.variables[local_var].dimensions)
 
 
 def resolve_cmip7_brand(ds: nc.Dataset, local_var: str, target_var: str,
@@ -116,7 +131,8 @@ def resolve_cmip7_brand(ds: nc.Dataset, local_var: str, target_var: str,
             has_time_bnds = 'time_bnds' in ds.variables,
             input_vert_dim = get_vertical_dimension(ds, local_var),
             cell_methods = getattr(ds.variables[local_var], 'cell_methods', None),
-            standard_name = getattr(ds.variables[local_var], 'standard_name', None)
+            standard_name = getattr(ds.variables[local_var], 'standard_name', None),
+            has_time_dim = _has_time_dim(ds, local_var)
         )
     fre_logger.debug('cmip7 case, filtered possible brands to %s', var_brand)
     return var_brand
@@ -191,7 +207,8 @@ def find_existing_output(prefix: Optional[str], iso_datetime: str,
 
     :param prefix: Output filename prefix, see ``expected_output_prefix``. None never matches.
     :type prefix: str or None
-    :param iso_datetime: The input file's date range, e.g. ``'185001-185412'``.
+    :param iso_datetime: The input file's date range, e.g. ``'185001-185412'``, or ``STATIC_ISO_DATETIME``
+                         for a FRE static file, whose time-invariant output has no date range.
     :type iso_datetime: str
     :param existing_outputs: Output files to search, see ``index_existing_outputs``.
     :type existing_outputs: list of Path
@@ -200,7 +217,10 @@ def find_existing_output(prefix: Optional[str], iso_datetime: str,
     """
     if prefix is None:
         return None
-    input_years = _iso_daterange_years(iso_datetime)
+    # a time-invariant (fx) output has no date range in its name; any other input needs one
+    input_years = None if iso_datetime == STATIC_ISO_DATETIME else _iso_daterange_years(iso_datetime)
+    if input_years is None and iso_datetime != STATIC_ISO_DATETIME:
+        return None
     for path in existing_outputs:
         if not path.name.startswith(prefix):
             continue
@@ -360,31 +380,37 @@ def rewrite_netcdf_file_var( mip_var_cfgs: dict = None,
     fre_logger.info('attempting to read coordinate BNDS, lon_bnds')
     lon_bnds = from_ds_get_this(from_ds=ds, var_name='lon_bnds')
 
-    # read in time_coords + units
-    fre_logger.info('attempting to read coordinate time, and units...')
-    time_coords = from_ds_get_this(from_ds=ds, var_name='time')
-    time_coord_units = ds['time'].units
-    fre_logger.info('    time_coord_units = %s', time_coord_units)
-
-    # check the calendar of the input netcdf file time coordinate, if present
-    time_coords_calendar = get_time_calendar_ds(ds)
-
-    # if it's still None, give a warning and move on.
-    if time_coords_calendar is None:
-        fre_logger.warning('WARNING input file\'s time coordinates missing calendar and/or calendar_type field'
-                           'this output could have the wrong calendar!')
+    # time-invariant data (e.g. from a FRE static file) gets no time axis at all
+    has_time = _has_time_dim(ds, local_var)
+    time_coords, time_coord_units, time_bnds = None, None, None
+    if not has_time:
+        fre_logger.info('%s has no time dimension, CMORizing it as a time-invariant field', local_var)
     else:
-        with open(json_exp_config, 'r', encoding='utf-8') as file:
-            exp_cfg_calendar = json.load(file)['calendar']
-            if not calendars_are_equivalent(time_coords_calendar, exp_cfg_calendar):
-                norm_time = normalize_calendar(time_coords_calendar)
-                norm_cfg = normalize_calendar(exp_cfg_calendar)
-                raise ValueError(f'data calendar type {norm_time} '
-                                 f'does not match input config calendar type: {norm_cfg}')
+        # read in time_coords + units
+        fre_logger.info('attempting to read coordinate time, and units...')
+        time_coords = from_ds_get_this(from_ds=ds, var_name='time')
+        time_coord_units = ds['time'].units
+        fre_logger.info('    time_coord_units = %s', time_coord_units)
 
-    # read in time_bnds, if present
-    fre_logger.info('attempting to read coordinate BNDS, time_bnds')
-    time_bnds = from_ds_get_this(from_ds=ds, var_name='time_bnds')
+        # check the calendar of the input netcdf file time coordinate, if present
+        time_coords_calendar = get_time_calendar_ds(ds)
+
+        # if it's still None, give a warning and move on.
+        if time_coords_calendar is None:
+            fre_logger.warning('WARNING input file\'s time coordinates missing calendar and/or calendar_type field'
+                               'this output could have the wrong calendar!')
+        else:
+            with open(json_exp_config, 'r', encoding='utf-8') as file:
+                exp_cfg_calendar = json.load(file)['calendar']
+                if not calendars_are_equivalent(time_coords_calendar, exp_cfg_calendar):
+                    norm_time = normalize_calendar(time_coords_calendar)
+                    norm_cfg = normalize_calendar(exp_cfg_calendar)
+                    raise ValueError(f'data calendar type {norm_time} '
+                                     f'does not match input config calendar type: {norm_cfg}')
+
+        # read in time_bnds, if present
+        fre_logger.info('attempting to read coordinate BNDS, time_bnds')
+        time_bnds = from_ds_get_this(from_ds=ds, var_name='time_bnds')
 
     # determine the vertical dimension by looping over netcdf variables
     vert_dim = get_vertical_dimension(ds, local_var)  # returns int(0) if not present
@@ -452,6 +478,12 @@ def rewrite_netcdf_file_var( mip_var_cfgs: dict = None,
     fre_logger.info('cmor is opening: json_exp_config = %s', json_exp_config)
     cmor.dataset_json(json_exp_config)
 
+    # CMIP7 tables carry no frequency, CMOR takes it from the experiment configuration -- which
+    # describes the time-varying output, not a time-invariant field
+    if exp_cfg_mip_era == 'CMIP7' and not has_time:
+        fre_logger.info('setting frequency = fx for time-invariant %s', local_var)
+        cmor.set_cur_dataset_attribute('frequency', 'fx')
+
     # load CMOR table
     fre_logger.info('cmor is loading+setting json_table_config = %s', json_table_config)
     loaded_cmor_table_cfg = cmor.load_table(json_table_config)
@@ -509,42 +541,43 @@ def rewrite_netcdf_file_var( mip_var_cfgs: dict = None,
     # setup cmor time axis if relevant
     cmor_time = None
     ntimes_passed = None
-    fre_logger.info('assigning cmor_time')
-    try:
-        fre_logger.info('assigning cmor_time using time_bnds...')
-        ntimes_passed=len(time_coords)
-        fre_logger.debug('Executing: \n'
-            'cmor.axis(\'time\', \n'
-            '    coord_vals = %s, \n'
-            '    length = %s, \n'
-            '    cell_bounds = %s, units = %s)',
-            time_coords, ntimes_passed, time_bnds, time_coord_units
-        )
-        cmor_time = cmor.axis('time',
-                              units=time_coord_units,
-                              length=ntimes_passed,
-                              coord_vals=time_coords,
-                              cell_bounds=time_bnds,
-                              interval=None)#interval='mon')#
-    except Exception as exc: #ValueError as exc: #uncovered
-        fre_logger.error('exc is %s', str(exc))
-        fre_logger.info('assigning cmor_time WITHOUT time_bnds...')
-        ntimes_passed=len(time_coords)
-        fre_logger.debug('Executing: \n'
-            'cmor_time = cmor.axis(\'time\', \n'
-            '    coord_vals = %s, \n'
-            '    length = %s, \n'
-            '    cell_bounds = None, units = %s)',
-            time_coords, ntimes_passed, time_coord_units
-        )
-        cmor_time = cmor.axis('time',
-                              units=time_coord_units,
-                              length=ntimes_passed,
-                              coord_vals=time_coords,
-                              cell_bounds=None,
-                              interval=None)#interval='mon')
+    if has_time:
+        fre_logger.info('assigning cmor_time')
+        try:
+            fre_logger.info('assigning cmor_time using time_bnds...')
+            ntimes_passed=len(time_coords)
+            fre_logger.debug('Executing: \n'
+                'cmor.axis(\'time\', \n'
+                '    coord_vals = %s, \n'
+                '    length = %s, \n'
+                '    cell_bounds = %s, units = %s)',
+                time_coords, ntimes_passed, time_bnds, time_coord_units
+            )
+            cmor_time = cmor.axis('time',
+                                  units=time_coord_units,
+                                  length=ntimes_passed,
+                                  coord_vals=time_coords,
+                                  cell_bounds=time_bnds,
+                                  interval=None)#interval='mon')#
+        except Exception as exc: #ValueError as exc: #uncovered
+            fre_logger.error('exc is %s', str(exc))
+            fre_logger.info('assigning cmor_time WITHOUT time_bnds...')
+            ntimes_passed=len(time_coords)
+            fre_logger.debug('Executing: \n'
+                'cmor_time = cmor.axis(\'time\', \n'
+                '    coord_vals = %s, \n'
+                '    length = %s, \n'
+                '    cell_bounds = None, units = %s)',
+                time_coords, ntimes_passed, time_coord_units
+            )
+            cmor_time = cmor.axis('time',
+                                  units=time_coord_units,
+                                  length=ntimes_passed,
+                                  coord_vals=time_coords,
+                                  cell_bounds=None,
+                                  interval=None)#interval='mon')
 
-    fre_logger.info('DONE assigning cmor_time')
+        fre_logger.info('DONE assigning cmor_time')
 
     # other vertical-axis-relevant initializations
     save_ps, ps, ips = False, None, None
@@ -781,7 +814,8 @@ def cmorize_target_var_files(indir: str = None,
                              ps_source: Optional[Dict[str, str]] = None,
                              ps_fallback: Optional[Dict[str, str]] = None,
                              existing_outputs: Optional[List[Path]] = None,
-                             reduce: Optional[str] = None):
+                             reduce: Optional[str] = None,
+                             static_file: Optional[str] = None):
     """
     CMORize a target variable across all NetCDF files in a directory.
 
@@ -817,6 +851,9 @@ def cmorize_target_var_files(indir: str = None,
     :param reduce: Optional reduce method from the variable list (see ``cmor_reduce``), applied to
                    each input file's working copy before CMORization, e.g. ``'zonal_mean'``.
     :type reduce: str, optional
+    :param static_file: A FRE static file to read ``local_var`` from, instead of per-variable time-series
+                        files in ``indir``. ``iso_datetime_range_arr`` is then ``[STATIC_ISO_DATETIME]``.
+    :type static_file: str, optional
     :raises ValueError: See function body for details.
     :raises OSError: See function body for details.
     :raises Exception: See function body for details.
@@ -841,12 +878,20 @@ def cmorize_target_var_files(indir: str = None,
     nc_fls = {}
     for i, iso_datetime in enumerate(iso_datetime_range_arr):
         # why is nc_fls a filled list/array/object thingy here? see above line
-        nc_fls[i] = f'{indir}/{name_of_set}.{iso_datetime}.{local_var}.nc'
+        if static_file is not None:
+            # every time-invariant variable of the component lives in the one static file
+            nc_fls[i] = static_file
+        else:
+            nc_fls[i] = f'{indir}/{name_of_set}.{iso_datetime}.{local_var}.nc'
 
         fre_logger.info('input file = %s', nc_fls[i])
         if not Path(nc_fls[i]).exists():
             fre_logger.warning('input file not found, omitting: %s', nc_fls[i])
             continue
+        if static_file is not None:
+            with nc.Dataset(static_file, 'r') as static_ds:
+                if local_var not in static_ds.variables:
+                    raise ValueError(f'{local_var} not found in static file {static_file}')
 
         if not Path(nc_fls[i]).is_absolute():
             nc_fls[i]=str(Path(nc_fls[i]).resolve())
@@ -868,9 +913,10 @@ def cmorize_target_var_files(indir: str = None,
         shutil.copy(nc_fls[i], nc_file_work)
         apply_reduce(nc_file_work, local_var, reduce)
 
-        # if a ps file is found, we'll copy it to the work directory too
-        nc_ps_file, ps_var, ps_searched = find_ps_companion(nc_fls[i], local_var,
-                                                                ps_source, ps_fallback)
+        # if a ps file is found, we'll copy it to the work directory too. time-invariant fields
+        # have no surface-pressure companion
+        nc_ps_file, ps_var, ps_searched = (None, 'ps', None) if static_file is not None else \
+            find_ps_companion(nc_fls[i], local_var, ps_source, ps_fallback)
         nc_ps_file_work = None
         if nc_ps_file is not None and Path(nc_ps_file).resolve() != Path(nc_fls[i]).resolve():
             nc_ps_file_work = f'{tmp_dir}{Path(nc_ps_file).name}'
@@ -967,7 +1013,8 @@ def cmorize_all_variables_in_dir(vars_to_run: Dict[str, Any],
                                  ps_source: Optional[Dict[str, str]] = None,
                                  ps_fallback: Optional[Dict[str, str]] = None,
                                  existing_outputs: Optional[List[Path]] = None,
-                                 var_reduce: Optional[Dict[str, str]] = None) -> int:
+                                 var_reduce: Optional[Dict[str, str]] = None,
+                                 static_file: Optional[str] = None) -> int:
     """
     CMORize all variables in a directory according to a variable mapping.
 
@@ -997,6 +1044,8 @@ def cmorize_all_variables_in_dir(vars_to_run: Dict[str, Any],
     :type existing_outputs: list of Path, optional
     :param var_reduce: Reduce method per modeler variable name, from the variable list's object values.
     :type var_reduce: dict, optional
+    :param static_file: A FRE static file to read every variable from, see ``cmorize_target_var_files``.
+    :type static_file: str, optional
     :return: 0 if last file processed was successful, 1 if last file processed failed, -1 if no files were processed.
     :rtype: int
 
@@ -1022,14 +1071,15 @@ def cmorize_all_variables_in_dir(vars_to_run: Dict[str, Any],
                                      mip_var_cfgs, json_table_config, run_one_mode,
                                      ps_source=ps_source, ps_fallback=ps_fallback,
                                      existing_outputs=existing_outputs,
-                                     reduce=(var_reduce or {}).get(local_var))
+                                     reduce=(var_reduce or {}).get(local_var),
+                                     static_file=static_file)
             return_status = 0
         except Exception as exc:
             return_status = 1
             fre_logger.exception('!!!EXCEPTION CAUGHT!!!')
             fre_logger.warning('this message came from within cmorize_target_var_files')
             fre_logger.warning('COULD NOT PROCESS: %s/%s...moving on', local_var, target_var)
-            expected_files = [
+            expected_files = [static_file] if static_file is not None else [
                 f'{indir}/{name_of_set}.{dt}.{local_var}.nc'
                 for dt in iso_datetime_range_arr
             ]
@@ -1074,7 +1124,9 @@ def cmor_run_subtool(indir: str = None,
     """
     Main entry point for CMORization workflow, steering all routines in this file.
 
-    :param indir: Directory containing NetCDF files to process.
+    :param indir: Directory containing NetCDF files to process. Or a FRE static file,
+                  ``<component>.static.nc``, whose time-invariant variables are then CMORized without
+                  a time axis; ``start``/``stop`` do not apply to it.
     :type indir: str
     :param json_var_list: Path to JSON file with variable mapping (modeler names to MIP table names).
     :type json_var_list: str
@@ -1253,9 +1305,22 @@ def cmor_run_subtool(indir: str = None,
                           '... but the variable is not contained in the target mip table'
                           '... there\'s nothing to process, exit')
 
+    # a FRE static file instead of a directory: all variables are read from it, and are time-invariant
+    static_file = None
+    if Path(indir).is_file():
+        if not is_static_file(indir):
+            raise ValueError(f'indir must be a directory, or a FRE static file named '
+                             f'<component>.static.nc, got the file {indir}')
+        static_file = str(Path(indir).resolve())
+        indir = str(Path(static_file).parent)
+        fre_logger.info('indir is the static file %s, CMORizing its time-invariant variables', static_file)
+        if start is not None or stop is not None:
+            fre_logger.info('start = %s / stop = %s do not apply to static file %s, ignoring',
+                            start, stop, static_file)
+
     # if the table maps a ps variable, CMORize it first and use it as the surface-pressure
     # companion for the table's hybrid-sigma variables. the user is responsible for the mapping.
-    if table_declares_ps(mip_var_cfgs):
+    if static_file is None and table_declares_ps(mip_var_cfgs):
         ps_local_vars = [local_var for local_var, target in var_list.items() if target == 'ps']
         if ps_source is None and ps_local_vars:
             if len(ps_local_vars) > 1:
@@ -1269,26 +1334,31 @@ def cmor_run_subtool(indir: str = None,
 
     fre_logger.info('runnable variable list formed, it is vars_to_run=\n%s', vars_to_run)
 
-    # make list of target files within targeted indir here
-    # examine input directory to obtain a list of input file targets
-    fre_logger.info('indir = %s', indir)
-    indir_filenames = glob.glob(f'{indir}/*.nc')
-    indir_filenames.sort()
-    if len(indir_filenames) == 0:
-        raise ValueError(f'no files in input target directory = indir = \n{indir}')
-    fre_logger.debug('found %s filenames', len(indir_filenames))
+    if static_file is not None:
+        # name_of_set == component label
+        name_of_set = Path(static_file).name.split('.')[0]
+        iso_datetime_range_arr = [STATIC_ISO_DATETIME]
+    else:
+        # make list of target files within targeted indir here
+        # examine input directory to obtain a list of input file targets
+        fre_logger.info('indir = %s', indir)
+        indir_filenames = glob.glob(f'{indir}/*.nc')
+        indir_filenames.sort()
+        if len(indir_filenames) == 0:
+            raise ValueError(f'no files in input target directory = indir = \n{indir}')
+        fre_logger.debug('found %s filenames', len(indir_filenames))
 
-    # name_of_set == component label
-    name_of_set = Path(indir_filenames[0]).name.split('.')[0]
+        # name_of_set == component label
+        name_of_set = Path(indir_filenames[0]).name.split('.')[0]
+
+        # make list of iso-datetimes here
+        iso_datetime_range_arr = []
+        get_iso_datetime_ranges(indir_filenames, iso_datetime_range_arr, start, stop)
+        fre_logger.info('\nfound iso datetimes = %s', iso_datetime_range_arr)
+
+        # no longer needed.
+        del indir_filenames
     fre_logger.info('setting name_of_set = %s', name_of_set)
-
-    # make list of iso-datetimes here
-    iso_datetime_range_arr = []
-    get_iso_datetime_ranges(indir_filenames, iso_datetime_range_arr, start, stop)
-    fre_logger.info('\nfound iso datetimes = %s', iso_datetime_range_arr)
-
-    # no longer needed.
-    del indir_filenames
 
     existing_outputs = None
     if skip_existing:
@@ -1301,4 +1371,5 @@ def cmor_run_subtool(indir: str = None,
                                          indir, iso_datetime_range_arr, name_of_set, json_exp_config,
                                          outdir, mip_var_cfgs, json_table_config, run_one_mode,
                                          ps_source=ps_source, ps_fallback=ps_fallback,
-                                         existing_outputs=existing_outputs, var_reduce=var_reduce )
+                                         existing_outputs=existing_outputs, var_reduce=var_reduce,
+                                         static_file=static_file )

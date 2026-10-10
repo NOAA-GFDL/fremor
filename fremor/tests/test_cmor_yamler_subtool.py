@@ -284,6 +284,39 @@ def test_cmip6_freq_none_no_derivation_raises(tmp_path):
     outdir.mkdir()
     fake_table_dir = tmp_path / 'tables'
     fake_table_dir.mkdir()
+    (fake_table_dir / 'CMIP6_FakePt.json').write_text(json.dumps({
+        'variable_entry': {
+            'tas': {'frequency': 'monPt'}
+        }
+    }), encoding='utf-8')
+    yamlfile = _write_cmor_yaml(
+        tmp_path,
+        _build_cmor_dict(
+            pp_dir=str(pp_dir),
+            table_dir=str(fake_table_dir),
+            outdir=str(outdir),
+            exp_config=str(local_exp),
+            varlist=VARLIST,
+            mip_era='CMIP6',
+            table_name='FakePt',
+            freq=None,
+        ),
+    )
+
+    with pytest.raises(ValueError, match='not enough frequency information'):
+        cmor_yaml_subtool(yamlfile=yamlfile, dry_run_mode=True)
+
+
+def test_cmip6_fx_table_freq_derives_static(tmp_path):
+    """A CMIP6 fx table's derived freq is 'static', which a time-series component cannot feed."""
+    local_exp = tmp_path / 'exp.json'
+    shutil.copy(EXP_CONFIG, local_exp)
+    pp_dir = tmp_path / 'pp'
+    pp_dir.mkdir()
+    outdir = tmp_path / 'out'
+    outdir.mkdir()
+    fake_table_dir = tmp_path / 'tables'
+    fake_table_dir.mkdir()
     (fake_table_dir / 'CMIP6_FakeFx.json').write_text(json.dumps({
         'variable_entry': {
             'areacella': {'frequency': 'fx'}
@@ -303,7 +336,7 @@ def test_cmip6_freq_none_no_derivation_raises(tmp_path):
         ),
     )
 
-    with pytest.raises(ValueError, match='not enough frequency information'):
+    with pytest.raises(ValueError, match="has freq 'static' but its target components"):
         cmor_yaml_subtool(yamlfile=yamlfile, dry_run_mode=True)
 
 

@@ -218,6 +218,16 @@ CMIP6PLUS_CV_URL = ('https://raw.githubusercontent.com/WCRP-CMIP/CMIP6Plus_CVs/'
 
 
 # ---------------------------------------------------------------------------
+# static (time-invariant) pp files
+# ---------------------------------------------------------------------------
+# FRE writes each component's time-invariant fields once, all into one file sitting directly
+# under the component directory: <pp_dir>/<component>/<component>.static.nc. A cmor yaml table
+# target reading from it uses this freq, and its target components this data_series_type.
+STATIC_FREQ = 'static'
+STATIC_DATA_SERIES_TYPE = 'static'
+
+
+# ---------------------------------------------------------------------------
 # MIP-table filtering (used by cmor_config)
 # ---------------------------------------------------------------------------
 # Table-file suffixes to exclude when scanning a MIP-tables directory for
