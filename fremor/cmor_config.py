@@ -7,6 +7,10 @@ file that ``fremor yaml`` can consume. It scans a post-processing directory tree
 available components and time-series data, cross-references found variables against MIP
 tables, and produces the structured YAML needed for CMORization.
 
+With ``freq='static'``, each component's static file (``<pp_dir>/<component>/<component>.static.nc``)
+is scanned instead of its time series, and its time-invariant variables are matched against the
+tables' fixed (fx) entries.
+
 Functions
 ---------
 - ``cmor_config_subtool(...)``
@@ -20,11 +24,13 @@ import logging
 import os
 from pathlib import Path
 import re
+from typing import Optional
 
 import yaml
 
-from .cmor_finder import make_simple_varlist
-from .cmor_constants import EXCLUDED_TABLE_SUFFIXES
+from .cmor_finder import make_simple_varlist, make_static_varlist
+from .cmor_constants import EXCLUDED_TABLE_SUFFIXES, STATIC_DATA_SERIES_TYPE, STATIC_FREQ
+from .cmor_helpers import static_file_path
 
 fre_logger = logging.getLogger(__name__)
 
@@ -41,6 +47,53 @@ def _bronx_to_iso_chunk(chunk: str) -> str:
     if match is None:
         raise ValueError(f'chunk must be ISO8601 like P5Y or bronx-style like 5yr, got {chunk}')
     return f'P{match.group(1)}Y'
+
+
+def _component_static_file(entry: str, component_name: str) -> Optional[str]:
+    """The pp component directory's static file, ``<component>.static.nc``, or None if it has
+    none. Native-grid cubed-sphere static files (``<component>.static.tile<N>.nc``) are not
+    supported and only produce a warning."""
+    static_file = static_file_path(Path(entry).parent, component_name)
+    if Path(static_file).is_file():
+        return static_file
+    if glob.glob(f'{entry}/{component_name}.static.tile*.nc'):
+        fre_logger.warning('only per-tile static files found in %s, which are not supported, skipping',
+                           entry)
+    else:
+        fre_logger.debug('no static file %s, skipping', static_file)
+    return None
+
+
+def _append_target_component_lines(lines: list, appended_table_header: bool, variable_list: str,
+                                   table_name: str, freq: str, gridding: tuple,
+                                   component_name: str, data_series_type: str,
+                                   chunk_iso: Optional[str]) -> bool:
+    """Append a target component's YAML lines to ``lines`` if its variable list was written,
+    preceded by its table target's header lines the first time. ``gridding`` is
+    ``(grid_label, grid_desc, nom_res)``. A static component has no chunk.
+
+    :return: Whether the table target's header lines are now in ``lines``.
+    :rtype: bool
+    """
+    if not Path(variable_list).exists():
+        return appended_table_header
+    if not appended_table_header:
+        grid, grid_desc, nominal_resolution = gridding
+        lines.append('')
+        lines.append(f"    - table_name: '{table_name}'")
+        lines.append(f"      freq: '{freq}'")
+        lines.append('      gridding:')
+        lines.append(f"        grid_label: '{grid}'")
+        lines.append(f"        grid_desc: '{grid_desc}'")
+        lines.append(f"        nom_res: '{nominal_resolution}'")
+        lines.append( '      target_components:')
+
+    lines.append(f"        - component_name: '{component_name}'")
+    lines.append(f"          variable_list: '{variable_list}'")
+    lines.append(f"          data_series_type: '{data_series_type}'")
+    if chunk_iso is not None:
+        lines.append(f"          chunk: '{chunk_iso}'")
+    return True
 
 
 def _filter_mip_tables(mip_tables_dir: str, mip_era: str):
@@ -173,9 +226,11 @@ def cmor_config_subtool(
     :type output_dir: str
     :param varlist_dir: Directory in which per-component variable list JSON files are written.
     :type varlist_dir: str
-    :param freq: Temporal frequency string, e.g. 'monthly', 'daily'. Default 'monthly'.
+    :param freq: Temporal frequency string, e.g. 'monthly', 'daily'. Default 'monthly'. 'static' targets
+        each component's static file, ``<component>.static.nc``, instead of its time series, matching its
+        time-invariant variables against the tables' fixed (fx) entries only.
     :type freq: str
-    :param chunk: Time chunk string, e.g. '5yr', '10yr'. Default '5yr'.
+    :param chunk: Time chunk string, e.g. '5yr', '10yr'. Default '5yr'. Ignored when freq is 'static'.
     :type chunk: str
     :param grid: Grid label anchor name, e.g. 'g999', 'gn'. Default 'g999'.
     :type grid: str
@@ -205,7 +260,12 @@ def cmor_config_subtool(
         exp_config_data = json.load(handle)
     grid_desc = exp_config_data.get('grid')
     nominal_resolution = exp_config_data.get('nominal_resolution')
-    chunk_iso = _bronx_to_iso_chunk(chunk)
+    static_mode = freq == STATIC_FREQ
+    chunk_iso = None if static_mode else _bronx_to_iso_chunk(chunk)
+    if static_mode:
+        fre_logger.info('freq is %s: reading each component\'s static file, chunk = %s is ignored',
+                        STATIC_FREQ, chunk)
+    gridding = (grid, grid_desc, nominal_resolution)
 
     # ensure output directories exist
     Path(varlist_dir).mkdir(parents=True, exist_ok=True)
@@ -257,7 +317,10 @@ def cmor_config_subtool(
         for entry in ppcompdirs:
             component_name = Path(entry).name
             fre_logger.info('making variable list for %s', component_name)
-            variable_list = f'{varlist_dir}/{era_upper}_{table_name}_{component_name}.list'
+            # a static varlist would otherwise share its name with the same table's time-series one, for
+            # CMIP7, whose realm tables hold both time-invariant and time-varying variables
+            list_suffix = f'_{STATIC_FREQ}' if static_mode else ''
+            variable_list = f'{varlist_dir}/{era_upper}_{table_name}_{component_name}{list_suffix}.list'
             fre_logger.info('variable_list = %s', variable_list)
 
             # optionally regenerate
@@ -268,6 +331,28 @@ def cmor_config_subtool(
 
             if not Path(entry).is_dir():
                 fre_logger.debug('entry %s is not a directory, skipping', entry)
+                continue
+
+            if static_mode:
+                static_file = _component_static_file(entry, component_name)
+                if static_file is None:
+                    continue
+                try:
+                    make_static_varlist(
+                        static_file=static_file,
+                        return_none_if_no_mip_vars=strict_varlist,
+                        output_variable_list=variable_list,
+                        json_mip_table=mip_table
+                    )
+                except Exception as exc: # pylint: disable=broad-exception-caught
+                    fre_logger.warning(
+                        'variable list creation failed for %s %s %s \nWith exception: %s',
+                        static_file, variable_list, mip_table, exc
+                    )
+                    continue
+                appended_table_header = _append_target_component_lines(
+                    lines, appended_table_header, variable_list, table_name, freq, gridding,
+                    component_name, STATIC_DATA_SERIES_TYPE, None)
                 continue
 
             # check for time-series data
@@ -304,22 +389,9 @@ def cmor_config_subtool(
                 )
                 continue
 
-            if Path(variable_list).exists():
-                if not appended_table_header:
-                    lines.append('')
-                    lines.append(f"    - table_name: '{table_name}'")
-                    lines.append(f"      freq: '{freq}'")
-                    lines.append('      gridding:')
-                    lines.append(f"        grid_label: '{grid}'")
-                    lines.append(f"        grid_desc: '{grid_desc}'")
-                    lines.append(f"        nom_res: '{nominal_resolution}'")
-                    lines.append( '      target_components:')
-                    appended_table_header = True
-
-                lines.append(f"        - component_name: '{component_name}'")
-                lines.append(f"          variable_list: '{variable_list}'")
-                lines.append("          data_series_type: 'ts'")
-                lines.append(f"          chunk: '{chunk_iso}'")
+            appended_table_header = _append_target_component_lines(
+                lines, appended_table_header, variable_list, table_name, freq, gridding,
+                component_name, 'ts', chunk_iso)
 
 
     # ---- write output YAML ----

@@ -280,7 +280,9 @@ def find(varlist, table_config_dir, opt_var_name):
 @fremor.command()
 @click.option('-d', '--indir', type = str,
               help='directory containing netCDF files. keys specified in json_var_list are local ' + \
-                   'variable names used for targeting specific files in this directory',
+                   'variable names used for targeting specific files in this directory. Or, to ' + \
+                   'CMORize time-invariant (fx) variables, a FRE static file ' + \
+                   '<pp_dir>/<component>/<component>.static.nc holding all of them',
               required=True)
 @click.option('--varlist', type = str,
               help=VARLIST_HELP,
@@ -387,7 +389,9 @@ def varlist_(dir_targ, strict_mode, output_variable_list, mip_table):
 @click.option('--strict-varlist','--strict_varlist', is_flag=True, default=False,
               help='pass strict_mode flag to fremor varlist')
 @click.option('--freq', type=str, default='monthly',
-              help='Temporal frequency string, e.g. monthly, daily. Default monthly.')
+              help='Temporal frequency string, e.g. monthly, daily. Default monthly. Use static '
+                   'to map the time-invariant variables in each component\'s static file, '
+                   '<component>.static.nc, onto the tables\' fixed (fx) entries instead.')
 @click.option('--chunk', type=str, default='5yr',
               help='Time chunk string, e.g. 5yr, 10yr. Default 5yr.')
 @click.option('--grid', type=str, default='g999',
