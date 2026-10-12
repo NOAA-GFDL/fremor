@@ -135,8 +135,9 @@ Every other setting has to be edited in the file.
 | `CASE_NAME` [env] | *(empty)* | Short name telling cases (experiments, ensemble members) apart, e.g. `esm4_hist_r1`. It's added to the default `WORK_DIR`, `ARCHIVE_DIR` and `OUTDIR`, to Slurm job names (`fremor_<CASE_NAME>_<table>`) and to log lines. Allowed characters: letters, digits, `.`, `_`, `-`. If empty, it's left out everywhere. |
 | `ENV_SETUP` | `module load fremor` | Shell code that makes `fremor` available. It's `eval`'d on the login node and in every job. For conda: `'source /path/to/miniforge3/etc/profile.d/conda.sh && conda activate fremor'`. |
 | `MODE` [env] | `yaml` | `yaml`: run `fremor yaml` on per-table copies of a CMOR yaml. `run`: run `fremor run` on explicit per-table targets ([see below](#moderun-without-a-cmor-yaml)). |
-| `WORK_DIR` [env] | `~/fremor_jobs/[<CASE_NAME>/]<timestamp>` | Scratch area for per-table yamls, file lists, env files and logs ([layout](#the-work-directory)). It must be new or empty, unless you're resuming it. |
+| `WORK_DIR` [env] | `~/fremor_jobs/[<CASE_NAME>/]<timestamp>` | Scratch area for per-table yamls, file lists, env files and logs ([layout](#the-work-directory)). It must be new or empty, unless you're resuming it or pass `--overwrite`. |
 | `CONTINUE` [env] | `0` | `1` means resume `WORK_DIR`. The same as `--continue`. |
+| `OVERWRITE` [env] | `0` | `1` means redo the run in an existing `WORK_DIR` from scratch. The same as `--overwrite` ([details](#monitoring-failures-and-resuming)). |
 | `START`, `STOP` [env] | *(empty)* | Year bounds (YYYY) passed as `--start` / `--stop`. If empty, the yaml's bounds are used, or all years. |
 
 ### MODE=yaml
@@ -191,7 +192,7 @@ Every other setting has to be edited in the file.
 ## Command line
 
 ```
-fremor_submit_tables.sh [--continue | --continue=WORK_DIR] [TABLE ...]
+fremor_submit_tables.sh [--continue | --continue=WORK_DIR | --overwrite] [TABLE ...]
 ```
 
 | Form | Effect |
@@ -201,6 +202,7 @@ fremor_submit_tables.sh [--continue | --continue=WORK_DIR] [TABLE ...]
 | `DRY_RUN=1 ./fremor_submit_tables.sh` | Print the `sbatch` commands and submit nothing. The work directory is still created. |
 | `./fremor_submit_tables.sh --continue=~/fremor_jobs/20260929_101500` | Resume that earlier run ([details](#monitoring-failures-and-resuming)). |
 | `./fremor_submit_tables.sh --continue` | Resume the `WORK_DIR` set in the config or environment. |
+| `WORK_DIR=~/fremor_jobs/20260929_101500 ./fremor_submit_tables.sh --overwrite` | Redo the selected tables of that run from scratch, rewriting its files. |
 | `CASE_NAME=esm4_hist_r1 FREMOR_YAML=... ./fremor_submit_tables.sh` | Submit one case of many. |
 
 ## The work directory
@@ -260,6 +262,21 @@ When resuming, the submitter:
 
 Without `--continue`, the submitter refuses to reuse a non-empty `WORK_DIR`, so you
 can't overwrite an earlier run by accident.
+
+**To redo tables from scratch** in the same work directory (e.g. after fixing the yaml),
+pass `--overwrite` (or set `OVERWRITE=1`):
+
+```bash
+WORK_DIR=/path/to/WORK_DIR ./fremor_submit_tables.sh --overwrite [TABLE ...]
+```
+
+Every selected table is resubmitted, including those with a `DONE` marker. Its yaml,
+`job.env`, `JOBID`, file lists and markers are rewritten, and `fremor yaml` runs
+without `--continue`, so all chunks are CMORized again. Tables you don't select keep
+their files. `HISTORY` is appended to. The submitter refuses `--overwrite` while any
+job of that `WORK_DIR` is still queued or running, since those jobs read their files
+from it; wait for them or `scancel` them first. `--overwrite` and `--continue` can't
+be combined.
 
 With `ARCHIVE=1`, finished outputs are moved out of the temporary outdir, and
 `--continue` can only skip chunks that are still in that outdir. When a job fails, its
@@ -400,7 +417,7 @@ CASES="esm4_hist_r1 esm4_hist_r2" ~/fremor_cases/esm4/submit_all.sh   # only the
 - If one case fails to submit, the others still go ahead, and the failed cases are
   listed at the end (exit status 1). One way this happens is rerunning without
   `--continue`, which leaves existing work directories untouched and reports those
-  cases as failed.
+  cases as failed. `submit_all.sh --overwrite` redoes every case from scratch instead.
 - All cases share one `JOB_QUEUE_FILE` (`<out-dir>/job_queue.txt`), so `MAX_CONCURRENT`
   limits the jobs of **all** cases together, not per case.
 
@@ -422,7 +439,8 @@ submissions, set the same `JOB_QUEUE_FILE` for each. Dry runs don't write to the
 
 | Message | Cause and fix |
 | --- | --- |
-| `WORK_DIR already exists: ...` | The directory holds an earlier run. Resume it with `--continue=<dir>`, or pick a new `WORK_DIR`. |
+| `WORK_DIR already exists: ...` | The directory holds an earlier run. Resume it with `--continue=<dir>`, redo it with `--overwrite`, or pick a new `WORK_DIR`. |
+| `--overwrite: jobs of ... are still queued/running` | `--overwrite` would rewrite files those jobs still read. Wait for them, or `scancel` them, then resubmit. |
 | `CONTINUE=1 needs an existing WORK_DIR` | `--continue` was given for a directory that doesn't exist. Check the path in `HISTORY` or in the submitter's output. |
 | `fremor not found after ENV_SETUP` | `ENV_SETUP` didn't put `fremor` on `PATH`, either on the login node or inside the job. Test it in a fresh shell. |
 | `tables not found (or disabled) in ...` | A table named on the command line or in `TABLES` isn't an enabled `table_target` of the yaml. |
