@@ -1107,13 +1107,26 @@ def _dims_findings(var_entry: dict) -> list:
              f'input has {dims.get("input_vertical_dim")})'),
         )
     if dims.get('missing_ps_file'):
-        locations = [dims['missing_ps_file']]
+        locations = []
         if dims.get('missing_mapped_ps_in'):
-            locations.append(f'{dims["missing_mapped_ps_in"]} (table-mapped ps)')
+            locations.append(f'{dims["missing_mapped_ps_in"]} (mapped ps)')
+        locations.append(dims['missing_ps_file'])
         if dims.get('missing_ps_component_in'):
             locations.append(f'{dims["missing_ps_component_in"]} (ps_component)')
         findings.append((color, f'missing companion ps file: {" or ".join(locations)}'))
     return findings
+
+
+def _grid_findings(var_entry: dict) -> list:
+    """Render CMIP7 grid-label checks for input files."""
+    grid = var_entry.get('grid')
+    if grid is None:
+        return []
+    if grid['status'] == 'mismatch':
+        return [('red', f'grid={grid["grid_label"]} mismatch: ' + '; '.join(grid['problems']))]
+    if grid['status'] == 'unknown':
+        return [('yellow', f'grid=unknown ({grid.get("reason")})')]
+    return []
 
 
 def _output_findings(var_entry: dict) -> list:
@@ -1168,6 +1181,7 @@ def _file_findings(var_entry: dict) -> list:
     findings = []
     findings.extend(_staging_findings(var_entry))
     findings.extend(_dims_findings(var_entry))
+    findings.extend(_grid_findings(var_entry))
     findings.extend(_output_findings(var_entry))
     findings.extend(_attrs_findings(var_entry))
     findings.extend(_range_findings(var_entry))

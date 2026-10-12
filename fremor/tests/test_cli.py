@@ -362,6 +362,7 @@ def test_cli_fremor_check_rejects_bare_show_unmapped(mock_subtool, tmp_path):
         check_attrs=False,
         check_range=False,
         dmls_bin=None,
+        check_exp_config=False,
     )
 
 
