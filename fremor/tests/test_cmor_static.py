@@ -7,12 +7,13 @@ tests for mapping and CMORizing time-invariant (fx) variables from FRE static fi
 import glob
 import json
 from pathlib import Path
+import subprocess
 
 import pytest
 import yaml
 from netCDF4 import Dataset
 
-from fremor import cmor_run_subtool
+from fremor import cmor_config, cmor_run_subtool
 from fremor.cmor_check import cmor_check_subtool
 from fremor.cmor_config import cmor_config_subtool
 from fremor.cmor_finder import make_static_varlist
@@ -229,7 +230,62 @@ def test_config_freq_static(tmp_path, static_tree, caplog): # pylint: disable=re
     assert json.loads(Path(varlist).read_text(encoding='utf-8'))['deptho'] == 'deptho'
 
 
-# ── fremor yaml / stage ───────────────────────────────────────────────────────
+def _run_static_config(tmp_path, pp_dir, tables_dir, **kwargs):
+    exp_config = tmp_path / 'exp.json'
+    exp_config.write_text(json.dumps({'grid': 'g', 'nominal_resolution': '25 km'}), encoding='utf-8')
+    varlist_dir = tmp_path / 'varlists'
+    cmor_config_subtool(pp_dir=str(pp_dir), mip_tables_dir=str(tables_dir), mip_era='cmip6',
+                        exp_config=str(exp_config), output_yaml=str(tmp_path / 'static.yaml'),
+                        output_dir=str(tmp_path / 'out'), varlist_dir=str(varlist_dir),
+                        freq='static', **kwargs)
+    return varlist_dir / 'CMIP6_Ofx_ocean_monthly_static.list'
+
+
+def test_config_freq_static_recalls_static_files_once(tmp_path, static_tree, monkeypatch): # pylint: disable=redefined-outer-name
+    ''' every component's static file is recalled in one dmget batch before any is read, once
+    for all the tables '''
+    pp_dir, tables_dir, static_file = static_tree
+    land_static = _write_static_nc(pp_dir / 'land' / 'land.static.nc')
+    (pp_dir / 'atmos').mkdir()   # no static file, nothing to recall
+    calls = []
+    monkeypatch.setattr(cmor_config.shutil, 'which', lambda name: f'/usr/bin/{name}')
+    monkeypatch.setattr(cmor_config.subprocess, 'run', lambda cmd, check: calls.append(cmd))
+
+    varlist = _run_static_config(tmp_path, pp_dir, tables_dir, dmget_bin='mydmget')
+
+    assert calls == [['/usr/bin/mydmget', str(land_static), str(static_file)]]
+    assert varlist.is_file()
+
+
+def test_config_freq_static_dmget_failure_warns(tmp_path, static_tree, monkeypatch, caplog): # pylint: disable=redefined-outer-name
+    ''' a failed dmget only warns: the static files are still read '''
+    pp_dir, tables_dir, _ = static_tree
+    def failing_run(cmd, check):
+        raise subprocess.CalledProcessError(1, cmd)
+    monkeypatch.setattr(cmor_config.shutil, 'which', lambda name: f'/usr/bin/{name}')
+    monkeypatch.setattr(cmor_config.subprocess, 'run', failing_run)
+
+    with caplog.at_level('WARNING'):
+        varlist = _run_static_config(tmp_path, pp_dir, tables_dir)
+
+    assert 'dmget of the static files failed' in caplog.text
+    assert varlist.is_file()
+
+
+def test_config_freq_static_without_dmget(tmp_path, static_tree, monkeypatch): # pylint: disable=redefined-outer-name
+    ''' without a dmget executable, nothing is recalled and the static files are read directly '''
+    pp_dir, tables_dir, _ = static_tree
+    calls = []
+    monkeypatch.setattr(cmor_config.shutil, 'which', lambda name: None)
+    monkeypatch.setattr(cmor_config.subprocess, 'run', lambda cmd, check: calls.append(cmd))
+
+    varlist = _run_static_config(tmp_path, pp_dir, tables_dir)
+
+    assert not calls
+    assert varlist.is_file()
+
+
+# ── fremor yaml / stage───────────────────────────────────────────────────────
 
 def _ofx_yaml(tmp_path, pp_dir, tables_dir, exp_json=None, var_list=None):
     varlist = tmp_path / 'CMIP6_Ofx_ocean_monthly_static.list'

@@ -390,7 +390,8 @@ Generate a separate CMOR YAML for them with ``--freq static``:
        --varlist-dir /path/to/varlists \
        --freq static
 
-Each component's static file is scanned for time-invariant data variables (coordinates, bounds,
+All the components' static files are first recalled from tape in one ``dmget`` batch, so they need
+not be staged beforehand. Each component's static file is then scanned for time-invariant data variables (coordinates, bounds,
 scalars and anything with a time dimension are left out), which are matched against each table's
 fixed entries only; tables without any fixed entry are left out of the YAML. The table targets get
 ``freq: 'static'``, and their components ``data_series_type: 'static'`` and no ``chunk``:
