@@ -19,6 +19,19 @@ from ._version import __version__, version
 
 fre_logger = logging.getLogger(__name__)
 
+DDEBUG_LEVEL_NUM = 5
+logging.DDEBUG = DDEBUG_LEVEL_NUM
+logging.addLevelName(DDEBUG_LEVEL_NUM, 'DDEBUG')
+
+
+def ddebug(self, message, *args, **kws):
+    """Deep-debug logging for large arrays and dictionaries."""
+    if self.isEnabledFor(DDEBUG_LEVEL_NUM):
+        self._log(DDEBUG_LEVEL_NUM, message, args, **kws)
+
+
+logging.Logger.ddebug = ddebug
+
 FORMAT = '[%(levelname)5s:%(filename)24s:%(funcName)24s] %(message)s'
 logging.basicConfig( level = logging.WARNING,
                      format = FORMAT,

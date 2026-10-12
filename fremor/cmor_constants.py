@@ -13,12 +13,16 @@ Sections
 - **Vertical-coordinate classification** – lists that partition the accepted
   vertical dimension names into physical categories.
 - **CMOR module defaults** – arguments passed to ``cmor.setup()``.
+- **MIP-era CMOR resources** – per-era CV / coordinate / formula-terms /
+  grids table names, as CMOR resolves them relative to a MIP table.
 - **CMIP7 brand disambiguation** – mapping from input netCDF vertical
   dimension names to MIP-table dimension names.
 - **Archive / filesystem paths** – locations of gold-standard data sets.
 - **MIP-table filtering** – suffixes used to exclude non-variable-entry
   tables when scanning a MIP-tables directory.
 - **Output / display flags** – behavioral toggles for CLI and finder output.
+- **Archive residency / reporting** – shared dmls state handling and summary
+  layout constants used across multiple subtools.
 """
 
 import cmor
@@ -26,12 +30,13 @@ import cmor
 # ---------------------------------------------------------------------------
 # Vertical-coordinate classification (used by cmor_mixer)
 # ---------------------------------------------------------------------------
-ACCEPTED_VERT_DIMS = [
-    'z_l', 'landuse',
-    'plev39', 'plev30', 'plev19', 'plev8',
-    'height2m',
-    'level', 'lev', 'levhalf',
-]
+#ACCEPTED_VERT_DIMS = [
+#    'landuse',
+#    'plev39', 'plev30', 'plev19', 'plev8',
+#    'height2m',
+#    'level', 'lev', 'levhalf',
+#    'z_l',
+#]
 
 NON_HYBRID_SIGMA_COORDS = [
     'landuse',
@@ -41,7 +46,9 @@ NON_HYBRID_SIGMA_COORDS = [
 
 ALT_HYBRID_SIGMA_COORDS = ['level', 'lev', 'levhalf']
 
-DEPTH_COORDS = ['z_l']
+DEPTH_COORDS = ['z_l', 'zl', 'rho2_l']
+
+ACCEPTED_VERT_DIMS = NON_HYBRID_SIGMA_COORDS + ALT_HYBRID_SIGMA_COORDS + DEPTH_COORDS
 
 # ---------------------------------------------------------------------------
 # Horizontal-coordinate axis names (used by cmor_mixer for cmor.axis calls)
@@ -60,6 +67,20 @@ CMOR_EXIT_CTL       = cmor.CMOR_EXIT_ON_WARNING#CMOR_NORMAL#
 CMOR_MK_SUBDIRS     = 1
 CMOR_LOG             = None
 
+# CMOR_EXIT_ON_WARNING makes *every* CMOR message fatal, warnings included -- see
+# cmor_handle_error_internal(): `if ((CMOR_MODE == CMOR_EXIT_ON_WARNING) || (level ==
+# CMOR_CRITICAL)) kill(getpid(), SIGTERM)`. That is too strict for CMIP6Plus: every table in
+# PCMDI/mip-cmor-tables carries a `version_metadata` section, which CMOR's table loader does
+# not recognize (it is only known to the CV validator), so loading any CMIP6Plus table warns
+# "unknown section: version_metadata" and, under EXIT_ON_WARNING, dies. CMOR_EXIT_ON_MAJOR
+# still surfaces genuine errors -- they set CMOR's error flag and the Python wrapper raises
+# CMORError -- it just does not treat a warning as fatal.
+CMOR_EXIT_CTL_BY_ERA = {
+    'CMIP6'    : CMOR_EXIT_CTL,
+    'CMIP6PLUS': cmor.CMOR_EXIT_ON_MAJOR,
+    'CMIP7'    : CMOR_EXIT_CTL,
+}
+
 
 # ---------------------------------------------------------------------------
 # CMIP7 brand disambiguation (used by cmor_helpers.filter_brands)
@@ -68,10 +89,34 @@ CMOR_LOG             = None
 # equivalents.  Dimensions whose names already match (e.g. plev39, height2m)
 # need no entry; the look-up falls back to using the input name directly.
 INPUT_TO_MIP_VERT_DIM = {
-    'z_l':      'olevel',
-    'level':    'alevel',
-    'lev':      'alevel',
-    'levhalf':  'alevhalf',
+    'z_l'     : 'olevel'  , # z_l, zl, and rho2_l are interchangeable in MOM6
+    'zl'      : 'olevel'  , #
+    'rho2_l'  : 'olevel'  , #
+
+    'level'   : 'alevel'  , # double check that these are interchangeable
+    'lev'     : 'alevel'  , #
+
+    'levhalf' : 'alevhalf',
+}
+
+ACCEPTED_CELL_METHODS = {
+    "point",
+    "sum",
+    "maximum",
+    "maximum_absolute_value",
+    "median",
+    "mid_range",
+    "minimum",
+    "minimum_absolute_value",
+    "mean",
+    "mean_absolute_value",
+    "mean_of_upper_decile",
+    "mode",
+    "range",
+    "root_mean_square",
+    "standard_deviation",
+    "sum_of_squares",
+    "variance",
 }
 
 
@@ -86,6 +131,65 @@ ARCHIVE_GOLD_DATA_DIR = '/archive/gold/datasets'
 CMIP7_GOLD_OCEAN_FILE_STUB='OM5_025/ocean_mosaic_v20250916_unpacked/ocean_static_no_basin.nc'
 # surprisingly, this should work
 CMIP6_GOLD_OCEAN_FILE_STUB=None #TODO
+
+# ---------------------------------------------------------------------------
+# MIP-era CMOR resources (CV + auxiliary tables)
+# ---------------------------------------------------------------------------
+# CMOR resolves the controlled vocabulary, coordinate ("axis entry") and
+# formula-terms tables relative to the directory of the MIP table it is loading:
+# cmor_load_table() builds "dirname(<table>)/<name>" for each. The grids table is
+# resolved the same way by cmor_mixer when a tripolar ocean grid is in play.
+#
+# The three table repos lay these files out differently:
+#   CMIP6     pcmdi/cmip6-cmor-tables   -- everything together in Tables/
+#   CMIP6Plus PCMDI/mip-cmor-tables     -- variable tables in Tables/, auxiliary
+#                                          tables in Auxillary_files/ (sic), and
+#                                          NO CV at all: CMIP6Plus_CV.json lives in
+#                                          WCRP-CMIP/CMIP6Plus_CVs
+#   CMIP7     WCRP-CMIP/cmip7-cmor-tables -- auxiliary tables in tables/ with the
+#                                          variable tables, CV in tables-cvs/
+#
+# Keyed by the upper-cased mip_era of the experiment config.
+MIP_ERA_RESOURCES = {
+    'CMIP6': {
+        'cv'           : 'CMIP6_CV.json',
+        'coordinate'   : 'CMIP6_coordinate.json',
+        'formula_terms': 'CMIP6_formula_terms.json',
+        'grids'        : 'CMIP6_grids.json',
+    },
+    'CMIP6PLUS': {
+        'cv'           : 'CMIP6Plus_CV.json',
+        'coordinate'   : '../Auxillary_files/MIP_coordinate.json',
+        'formula_terms': '../Auxillary_files/MIP_formula_terms.json',
+        'grids'        : '../Auxillary_files/MIP_grids.json',
+    },
+    'CMIP7': {
+        'cv'           : '../tables-cvs/cmor-cvs.json',
+        'coordinate'   : 'CMIP7_coordinate.json',
+        'formula_terms': 'CMIP7_formula_terms.json',
+        'grids'        : 'CMIP7_grids.json',
+    },
+}
+
+# Fallback names tried, in order, when the layout above does not match the
+# tables the user actually has on disk (e.g. a flattened CMIP6Plus table set
+# where MIP_grids.json sits next to the variable tables).
+MIP_ERA_RESOURCE_FALLBACKS = {
+    'CMIP6'    : {'grids': ['CMIP6_grids.json']},
+    # CMIP6Plus has no usable grids table of its own: mip-cmor-tables ships
+    # Auxillary_files/MIP_grids.json with no Header, so CMOR cannot set_table() it. A CMIP6
+    # grids table stands in -- fremor treats CMIP6Plus as a CMIP6 case -- if the user drops
+    # one next to their tables.
+    'CMIP6PLUS': {'grids': ['MIP_grids.json', 'CMIP6Plus_grids.json', 'CMIP6PLUS_grids.json',
+                            'CMIP6_grids.json']},
+    'CMIP7'    : {'grids': ['CMIP7_grids.json']},
+}
+
+# Upstream source for the CMIP6Plus controlled vocabulary, which is not shipped
+# with the CMIP6Plus MIP tables (used by cmor_init to fetch it alongside them).
+CMIP6PLUS_CV_URL = ('https://raw.githubusercontent.com/WCRP-CMIP/CMIP6Plus_CVs/'
+                    'main/CVs/CMIP6Plus_CV.json')
+
 
 # ---------------------------------------------------------------------------
 # MIP-table filtering (used by cmor_config)
@@ -104,9 +208,47 @@ EXCLUDED_TABLE_SUFFIXES = [
 # ---------------------------------------------------------------------------
 # Output / display flags
 # ---------------------------------------------------------------------------
+# dmls states that mean a file is already disk-resident (rather than still
+# offline on tape). Shared by `fremor check` and `fremor map`.
+DMLS_DISK_RESIDENT_STATES = {'REG', 'DUL'}
+
+# Width the category label + count column is padded to in `fremor check`, so
+# every trailing note starts in the same column regardless of label length.
+CMOR_CHECK_CATEGORY_WIDTH = 20
+
 # cmor_finder: variable-entry keys to suppress when printing variable info.
 DO_NOT_PRINT_LIST = [
     'comment',
     'ok_min_mean_abs', 'ok_max_mean_abs',
     'valid_min', 'valid_max',
 ]
+
+
+# ---------------------------------------------------------------------------
+# Experiment-config pre-run validation
+# ---------------------------------------------------------------------------
+# A CV's `required_global_attributes` lists everything that must end up as a global
+# attribute on the output file -- but CMOR supplies a good number of those itself, so
+# they are not expected in (and must not be demanded of) the experiment config.
+#
+# Anything NOT in this set has to come from the experiment config, and CMOR silently
+# discards an attribute whose value is an empty string (cmor_dataset_json passes user
+# keys with optional=1, and cmor_set_cur_dataset_attribute_internal returns early on a
+# blank value), so a blank is indistinguishable downstream from a missing key -- which
+# is why blanks are rejected as hard as absences.
+CMOR_PROVIDED_GLOBAL_ATTRIBUTES = {
+    # generated by CMOR at write time
+    'creation_date', 'tracking_id', 'further_info_url', 'version',
+    # taken from the MIP table being loaded
+    'Conventions', 'data_specs_version', 'table_id', 'frequency', 'realm', 'variable_id',
+    # looked up in the CV from an id the user does supply
+    'experiment',      # <- experiment_id
+    'institution',     # <- institution_id
+    'sub_experiment',  # <- sub_experiment_id
+    'product',
+    # assembled by CMOR from the realization/initialization/physics/forcing indices
+    'variant_label',
+    # CMIP7 branded-variable components, derived from the variable's brand
+    'branded_variable', 'branding_suffix', 'area_label', 'horizontal_label',
+    'temporal_label', 'vertical_label', 'region',
+}

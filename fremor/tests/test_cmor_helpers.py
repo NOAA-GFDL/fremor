@@ -10,14 +10,16 @@ import numpy as np
 import pytest
 
 import netCDF4
+import cmor
 
+from fremor.cmor_constants import CMOR_EXIT_CTL, CMOR_EXIT_CTL_BY_ERA
 from fremor.cmor_helpers import ( find_statics_file, print_data_minmax,
-                                    find_gold_ocean_statics_file,
-                                    create_lev_bnds, get_iso_datetime_ranges, iso_to_bronx_chunk,
-                                    create_tmp_dir, get_json_file_data,
-                                    update_grid_and_label, get_bronx_freq_from_mip_table, #update_outpath,
-                                    filter_brands, get_vertical_dimension,
-                                    from_ds_get_this )
+                                  find_gold_ocean_statics_file,
+                                  create_lev_bnds, get_iso_datetime_ranges, iso_to_bronx_chunk,
+                                  create_tmp_dir, get_json_file_data,
+                                  update_grid_and_label, get_bronx_freq_from_mip_table,
+                                  filter_brands, get_vertical_dimension,
+                                  from_ds_get_this, resolve_mip_era_table_resource )
 
 def test_iso_to_bronx_chunk():
     """ tests value error raising by iso_to_bronx_chunk """
@@ -127,24 +129,6 @@ def test_find_gold_ocean_statics_file_mock_copy(tmp_path):
     assert result is not None
     assert Path(result).is_file()
     assert 'ocean_static_no_basin.nc' in result
-
-
-# ---- create_lev_bnds failure case ----
-
-def test_create_lev_bnds_length_mismatch():
-    """ create_lev_bnds should raise ValueError when len(with_these) != len(bound_these)+1 """
-    bound_these = np.array([10.0, 20.0, 30.0])
-    with_these = np.array([5.0, 15.0])  # wrong: should be len 4 (=3+1)
-    with pytest.raises(ValueError, match='failed creating bnds'):
-        create_lev_bnds(bound_these=bound_these, with_these=with_these)
-
-
-def test_create_lev_bnds_length_mismatch_too_long():
-    """ same check, but with_these is too long instead of too short """
-    bound_these = np.array([10.0, 20.0])
-    with_these = np.array([5.0, 15.0, 25.0, 35.0])  # wrong: should be len 3 (=2+1)
-    with pytest.raises(ValueError, match='failed creating bnds'):
-        create_lev_bnds(bound_these=bound_these, with_these=with_these)
 
 
 # ---- get_iso_datetime_ranges with stop_yr ----
@@ -363,9 +347,22 @@ def test_get_bronx_freq_from_mip_table_invalid_freq(tmp_path):
 
 # ---- filter_brands tests ----
 
-def _make_mip_var_cfgs(var_brands_dims):
-    """helper: build a minimal mip_var_cfgs dict from {mip_key: dims_string} pairs"""
-    return {'variable_entry': {k: {'dimensions': v} for k, v in var_brands_dims.items()}}
+def _make_mip_var_cfgs(var_brands_dims, standard_names=None):
+    """helper: build a minimal mip_var_cfgs dict from {mip_key: dims_string} pairs
+
+    ``standard_names`` is an optional {mip_key: standard_name} dict; entries not
+    present there default to a placeholder that won't match any input standard_name.
+    """
+    standard_names = standard_names or {}
+    return {
+        'variable_entry': {
+            k: {
+                'dimensions': v,
+                'standard_name': standard_names.get(k, 'unset_standard_name'),
+            }
+            for k, v in var_brands_dims.items()
+        }
+    }
 
 
 def test_filter_brands_time_filter_selects_mean():
@@ -445,6 +442,54 @@ def test_filter_brands_multiple_remain():
             mip_var_cfgs=mip,
             has_time_bnds=True,
             input_vert_dim=0,
+        )
+
+
+def test_filter_brands_standard_name_filter():
+    """ standard_name filter should select the brand whose MIP standard_name matches the input's """
+    mip = _make_mip_var_cfgs(
+        {
+            'ts_tavg-u-hxy-is':  'longitude latitude time',
+            'ts_tavg-u-hxy-lnd': 'longitude latitude time',
+            'ts_tavg-u-hxy-u':   'longitude latitude time',
+        },
+        standard_names={
+            'ts_tavg-u-hxy-is':  'sea_ice_surface_temperature',
+            'ts_tavg-u-hxy-lnd': 'surface_temperature_where_land',
+            'ts_tavg-u-hxy-u':   'surface_temperature',
+        },
+    )
+    result = filter_brands(
+        brands=['tavg-u-hxy-is', 'tavg-u-hxy-lnd', 'tavg-u-hxy-u'],
+        target_var='ts',
+        mip_var_cfgs=mip,
+        has_time_bnds=True,
+        input_vert_dim=0,
+        standard_name='surface_temperature',
+    )
+    assert result == 'tavg-u-hxy-u'
+
+
+def test_filter_brands_standard_name_filter_none_match():
+    """ should raise ValueError when standard_name filter eliminates all remaining brands """
+    mip = _make_mip_var_cfgs(
+        {
+            'ts_tavg-u-hxy-is':  'longitude latitude time',
+            'ts_tavg-u-hxy-lnd': 'longitude latitude time',
+        },
+        standard_names={
+            'ts_tavg-u-hxy-is':  'sea_ice_surface_temperature',
+            'ts_tavg-u-hxy-lnd': 'surface_temperature_where_land',
+        },
+    )
+    with pytest.raises(ValueError, match='none survived'):
+        filter_brands(
+            brands=['tavg-u-hxy-is', 'tavg-u-hxy-lnd'],
+            target_var='ts',
+            mip_var_cfgs=mip,
+            has_time_bnds=True,
+            input_vert_dim=0,
+            standard_name='surface_temperature',
         )
 
 
@@ -563,3 +608,74 @@ def test_dtype_preserved_through_cmorize_roundtrip(tmp_path, nc_dtype, np_dtype)
         result = from_ds_get_this(from_ds=ds_out, var_name='myvar')
 
     assert result.dtype == np_dtype
+
+
+## ---- resolve_mip_era_table_resource tests ----
+
+TEST_FILES = Path(__file__).parent / 'test_files'
+
+
+def test_resolve_mip_era_table_resource_cmip6plus_grids_is_unusable():
+    """ mip-cmor-tables' Auxillary_files/MIP_grids.json has no Header, so cmor.set_table
+        cannot use it -- the resolver must say so instead of handing it over """
+    table = TEST_FILES / 'mip-cmor-tables' / 'Tables' / 'MIP_OPmon.json'
+    with pytest.raises(FileNotFoundError, match='could not find a usable CMIP6PLUS grids table'):
+        resolve_mip_era_table_resource(str(table), 'CMIP6PLUS', 'grids')
+
+
+def test_resolve_mip_era_table_resource_cmip6plus_grids_stand_in(tmp_path):
+    """ a CMIP6 grids table dropped next to the CMIP6Plus tables is picked up """
+    (tmp_path / 'MIP_OPmon.json').write_text('{}')
+    cmip6_grids = TEST_FILES / 'cmip6-cmor-tables' / 'Tables' / 'CMIP6_grids.json'
+    (tmp_path / 'CMIP6_grids.json').write_text(cmip6_grids.read_text())
+    result = resolve_mip_era_table_resource(str(tmp_path / 'MIP_OPmon.json'), 'CMIP6PLUS', 'grids')
+    assert Path(result) == (tmp_path / 'CMIP6_grids.json').resolve()
+
+
+def test_resolve_mip_era_table_resource_cmip6_grids():
+    """ CMIP6 keeps everything in Tables/ """
+    table = TEST_FILES / 'cmip6-cmor-tables' / 'Tables' / 'CMIP6_Omon.json'
+    result = resolve_mip_era_table_resource(str(table), 'CMIP6', 'grids')
+    assert Path(result) == (TEST_FILES / 'cmip6-cmor-tables' / 'Tables' / 'CMIP6_grids.json').resolve()
+
+
+def test_resolve_mip_era_table_resource_cmip7_grids():
+    """ CMIP7 keeps its auxiliary tables with the variable tables """
+    table = TEST_FILES / 'cmip7-cmor-tables' / 'tables' / 'CMIP7_ocean.json'
+    result = resolve_mip_era_table_resource(str(table), 'CMIP7', 'grids')
+    assert Path(result) == (TEST_FILES / 'cmip7-cmor-tables' / 'tables' / 'CMIP7_grids.json').resolve()
+
+
+def test_resolve_mip_era_table_resource_fallback(tmp_path):
+    """ a flattened CMIP6Plus table set, with MIP_grids.json next to the variable tables """
+    (tmp_path / 'MIP_OPmon.json').write_text('{}')
+    (tmp_path / 'MIP_grids.json').write_text(json.dumps({'Header': {'table_id': 'Table grids'}}))
+    result = resolve_mip_era_table_resource(str(tmp_path / 'MIP_OPmon.json'), 'cmip6plus', 'grids')
+    assert Path(result) == (tmp_path / 'MIP_grids.json').resolve()
+
+
+def test_resolve_mip_era_table_resource_not_found(tmp_path):
+    """ every candidate name is reported when none of them exist """
+    (tmp_path / 'MIP_OPmon.json').write_text('{}')
+    with pytest.raises(FileNotFoundError, match='could not find a usable CMIP6PLUS grids table'):
+        resolve_mip_era_table_resource(str(tmp_path / 'MIP_OPmon.json'), 'CMIP6PLUS', 'grids')
+
+
+def test_resolve_mip_era_table_resource_bad_inputs(tmp_path):
+    """ unrecognized mip_era and resource both raise ValueError """
+    table = str(tmp_path / 'MIP_OPmon.json')
+    with pytest.raises(ValueError, match='unrecognized mip_era'):
+        resolve_mip_era_table_resource(table, 'CMIP5', 'grids')
+    with pytest.raises(ValueError, match='unrecognized resource'):
+        resolve_mip_era_table_resource(table, 'CMIP6PLUS', 'not_a_resource')
+
+
+## ---- per-era CMOR exit control ----
+
+def test_cmor_exit_ctl_by_era():
+    """ CMIP6Plus must not run with CMOR_EXIT_ON_WARNING: every mip-cmor-tables table carries a
+        version_metadata section CMOR's table loader warns about, and under EXIT_ON_WARNING
+        that warning is fatal, so no CMIP6Plus table could ever be loaded """
+    assert CMOR_EXIT_CTL_BY_ERA['CMIP6PLUS'] == cmor.CMOR_EXIT_ON_MAJOR
+    assert CMOR_EXIT_CTL_BY_ERA['CMIP6'] == CMOR_EXIT_CTL
+    assert CMOR_EXIT_CTL_BY_ERA['CMIP7'] == CMOR_EXIT_CTL

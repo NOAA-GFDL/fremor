@@ -23,6 +23,7 @@ workflows are supported. Available subcommands:
 
 * Initializes CMOR resources by generating experiment configuration templates and/or fetching MIP tables
 * Fetches tables from trusted GitHub repositories (CMIP6: ``PCMDI/cmip6-cmor-tables``, CMIP6Plus: ``PCMDI/mip-cmor-tables``, CMIP7: ``WCRP-CMIP/cmip7-cmor-tables``)
+* For CMIP6Plus, also fetches ``CMIP6Plus_CV.json`` from ``WCRP-CMIP/CMIP6Plus_CVs`` into the fetched ``Tables/`` directory, since the CMIP6Plus table repository ships no controlled vocabulary
 * Minimal Syntax: ``fremor init -m [mip_era] [options]``
 * Required Options:
    - ``-m, --mip_era TEXT`` — MIP era: ``cmip6``, ``cmip6plus``, or ``cmip7``
@@ -65,6 +66,7 @@ workflows are supported. Available subcommands:
 
 * Processes YAML configuration to CMORize multiple directories/tables
 * Expects a self-contained CMOR YAML file
+* A table_target with ``disabled: true`` is skipped entirely (logged, not processed) — toggle it from ``fremor map``'s MIP-table tree, or hand-edit the yaml
 * Minimal Syntax: ``fremor yaml -y [yamlfile] [options]``
 * Required Options:
    - ``-y, --yamlfile TEXT`` — YAML file to parse
@@ -81,6 +83,7 @@ workflows are supported. Available subcommands:
 ---------
 
 * Discovers the mapped NetCDF inputs selected by a self-contained CMOR YAML file and submits them in one ``dmget`` invocation
+* Skips MIP table targets marked ``disabled: true``
 * Deduplicates files referenced by multiple table targets and includes existing same-date ``ps`` auxiliary files
 * Uses the YAML ``start``/``stop`` bounds unless they are overridden on the command line
 * Minimal Syntax: ``fremor stage -y [yamlfile] [options]``
@@ -167,39 +170,46 @@ workflows are supported. Available subcommands:
 ---------
 
 * Cross-references per-component varlist files against MIP table JSON files and reports, per MIP table: variables required by the table but not mapped from any component (unmapped), variables mapped from more than one component/diagnostic (multiply-mapped), and mapped values that don't correspond to any variable actually defined in that table (unknown / likely typos)
+* Skips MIP table targets marked ``disabled: true``, including their optional staging and dimension checks
 * pp_dir, the MIP tables directory, the MIP era, and each component's variable list path are all derived from ``yamlfile``, the self-contained CMOR YAML written by ``fremor config`` — no separate directory/era flags are needed
+* Startup and per-table progress, including elapsed timings, is written to stderr so long archive/network-filesystem checks remain visibly active without corrupting ``--json`` output
 * Minimal Syntax: ``fremor check -y [yamlfile] [TABLES...]``
 * Required Options:
    - ``-y, --yamlfile TEXT`` — Self-contained CMOR YAML file, as written by ``fremor config``
 * Optional:
    - ``TABLES`` — MIP table names to check, e.g. ``Amon``; shell-style wildcards supported (e.g. ``AER*``); defaults to every table in yamlfile's table_targets
-   - ``--show_mapped`` — Also report variables mapped from exactly one component/diagnostic (one-to-one)
-   - ``--staging`` — For each one-to-one mapping, check whether its selected input files exist, appear disk-resident, and have gaps between date chunks; uses ``dmls`` when available and otherwise a stat-only heuristic
-   - ``--dims`` — For each one-to-one mapping, compare a representative input file's vertical dimension with the MIP-table definition and check for required hybrid-sigma ``ps`` companion files
-   - ``--dmls_bin TEXT`` — Path to the ``dmls`` executable used by ``--staging``; defaults to searching ``PATH``
+   - ``--show-mapped`` — Also report variables mapped from exactly one component/diagnostic (one-to-one)
+   - ``--check-inputs`` — For each one-to-one mapping, check whether its selected input files exist, appear disk-resident, and have gaps between date chunks; uses ``dmls`` when available and otherwise a stat-only heuristic. Normal staged entries without gaps are omitted from the text output
+   - ``--check-dims`` — For each one-to-one mapping, compare a representative input file's vertical dimension with the MIP-table definition and check for required hybrid-sigma ``ps`` companion files. Normal matching entries are omitted from the text output
+   - ``--check-outputs`` — For each one-to-one mapping, report whether matching CMOR output files exist under the configured ``outdir`` and whether output-date ranges have gaps
+   - ``--dmls_bin TEXT`` — Path to the ``dmls`` executable used by ``--check-inputs``; defaults to searching ``PATH``
    - ``--json`` — Print the report as JSON instead of a text summary
    - ``-o, --output_report TEXT`` — Optional path to also write the JSON report to
 * Examples:
-   - ``fremor check -y cmor.yaml --show_mapped``
-   - ``fremor check -y cmor.yaml Amon --staging --dims``
+   - ``fremor check -y cmor.yaml --show-mapped``
+   - ``fremor check -y cmor.yaml Amon --check-inputs --check-dims``
 
 ``map``
 -------
 
 * Opens an interactive terminal UI to review and edit variable-mapping varlist files
+* Reports configuration/varlist loading before launching the UI, then displays an in-UI loading message while MIP reports, tree nodes, and pp components are initialized
 * Shows each selected MIP table as a tree of variables alongside their mapping status (unmapped / mapped / multiply-mapped / unknown), and lets you browse time-series files under ``pp_dir`` to assign or fix a mapping
 * Selecting a MIP variable shows its own MIP-table definition (such as long name, units, dimensions, and cell methods); CMIP7 variables with multiple brands show each matching definition
 * A box above the pp browser always shows the currently-selected CMIP variable (and its current source, if reassigning an existing mapping)
-* Press ``m`` to stage mapping the selected pp file to the selected CMIP variable, ``d`` to stage clearing a selected existing mapping, ``s`` to save all staged changes to disk, ``r`` to refresh the tree (re-categorizing it from current, possibly-unsaved, state), ``q`` to quit
-* Staged-but-unsaved edits are marked in place instead of triggering a full tree rebuild, so expanded branches stay expanded while you batch edits across many variables: a newly (re)mapped variable shows ``<- component:local_key`` pointing at its new source, and a cleared mapping is struck through and labeled ``(deleted)``; nothing is written to disk until you press ``s``
+* Press ``m`` to stage mapping the selected pp file to the selected CMIP variable, ``d`` to stage clearing a selected existing mapping, ``t`` to stage toggling the ``disabled`` flag of the MIP table currently in context (select the table node itself, or any of its variables), ``s`` to save all staged changes to disk, ``r`` to refresh the tree (re-categorizing it from current, possibly-unsaved, state), ``q`` to quit
+* Staged-but-unsaved edits are marked in place instead of triggering a full tree rebuild, so expanded branches stay expanded while you batch edits across many variables: a newly (re)mapped variable shows ``<- component:local_key`` pointing at its new source, a cleared mapping is struck through and labeled ``(deleted)``, and a disabled table's node is labeled ``(disabled)``; nothing is written to disk until you press ``s`` — for a disabled toggle, that rewrites the whole yamlfile (so hand-added comments/formatting there won't survive a save that includes one)
 * If there are unsaved staged changes, ``q`` warns first instead of quitting immediately; press ``q`` again to quit anyway and discard them, or ``s`` to save first
 * File previews use the ``ncinfo`` tool if it's found on PATH (or via ``--ncinfo_bin``), falling back to a plain netCDF4-based preview otherwise; previews load in a background thread (showing a loading message while they do) so the UI stays responsive, and switching to another file before a preview finishes discards the outdated result once it arrives
 * pp_dir, the MIP tables directory, the MIP era, and each component's variable list path are all derived from ``yamlfile``, the self-contained CMOR YAML written by ``fremor config`` — mapping edits are saved straight back into the variable list files referenced there
-* Each MIP table's configured ``freq`` (shown in its tree label) is enforced: staging a mapping from a pp file under a different freq subdirectory is refused, since ``fremor yaml`` would never actually read from there at CMORization time; auto-navigating to an already-mapped variable's source prefers a file under that freq too, falling back to a mismatched one (with a warning) only if that's all that exists
+* Each MIP table's configured ``freq`` (shown in its tree label) is enforced: staging a mapping from a pp file under a different freq subdirectory is refused, since ``fremor yaml`` would never actually read from there at CMORization time; auto-navigating to an already-mapped variable's source prefers a file under that freq too, falling back to a mismatched one (with a warning) only if that's all that exists. A component's configured ``chunk`` is enforced the same way
+* Reassigning an already-mapped variable to a new pp source (``m`` with an existing mapping selected) also stages clearing its previous source in the same action, so it doesn't end up mapped from both at once
+* Before previewing a selected pp file, its ``dmls`` status (or via ``--dmls_bin``) is checked to confirm it's actually been retrieved from tape; an offline file shows a "still on tape" message instead of a preview, falling back to a stat-only heuristic if ``dmls`` isn't available
 * Minimal Syntax: ``fremor map -y [yamlfile] [TABLES...]``
 * Required Options:
    - ``-y, --yamlfile TEXT`` — Self-contained CMOR YAML file, as written by ``fremor config``
 * Optional:
    - ``TABLES`` — MIP table names to load, e.g. ``Amon``; shell-style wildcards supported (e.g. ``AER*``); defaults to every table in yamlfile's table_targets
    - ``--ncinfo_bin TEXT`` — Path to the ``ncinfo`` binary for richer previews
+   - ``--dmls_bin TEXT`` — Path to the ``dmls`` executable used to check pp-file tape status; defaults to searching ``PATH``
 * Example: ``fremor map -y cmor.yaml Amon``

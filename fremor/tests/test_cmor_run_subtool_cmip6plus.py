@@ -26,7 +26,7 @@ import pytest
 from netCDF4 import Dataset
 
 from fremor import cmor_run_subtool
-from fremor.tests.conftest import _CMIP6_EXP_CONFIG_DATA
+from fremor.tests.conftest import CMIP6PLUS_TABLE_CONFIG, _CMIP6PLUS_EXP_CONFIG_DATA
 
 
 # ── path constants ──────────────────────────────────────────────────────────
@@ -34,7 +34,8 @@ ROOTDIR = 'fremor/tests/test_files'
 VARLIST_TAS = f'{ROOTDIR}/varlist_tas'
 
 # cmip6 table (CMIP6Plus uses CMIP6 tables)
-CMIP6_TABLE_CONFIG = f'{ROOTDIR}/cmip6-cmor-tables/Tables/CMIP6_Amon.json'
+#CMIP6_TABLE_CONFIG = f'{ROOTDIR}/cmip6-cmor-tables/Tables/CMIP6_Amon.json'
+#CMIP6PLUS_TABLE_CONFIG = f'{ROOTDIR}/mip-cmor-tables/Tables/MIP_APmon.json'
 
 # determined by cmor_run_subtool
 YYYYMMDD = date.today().strftime('%Y%m%d')
@@ -73,7 +74,8 @@ def test_case_cmip6plus_tas(tmp_path):
     """
     # write a CMIP6 exp config with julian calendar for this test
     exp_cfg_path = tmp_path / 'CMOR_cmip6plus_input.json'
-    exp_cfg = dict(_CMIP6_EXP_CONFIG_DATA)
+    exp_cfg = dict(_CMIP6PLUS_EXP_CONFIG_DATA)
+    exp_cfg['mip_era'] = 'cmip6plus'
     exp_cfg['calendar'] = 'julian'
     exp_cfg_path.write_text(json.dumps(exp_cfg, indent=4))
 
@@ -88,7 +90,7 @@ def test_case_cmip6plus_tas(tmp_path):
     cmor_run_subtool(
         indir=indir,
         json_var_list=VARLIST_TAS,
-        json_table_config=CMIP6_TABLE_CONFIG,
+        json_table_config=CMIP6PLUS_TABLE_CONFIG,
         json_exp_config=str(exp_cfg_path),
         outdir=outdir,
         run_one_mode=True,

@@ -17,7 +17,7 @@ import fremor
 ROOTDIR = Path(fremor.__file__).parent / 'tests' / 'test_files'
 
 CMIP6_TABLE_CONFIG     = ROOTDIR / 'cmip6-cmor-tables' / 'Tables' / 'CMIP6_Omon.json'
-CMIP6PLUS_TABLE_CONFIG = ROOTDIR / 'mip-cmor-tables'   / 'Tables' / 'MIP_OPmon.json'
+CMIP6PLUS_TABLE_CONFIG = ROOTDIR / 'mip-cmor-tables'   / 'Tables' / 'MIP_APmon.json'
 CMIP7_TABLE_CONFIG     = ROOTDIR / 'cmip7-cmor-tables' / 'tables' / 'CMIP7_ocean.json'
 
 INDIR = ROOTDIR / 'ocean_sos_var_file'
@@ -87,9 +87,9 @@ _CMIP6_EXP_CONFIG_DATA = {
 
 _CMIP6PLUS_EXP_CONFIG_DATA = {
     '#note': ' **** CMIP6Plus experiment config for testing ****',
-    'source_type': 'AOGCM ISM AER',
-    'experiment_id': 'piControl-withism',
-    'activity_id': 'ISMIP6',
+    'source_type': 'AGCM AER CHEM',
+    'experiment_id': 'amip-aer',
+    'activity_id': 'CERESMIP',
     'sub_experiment_id': 'none',
     'realization_index': '3',
     'initialization_index': '1',
@@ -104,25 +104,28 @@ _CMIP6PLUS_EXP_CONFIG_DATA = {
     'branch_method': 'no parent',
     'branch_time_in_child': 59400.0,
     'branch_time_in_parent': 0.0,
-    'institution_id': 'PCMDI',
-    'source_id': 'PCMDI-test-1-0',
+    'institution_id': 'NOAA-GFDL',
+    'source_id': 'GFDL-CM4',
     'calendar': 'julian',
     'grid': 'FOO_BAR_PLACEHOLD',
     'grid_label': 'gr',
     'nominal_resolution': '10000 km',
-    'license': 'CMIP6 model data produced by Lawrence Livermore PCMDI is licensed under a Creative Commons Attribution 4.0 International License (https://creativecommons.org/licenses/by/4.0/). Consult https://pcmdi.llnl.gov/CMIP6/TermsOfUse for terms of use governing CMIP6 output, including citation requirements and proper acknowledgment. Further information about this data, including some limitations, can be found via the further_info_url (recorded as a global attribute in this file) and at https:///pcmdi.llnl.gov/. The data producers and data providers make no warranty, either express or implied, including, but not limited to, warranties of merchantability and fitness for a particular purpose. All liabilities arising from the supply of the information (including any liability arising in negligence) are excluded to the fullest extent permitted by law.',
+    'license': 'CMIP6Plus model data produced by PCMDI is licensed under a Creative Commons Attribution 4.0 International License (https://creativecommons.org/licenses/by/4.0/). Consult https://pcmdi.llnl.gov/CMIP6Plus/TermsOfUse for terms of use governing CMIP6Plus output, including citation requirements and proper acknowledgment. The data producers and data providers make no warranty, either express or implied, including, but not limited to, warranties of merchantability and fitness for a particular purpose. All liabilities arising from the supply of the information (including any liability arising in negligence) are excluded to the fullest extent permitted by law.',
     '#output': 'Root directory for output (can be either a relative or full path)',
-    'outpath': 'CMIP6',
+    'outpath': 'CMIP6Plus',
     'contact ': 'Python Coder (coder@a.b.c.com)',
     'history': 'Output from archivcl_A1.nce/giccm_03_std_2xCO2_2256.',
     'comment': '',
     'references': 'Model described by Koder and Tolkien (J. Geophys. Res., 2001, 576-591).  Also see http://www.GICC.su/giccm/doc/index.html.  The ssp245 simulation is described in Dorkey et al. \'(Clim. Dyn., 2003, 323-357.)\'',
     'sub_experiment': 'none',
     'institution': '',
-    'source': 'PCMDI-test 1.0 (1989)',
-    '_controlled_vocabulary_file': 'CMIP6_CV.json',
-    '_AXIS_ENTRY_FILE': 'CMIP6PLUS_coordinate.json',
-    '_FORMULA_VAR_FILE': 'CMIP6PLUS_formula_terms.json',
+    'source': 'GFDL-CM4 (2018)',
+    # CMOR resolves these relative to the MIP table's directory; PCMDI/mip-cmor-tables keeps
+    # its auxiliary tables in Auxillary_files/, a sibling of Tables/, and ships no CV
+    # (CMIP6Plus_CV.json comes from WCRP-CMIP/CMIP6Plus_CVs).
+    '_controlled_vocabulary_file': 'CMIP6Plus_CV.json',
+    '_AXIS_ENTRY_FILE': '../Auxillary_files/MIP_coordinate.json',
+    '_FORMULA_VAR_FILE': '../Auxillary_files/MIP_formula_terms.json',
     '_cmip6_option': 'CMIP6',
     'mip_era': 'CMIP6Plus',
     'parent_mip_era': 'no parent',
@@ -176,10 +179,10 @@ _CMIP7_EXP_CONFIG_DATA = {
     'calendar': 'julian',
     '#_SPATIAL_INFO': '***** anything to do with describing physical aspects of the experiment *****',
     'grid': 'FOO_BAR_PLACEHOLD',
-    'grid_label': 'g999',
+    'grid_label': 'g010',
     'frequency': 'mon',
     'region': 'glb',
-    'nominal_resolution': '10000 km',
+    'nominal_resolution': '100 km',
     '#_HISTORY_METADATA': 'history attribute string and template, to create history field for output file',
     'history': 'Output from archivcl_A1.nce/giccm_03_std_2xCO2_2256.',
     '_history_template': '%s ;rewrote data to be consistent with <activity_id> for variable <variable_id> found in table <table_id>.',

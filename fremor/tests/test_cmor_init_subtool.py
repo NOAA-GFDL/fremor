@@ -9,6 +9,8 @@ Tests the cmor_init_subtool and its helper functions including:
 """
 
 import json
+from pathlib import Path
+import stat
 
 import pytest
 
@@ -16,6 +18,7 @@ from fremor.cmor_init import (
     cmor_init_subtool,
     _fetch_tables_git,
     _fetch_tables_curl,
+    _fetch_cmip6plus_cv,
     MIP_TABLE_REPOS,
 )
 
@@ -217,6 +220,58 @@ def test_cmor_init_cmip6plus_tables_dir_and_exp_config(tmp_path):
     assert tables_dir.exists()
 
 
+def test_cmor_init_cmip6plus_exp_config_points_at_cmip6plus_resources(tmp_path):
+    """
+    The CMIP6Plus template must point CMOR at the CMIP6Plus CV and at the auxiliary tables
+    shipped by PCMDI/mip-cmor-tables (Auxillary_files/MIP_*.json, one level up from Tables/),
+    not at the CMIP6 ones. CMOR resolves all three relative to the MIP table directory, so
+    CMIP6 names here make cmor.load_table fail with 'Could not find file: .../CMIP6_*.json'.
+    """
+    exp_config = tmp_path / 'cmip6plus_experiment.json'
+
+    cmor_init_subtool(mip_era='cmip6plus', exp_config=str(exp_config), tables_dir=None)
+
+    with open(exp_config, encoding='utf-8') as f:
+        config = json.load(f)
+
+    assert config['mip_era'] == 'CMIP6Plus'
+    assert config['_controlled_vocabulary_file'] == 'CMIP6Plus_CV.json'
+    assert config['_AXIS_ENTRY_FILE'] == '../Auxillary_files/MIP_coordinate.json'
+    assert config['_FORMULA_VAR_FILE'] == '../Auxillary_files/MIP_formula_terms.json'
+
+    # CMOR keys off the presence of _cmip6_option, not its value, to enable the CV checks
+    # (source_id/experiment/grids/parent+sub experiment ids) that CMIP6Plus still uses.
+    assert '_cmip6_option' in config
+
+    # the license is validated against a regex in CMIP6Plus_license.json, which differs from
+    # the CMIP6 one: CMIP6Plus wording, and no 'Further information about this data' sentence.
+    assert config['license'].startswith('CMIP6Plus model data produced by')
+    assert 'pcmdi.llnl.gov/CMIP6Plus/TermsOfUse' in config['license']
+    assert 'further_info_url' not in config['license']
+
+
+@pytest.mark.parametrize('mip_era', ['cmip6', 'cmip6plus', 'cmip7'])
+def test_cmor_init_exp_config_outpath_is_relative(tmp_path, mip_era):
+    """
+    Every template must ship a relative, non-empty outpath.
+
+    fremor chdir's into <outdir>/CMOR_tmp/ before running CMOR and recovers the final
+    destination by stripping '/CMOR_tmp/' from the path cmor.close() returns, so an absolute
+    outpath escapes that relocation and --outdir is silently ignored. An empty string is
+    fatal outright: CMOR warns the directory does not exist, then its (non-recursive) mkdir('')
+    fails and cmor.dataset_json raises.
+    """
+    exp_config = tmp_path / f'{mip_era}_experiment.json'
+
+    cmor_init_subtool(mip_era=mip_era, exp_config=str(exp_config), tables_dir=None)
+
+    with open(exp_config, encoding='utf-8') as f:
+        outpath = json.load(f)['outpath']
+
+    assert outpath, 'an empty outpath makes cmor.dataset_json fail on mkdir("")'
+    assert not Path(outpath).is_absolute()
+
+
 def test_cmor_init_tables_dir_only_no_exp_config(tmp_path):
     """
     Test that when only tables_dir is provided, no exp_config is created.
@@ -281,3 +336,63 @@ def test_fetch_tables_git_with_tag(tmp_path):
     # Verify content was cloned
     json_files = list(tables_dir.rglob('*.json'))
     assert len(json_files) > 0, 'No JSON files found in cloned repository'
+
+def test_fetch_cmip6plus_cv_no_tables_dir(tmp_path, caplog):
+    """
+    Test that _fetch_cmip6plus_cv returns None and logs a warning
+    when no 'Tables' directory is found in the target path.
+    """
+    # Create an empty directory without a 'Tables' subdirectory
+    empty_tables_dir = tmp_path / 'empty_tables'
+    empty_tables_dir.mkdir()
+
+    # Call the function
+    result = _fetch_cmip6plus_cv(str(empty_tables_dir))
+
+    # Verify the function aborts early and returns None
+    assert result is None
+
+    # Verify the appropriate warning was logged
+    assert 'no Tables directory found under' in caplog.text
+
+import stat
+
+def test_fetch_cmip6plus_cv_functional_failure(tmp_path, caplog):
+    """
+    Test that _fetch_cmip6plus_cv returns None and logs a warning
+    when the curl download command fails, using actual execution (no mocks).
+    """
+    from fremor.cmor_init import _fetch_cmip6plus_cv
+
+    # 1. Create a valid Tables directory structure to pass the first check
+    tables_dir = tmp_path / 'tables_root'
+    target_dir = tables_dir / 'Tables'
+    target_dir.mkdir(parents=True)
+
+    # 2. Force the actual curl command to naturally fail.
+    # We do this by creating a broken symlink at the target output path.
+    # curl will try to follow the symlink, fail to open the non-existent destination,
+    # and exit with a non-zero code.
+    target_file = target_dir / 'CMIP6Plus_CV.json'
+
+    try:
+        # Point the symlink to a completely non-existent nested directory
+        target_file.symlink_to(tmp_path / 'nowhere' / 'nothing')
+    except OSError:
+        # Fallback for environments where unprivileged symlinks aren't allowed
+        # (e.g., strict Windows configurations without Developer Mode enabled):
+        # We strip write permissions from the directory instead.
+        target_dir.chmod(stat.S_IREAD | stat.S_IEXEC)  # 0o555
+
+    # 3. Call the function. `curl` genuinely executes but hits our filesystem trap.
+    result = _fetch_cmip6plus_cv(str(tables_dir))
+
+    # 4. Verify the function gracefully caught the CalledProcessError
+    assert result is None
+
+    # 5. Verify the fallback warning was logged
+    assert 'could not fetch the CMIP6Plus CV' in caplog.text
+
+    # Cleanup: restore write permissions if the fallback was used,
+    # ensuring pytest can successfully clean up tmp_path afterwards.
+    target_dir.chmod(stat.S_IREAD | stat.S_IWRITE | stat.S_IEXEC)  # 0o755

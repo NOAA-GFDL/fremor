@@ -146,13 +146,13 @@ fremor run       # Lowest-level routine, no CMOR YAML needed, rewrites output fi
 
 After `fremor config` produces a self-contained CMOR YAML file, use `check` to
 review which MIP variables are unmapped, mapped more than once, or mapped to an
-unknown table entry. `--staging` also checks that the selected input files are
-present and disk-resident; `--dims` compares a representative input file's
+unknown table entry. `--check-inputs` also checks that the selected input files are
+present and disk-resident; `--check-dims` compares a representative input file's
 vertical dimension with the MIP table.
 
 ```bash
-fremor check -y cmor.yaml --staging --dims
-fremor check -y cmor.yaml Amon --show_mapped
+fremor check -y cmor.yaml --check-inputs --check-dims
+fremor check -y cmor.yaml Amon --show-mapped
 ```
 
 Use `map` when the report identifies mappings that need human review. It opens
@@ -260,7 +260,6 @@ To view compliance results from a workflow/CI run:
 1. Navigate to the Actions tab in GitHub
 2. Select the `wcrp_compliance_check` workflow run
 3. Download the `wcrp-compliance-reports` artifact
-
 
 
 

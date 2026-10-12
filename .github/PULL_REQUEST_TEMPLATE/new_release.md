@@ -28,8 +28,8 @@ WARNING: *any problems or mistakes after the next step are irreversible due to p
 
 ## 3. publish release to `conda-forge` via `fremor-feedstock` fork
 
-- [ ] use (create if needed) a `fremor-feedstock` [fork](https://github.com/ilaflott/fremor-feedstock) to create a new branch called `fremorX.Y.Z`
-- [ ] adjust the version to `X.Y.Z` and update the `sha256` to what it says on PyPI in `recipe.yaml`
+- [ ] use the NOAA-GFDL fork of [`fremor-feedstock`](https://github.com/noaa-gfdl/fremor-feedstock) to create a new branch called `fremorX.Y.Z` from `main`
+- [ ] adjust the version to `X.Y.Z` and update the `sha256`  in `recipe.yaml` to what it says on PyPI for the release tarball you downloaded
 - [ ] open a [PR](https://github.com/conda-forge/fremor-feedstock/pull/3) to `conda-forge/fremor-feedstock`
 - [ ] once checks pass, a reviewer with access to `conda-forge/fremor-feedstock` can approve and merge, kicking off the rest of the publishing pipeline to `conda-forge`
 
