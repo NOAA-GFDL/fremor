@@ -401,8 +401,12 @@ def varlist_(dir_targ, strict_mode, output_variable_list, mip_table):
 @click.option('--calendar', type=str, default='noleap',
               help='Calendar type, e.g. noleap, 360_day. Default noleap.')
 @click.option('--check_freq', is_flag=True, default=False, help=CONFIG_CHECK_FREQ_HELP)
+@click.option('--dmget-bin', '--dmget_bin', type=str, default='dmget', show_default=True,
+              help='dmget executable name or path. With --freq static, every component\'s static '
+                   'file is recalled from tape with it in one batch before being read.')
 def config(pp_dir, mip_tables_dir, mip_era, exp_config, output_yaml, output_dir, pp_comp_glob,
-           strict_varlist, varlist_dir, freq, chunk, grid, overwrite, calendar, check_freq):
+           strict_varlist, varlist_dir, freq, chunk, grid, overwrite, calendar, check_freq,
+           dmget_bin):
     """
     Generate a CMOR YAML configuration file from a post-processing directory tree.
     Scans pp_dir for components and time-series data, cross-references against MIP tables,
@@ -423,7 +427,8 @@ def config(pp_dir, mip_tables_dir, mip_era, exp_config, output_yaml, output_dir,
         grid=grid,
         overwrite=overwrite,
         calendar_type=calendar,
-        check_freq=check_freq
+        check_freq=check_freq,
+        dmget_bin=dmget_bin
     )
 
 

@@ -9,7 +9,7 @@ tables, and produces the structured YAML needed for CMORization.
 
 With ``freq='static'``, each component's static file (``<pp_dir>/<component>/<component>.static.nc``)
 is scanned instead of its time series, and its time-invariant variables are matched against the
-tables' fixed (fx) entries.
+tables' fixed (fx) entries. All the static files are first recalled from tape in one ``dmget`` batch.
 
 Functions
 ---------
@@ -24,6 +24,8 @@ import logging
 import os
 from pathlib import Path
 import re
+import shutil
+import subprocess
 from typing import Optional
 
 import yaml
@@ -62,6 +64,24 @@ def _component_static_file(entry: str, component_name: str) -> Optional[str]:
     else:
         fre_logger.debug('no static file %s, skipping', static_file)
     return None
+
+
+def _recall_static_files(static_files: list, dmget_bin: str = 'dmget') -> None:
+    """Recall the static files from tape in one ``dmget`` batch before they are read, rather than one
+    at a time as each is opened. Best effort: if ``dmget`` is not found (e.g. off the GFDL systems) or
+    fails, the files are left to be recalled as they are read."""
+    if not static_files:
+        return
+    binary = shutil.which(dmget_bin)
+    if binary is None:
+        fre_logger.info('dmget executable %r not found, not recalling %d static files before reading them',
+                        dmget_bin, len(static_files))
+        return
+    fre_logger.info('recalling %d static files in one dmget batch', len(static_files))
+    try:
+        subprocess.run([binary, *static_files], check=True)
+    except (OSError, subprocess.CalledProcessError) as exc:
+        fre_logger.warning('dmget of the static files failed, they will be recalled as they are read: %s', exc)
 
 
 def _append_target_component_lines(lines: list, appended_table_header: bool, variable_list: str,
@@ -201,7 +221,8 @@ def cmor_config_subtool(
         grid: str = 'g999',
         overwrite: bool = False,
         calendar_type: str = 'noleap',
-        check_freq: bool = False
+        check_freq: bool = False,
+        dmget_bin: str = 'dmget'
 ):
     """
     Generate a CMOR YAML configuration file from a post-processing directory tree.
@@ -243,6 +264,9 @@ def cmor_config_subtool(
         frequency for that variable, e.g. daily data is not mapped to Amon, and time-mean data is not
         mapped to a ``Pt`` (point) entry. Default False.
     :type check_freq: bool
+    :param dmget_bin: dmget executable name or path, used when freq is 'static' to recall every
+        component's static file from tape in one batch before reading them. Default 'dmget'.
+    :type dmget_bin: str
     :raises FileNotFoundError: If pp_dir or mip_tables_dir do not exist.
     :raises ValueError: If no MIP tables are found after filtering.
     :return: Path to the written output YAML file.
@@ -283,6 +307,14 @@ def cmor_config_subtool(
     if len(ppcompdirs) == 0:
         fre_logger.error('ERROR: no pp component directories found under pp_dir = %s', pp_dir)
         raise FileNotFoundError
+
+    # ---- static mode: find each component's static file, and recall them all from tape at once ----
+    static_files = {}
+    if static_mode:
+        for entry in ppcompdirs:
+            if Path(entry).is_dir():
+                static_files[entry] = _component_static_file(entry, Path(entry).name)
+        _recall_static_files([path for path in static_files.values() if path is not None], dmget_bin)
 
     # ---- build YAML lines ----
     lines = [
@@ -334,7 +366,7 @@ def cmor_config_subtool(
                 continue
 
             if static_mode:
-                static_file = _component_static_file(entry, component_name)
+                static_file = static_files[entry]
                 if static_file is None:
                     continue
                 try:
