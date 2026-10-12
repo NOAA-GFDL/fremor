@@ -19,6 +19,10 @@
 #                                             # run that have no DONE marker yet
 #   ./fremor_submit_tables.sh --continue      # same, for the WORK_DIR set below
 #                                             # (CONTINUE=1 in the env works too)
+#   WORK_DIR=~/fremor_jobs/20260929_101500 ./fremor_submit_tables.sh --overwrite
+#                                             # rerun the tables from scratch in that
+#                                             # existing WORK_DIR, rewriting its files
+#                                             # (OVERWRITE=1 in the env works too)
 #   CASE_NAME=esm4_hist_r1 FREMOR_YAML=... ./fremor_submit_tables.sh
 #                                             # one case of many: its own work dir,
 #                                             # archive dir and slurm job names
@@ -57,6 +61,12 @@ WORK_DIR=${WORK_DIR:-${HOME}/fremor_jobs/${CASE_NAME:+${CASE_NAME}/}$(date +%Y%m
 ## ARCHIVE_TMP_ROOT, or leave it empty (-> WORK_DIR), so those chunks are found.
 ## MODE=run has no --continue, so unfinished tables are CMORized from scratch
 CONTINUE=${CONTINUE:-0}
+
+## [env] 1 -> start a fresh run in an existing, non-empty WORK_DIR: every selected
+## table is resubmitted from scratch, rewriting its yaml, env file, file lists and
+## markers (no --continue, so chunks already CMORized are redone). refused while a
+## job of that WORK_DIR is still queued/running. cannot be combined with CONTINUE
+OVERWRITE=${OVERWRITE:-0}
 
 ## [env] optional year bounds (YYYY), passed as --start/--stop. empty -> use yaml / all
 START=${START:-}
@@ -150,7 +160,7 @@ die() { echo "ERROR: $*" >&2; hist "  aborted: $*"; exit 1; }
 # slurm job names: fremor_<CASE_NAME>_<table>, or fremor_<table> without a case
 JOB_PREFIX=fremor_${CASE_NAME:+${CASE_NAME}_}
 CMD_LINE=$(printf '%q ' "$0" "$@")
-# command line: [--continue[=WORK_DIR]] [TABLE ...]
+# command line: [--continue[=WORK_DIR] | --overwrite] [TABLE ...]
 ARG_TABLES=()
 for arg in "$@"; do
     case ${arg} in
@@ -158,11 +168,14 @@ for arg in "$@"; do
         --continue=*) CONTINUE=1; WORK_DIR=${arg#--continue=}
                       WORK_DIR=${WORK_DIR/#\~/${HOME}}
                       [[ -n ${WORK_DIR} ]] || die "--continue= needs a WORK_DIR" ;;
+        --overwrite)  OVERWRITE=1 ;;
         -*)           die "unknown option: ${arg}" ;;
         *)            ARG_TABLES+=("${arg}") ;;
     esac
 done
 [[ ${#ARG_TABLES[@]} -gt 0 ]] && TABLES=("${ARG_TABLES[@]}")
+[[ ${CONTINUE} == 1 && ${OVERWRITE} == 1 ]] \
+    && die "--continue and --overwrite exclude each other: resume the run, or redo it from scratch"
 
 # fremor must be importable here too (yaml mode splits the yaml with its python env)
 eval "${ENV_SETUP}"
@@ -170,9 +183,25 @@ command -v fremor >/dev/null || die "fremor not found after ENV_SETUP"
 PYTHON=$(dirname "$(command -v fremor)")/python
 [[ -x ${PYTHON} ]] || PYTHON=python3
 
-if [[ ${CONTINUE} != 1 && -n $(ls -A "${WORK_DIR}" 2>/dev/null) ]]; then
+if [[ ${CONTINUE} != 1 && ${OVERWRITE} != 1 && -n $(ls -A "${WORK_DIR}" 2>/dev/null) ]]; then
     die "WORK_DIR already exists: ${WORK_DIR}
-       use --continue=${WORK_DIR} to resume that run, or pick a new WORK_DIR"
+       use --continue=${WORK_DIR} to resume that run, --overwrite to redo it from
+       scratch, or pick a new WORK_DIR"
+fi
+if [[ ${OVERWRITE} == 1 ]]; then
+    # a queued/running job reads its yaml and env file from here, so don't rewrite them
+    busy=()
+    for jobid_file in "${WORK_DIR}"/*/JOBID; do
+        [[ -f ${jobid_file} ]] || continue
+        prev_job=$(cat "${jobid_file}")
+        if [[ -n ${prev_job} && ${prev_job} != DRYRUN_* ]] \
+           && [[ -n $(squeue -h -j "${prev_job}" -o %i 2>/dev/null || true) ]]; then
+            busy+=("$(basename "$(dirname "${jobid_file}")")(${prev_job})")
+        fi
+    done
+    [[ ${#busy[@]} -eq 0 ]] \
+        || die "--overwrite: jobs of ${WORK_DIR} are still queued/running: ${busy[*]}
+       wait for them or scancel them first"
 fi
 if [[ ${CONTINUE} == 1 ]]; then
     [[ -d ${WORK_DIR} ]] || die "CONTINUE=1 needs an existing WORK_DIR, not found: ${WORK_DIR}"
@@ -191,6 +220,7 @@ dry=''
 [[ ${DRY_RUN} == 1 ]] && dry=' (dry run, nothing submitted)'
 resume=''
 [[ ${CONTINUE} == 1 ]] && resume=' (continue)'
+[[ ${OVERWRITE} == 1 ]] && resume=' (overwrite)'
 hist "submit${resume}${dry}: ${CMD_LINE% }"
 hist "  cwd: ${PWD}, MODE=${MODE}, case: ${CASE_NAME:-none}, years: ${START:-first}-${STOP:-last}"
 if [[ ${MODE} == yaml ]]; then
@@ -350,6 +380,8 @@ for i in "${!LABELS[@]}"; do
     TABLE_WORK=${WORK_DIR}/${LABEL}
     mkdir -p "${TABLE_WORK}/logs"
     ENV_FILE=${TABLE_WORK}/job.env
+    # the job clears them too, but a later --continue must not trust them meanwhile
+    [[ ${OVERWRITE} == 1 && ${DRY_RUN} != 1 ]] && rm -f "${TABLE_WORK}/STAGED" "${TABLE_WORK}/DONE"
 
     TABLE_YAML='' TABLE_JSON='' INDIR='' VARLIST='' RUN_ARGS=''
     if [[ ${MODE} == yaml ]]; then
