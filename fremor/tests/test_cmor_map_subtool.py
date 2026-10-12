@@ -1607,6 +1607,31 @@ async def test_map_app_clear_mapping_resets_detail_box(temp_dir): # pylint: disa
         assert detail_box.content == app.NO_CMIP_DETAIL
 
 
+
+@pytest.mark.asyncio
+async def test_map_app_detail_boxes_scroll_long_content(temp_dir): # pylint: disable=redefined-outer-name
+    ''' both bottom detail boxes scroll content taller than the box rather than clipping it,
+    and new content starts back at the top instead of the previous scroll offset '''
+    pp_dir, varlist_dir, tables_dir = _make_session_fixture(temp_dir)
+    yamlfile = _amon_yaml(temp_dir, pp_dir, varlist_dir, tables_dir)
+    app = MapApp(MapSession(yamlfile))
+    long_text = '\n'.join(f'line {i}' for i in range(200))
+
+    async with app.run_test(size=(120, 40)) as pilot:
+        for box_id in ('cmip_detail', 'preview'):
+            app._set_detail_text(box_id, long_text) # pylint: disable=protected-access
+            await pilot.pause()
+            scroller = app.query_one(f'#{box_id}_scroll')
+            assert scroller.max_scroll_y > 0
+            assert scroller.show_vertical_scrollbar
+
+            scroller.scroll_end(animate=False)
+            await pilot.pause()
+            assert scroller.scroll_y > 0
+            app._set_detail_text(box_id, long_text) # pylint: disable=protected-access
+            await pilot.pause()
+            assert scroller.scroll_y == 0
+
 # ── cmip-tree selection -> pp-tree navigation, pp-file detail's mapped-variables list ──────
 
 @pytest.mark.asyncio

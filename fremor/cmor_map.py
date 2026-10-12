@@ -1192,11 +1192,13 @@ class MapApp(App):
         height: 2fr;
         border: solid $accent;
     }
-    #cmip_detail {
+    #cmip_detail_scroll {
         height: 1fr;
         border: solid $accent;
+    }
+    #cmip_detail {
+        height: auto;
         padding: 1 2;
-        overflow-y: auto;
     }
     #pp_pane {
         width: 1fr;
@@ -1210,11 +1212,13 @@ class MapApp(App):
         height: 2fr;
         border: solid $accent;
     }
-    #preview {
+    #preview_scroll {
         height: 1fr;
         border: solid $accent;
+    }
+    #preview {
+        height: auto;
         padding: 1 2;
-        overflow-y: auto;
     }
     """
 
@@ -1275,11 +1279,16 @@ class MapApp(App):
         with Horizontal():
             with Vertical(id='cmip_pane'):
                 yield Tree('MIP Tables', id='cmip_tree')
-                yield Static(self.STARTUP_MESSAGE, id='cmip_detail')
+                # a bare Static clips whatever overflows its height, so each detail box sits
+                # in a VerticalScroll that gives it a scrollbar (and keyboard scrolling once
+                # focused)
+                with VerticalScroll(id='cmip_detail_scroll'):
+                    yield Static(self.STARTUP_MESSAGE, id='cmip_detail')
             with Vertical(id='pp_pane'):
                 yield Static(self.NO_CMIP_SELECTION, id='selected_cmip')
                 yield Tree(self.session.pp_dir, id='pp_tree')
-                yield Static('select a pp file to preview', id='preview')
+                with VerticalScroll(id='preview_scroll'):
+                    yield Static('select a pp file to preview', id='preview')
         yield Footer()
 
     def _format_selected_cmip(self, data: Optional[dict]) -> str:
@@ -1291,10 +1300,17 @@ class MapApp(App):
             label += f'\ncurrent source: {data["component"]}:{data["local_key"]}'
         return label
 
+    def _set_detail_text(self, box_id: str, text: str) -> None:
+        """Replace a detail box's text and scroll it back to the top, so new content isn't
+        shown from wherever the previous content had been scrolled to."""
+        box = self.query_one(f'#{box_id}', Static)
+        box.update(text)
+        box.parent.scroll_home(animate=False)
+
     def _show_table_settings(self, table_name: str) -> None:
         """Fill the detail box under the cmip tree with a MIP table's grid and
         surface-pressure settings, shown when the table node itself is selected."""
-        self.query_one('#cmip_detail', Static).update(_format_table_settings(
+        self._set_detail_text('cmip_detail', _format_table_settings(
             table_name, self.session.table_settings(table_name), self.session.exp_grid,
             self.session.table_ps_info(table_name), self.session.table_freq(table_name)))
 
@@ -1302,14 +1318,13 @@ class MapApp(App):
         """Refresh the detail box under the cmip tree with the selected variable's own MIP
         table definition (long_name, units, etc.) -- independent of its mapping status."""
         definitions = self.session.variable_definitions(data['table'], data['var'])
-        self.query_one('#cmip_detail', Static).update(
-            _format_variable_detail(data['var'], definitions))
+        self._set_detail_text('cmip_detail', _format_variable_detail(data['var'], definitions))
 
     def on_ready(self) -> None:
         """Populate after Textual paints its first frame so the loading message is visible."""
         self._populate_cmip_tree()
         self._populate_pp_root()
-        self.query_one('#cmip_detail', Static).update(self.NO_CMIP_DETAIL)
+        self._set_detail_text('cmip_detail', self.NO_CMIP_DETAIL)
 
     # ---- cmip tree ----
 
@@ -1584,8 +1599,8 @@ class MapApp(App):
             self._preview_generation += 1
             mapped = self.session.mapped_variables(data['component'], data['local_key'])
             self._selected_pp_mapped_text = _format_mapped_variables(mapped)
-            self.query_one('#preview', Static).update(
-                f'{self._selected_pp_mapped_text}\n\nloading preview for '
+            self._set_detail_text(
+                'preview', f'{self._selected_pp_mapped_text}\n\nloading preview for '
                 f'"{data["local_key"]}"...')
             # data['path'] is the earliest of this variable's files (see
             # _group_pp_files_by_variable) -- with many files collapsed into one tree entry,
@@ -1620,7 +1635,7 @@ class MapApp(App):
     def _apply_preview_result(self, generation: int, text: str) -> None:
         if generation != self._preview_generation:
             return  # superseded by a newer pp-file selection -- discard this stale result
-        self.query_one('#preview', Static).update(f'{self._selected_pp_mapped_text}\n\n{text}')
+        self._set_detail_text('preview', f'{self._selected_pp_mapped_text}\n\n{text}')
 
     # ---- actions ----
 
@@ -1793,7 +1808,7 @@ class MapApp(App):
         self.selected_cmip = None
         self.selected_cmip_node = None
         self.query_one('#selected_cmip', Static).update(self._format_selected_cmip(None))
-        self.query_one('#cmip_detail', Static).update(self.NO_CMIP_DETAIL)
+        self._set_detail_text('cmip_detail', self.NO_CMIP_DETAIL)
         self._quit_confirmed = False
 
     def action_toggle_disabled(self) -> None:
