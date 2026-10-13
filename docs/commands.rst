@@ -54,7 +54,7 @@ workflows are supported. Available subcommands:
 * Optional:
    - ``-v, --opt_var_name TEXT`` — Target specific variable
    - ``--run_one`` — Process one file for testing
-   - ``-g, --grid_label TEXT`` — Grid type (e.g. ``gn``, ``gr``)
+   - ``-g, --grid_label TEXT`` — Grid type (e.g. ``gn``, ``gr``). Global and zonal means are relabeled per variable to the controlled vocabulary's own label, since CMOR only checks that a label is in the CV: CMIP6/CMIP6Plus global means get ``gm`` and zonal means get this label with a ``z`` appended (``gnz``, ``grz``, ``gr1z``, ...); CMIP7 ``hm`` (horizontal-mean) brands get the single-cell grid for the experiment config's ``region`` (``g010`` glb, ``g011`` nh, ``g012`` sh). Hemispheric CMIP6 totals (e.g. ``siarean``), ice-sheet totals and CMIP7 zonal (``hy``/``hyb``) brands keep this label, as the CV has none of their own
    - ``--grid_desc TEXT`` — Grid description
    - ``--nom_res TEXT`` — Nominal resolution
    - ``--start TEXT`` — Minimum year (``YYYY``)
