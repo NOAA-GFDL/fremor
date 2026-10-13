@@ -36,7 +36,11 @@ refused too, since fremor yaml would never actually read it from there either.
 Reassigning an already-mapped CMIP variable to a new pp source ('m' with a ``source`` node
 selected in the cmip tree) also stages clearing its previous source in the same action, so
 the variable doesn't end up mapped from both the old and new source at once (which ``fremor
-check`` would then flag as multiply-mapped).
+check`` would then flag as multiply-mapped). 'a' instead stages the selected pp file as an
+extra source, keeping the existing one -- for CMIP7, where sources CMORizing to different
+brands of a variable (e.g. a lat-lon and a zonal-mean ``ta``) are not a conflict. Like
+``fremor check``, the tree lists such a variable under Mapped, one entry per source with its
+brand, and shows each multiply-mapped source's brand (see ``cmor_check._build_table_report``).
 
 Mapping a pp file whose component has no ``target_components`` entry at all yet for the
 selected table also stages one for it (``data_series_type='ts'``, chunk taken from the pp
@@ -573,6 +577,14 @@ class MapSession: # pylint: disable=too-many-public-methods
         # same _write_yaml_doc save path; {(table_name, component_name), ...}
         self.new_target_components = set()
 
+        # CMIP7 source brands resolved from pp file headers by table_report -- see
+        # cmor_check._source_brand
+        self.brand_cache = {}
+
+    def clear_brand_cache(self) -> None:
+        """Forget every resolved CMIP7 source brand, e.g. once more pp files are staged."""
+        self.brand_cache.clear()
+
     @property
     def table_names(self) -> list:
         """MIP table names loaded into this session, sorted."""
@@ -581,10 +593,15 @@ class MapSession: # pylint: disable=too-many-public-methods
     def table_report(self, table_name: str) -> dict:
         """Mapping-status report for one table, always including one-to-one mappings and
         source info for unknown-mapped values (fremor check's report only keeps the bad
-        values themselves, not where they came from)."""
+        values themselves, not where they came from). For CMIP7, a variable whose sources
+        each CMORize to a different brand is under 'multi_brand_mapped' rather than
+        'multiply_mapped'; their brands are memoized in brand_cache, cleared by
+        clear_brand_cache()."""
         table_path = self.table_paths[table_name]
         report = _build_table_report(table_path, self.mip_era, self.varlists_by_table,
-                                     show_mapped=True)
+                                     show_mapped=True, pp_dir=self.pp_dir,
+                                     table_target=self.table_targets_by_name[table_name],
+                                     dmls_bin=self.dmls_bin, brand_cache=self.brand_cache)
         report.pop('table_name', None)
         mapped_sources = _mapped_sources(table_name, self.varlists_by_table)
         report['unknown_sources'] = {
@@ -1170,7 +1187,8 @@ class ReduceScreen(ModalScreen):
 class MapApp(App):
     """Two-pane TUI: MIP-table mapping-status tree on the left, pp-directory browser +
     NetCDF preview on the right. Press 'm' to stage assigning the selected pp file to the
-    selected CMIP variable, 'd' to stage clearing a selected existing mapping, 't' to stage
+    selected CMIP variable (replacing the selected source, if any), 'a' to stage it as an
+    extra source instead, 'd' to stage clearing a selected existing mapping, 't' to stage
     toggling the disabled flag of the MIP table currently selected (or containing the
     currently selected variable/source), 'e' to edit that table's grid and surface-pressure
     settings in a dialog (selecting the table node itself shows them), 'z' to pick the reduce
@@ -1228,6 +1246,7 @@ class MapApp(App):
 
     BINDINGS = [
         ('m', 'assign_mapping', 'Stage mapping'),
+        ('a', 'add_mapping', 'Stage extra source'),
         ('d', 'clear_mapping', 'Stage clear'),
         ('t', 'toggle_disabled', 'Toggle table disabled'),
         ('e', 'edit_table_settings', 'Edit grid/ps'),
@@ -1361,6 +1380,11 @@ class MapApp(App):
             label = f'[dim italic]{label}[/dim italic]'
         return label
 
+    @staticmethod
+    def _brand_note(brand: Optional[str]) -> str:
+        """A source label's CMIP7 '(brand=...)' note, or nothing without a brand."""
+        return f'  (brand={brand})' if brand else ''
+
     def _source_label(self, base_label: str, table_name: str, component: str,
                       local_key: str) -> str:
         """Applied while rebuilding the tree (e.g. on manual refresh before saving): a
@@ -1410,13 +1434,21 @@ class MapApp(App):
             for var in report['unmapped']:
                 unmapped_node.add_leaf(var, data={'kind': 'var', 'table': table_name, 'var': var})
 
+            # a CMIP7 variable whose sources each CMORize to a different brand is mapped fine
+            # -- one entry per source, each with its brand
+            mapped_sources = {
+                var: [(comp, key, None)] for var, (comp, key) in report['one_to_one_mapped'].items()
+            }
+            mapped_sources.update(report.get('multi_brand_mapped', {}))
             mapped_node = table_node.add(
-                f'Mapped ({len(report["one_to_one_mapped"])})', data={'kind': 'branch'})
-            for var, (comp, key) in report['one_to_one_mapped'].items():
-                mapped_node.add_leaf(
-                    self._source_label(f'{var} <- {comp}:{key}', table_name, comp, key),
-                    data={'kind': 'source', 'table': table_name, 'var': var,
-                          'component': comp, 'local_key': key})
+                f'Mapped ({len(mapped_sources)})', data={'kind': 'branch'})
+            for var in sorted(mapped_sources):
+                for comp, key, brand in mapped_sources[var]:
+                    label = f'{var} <- {comp}:{key}' + self._brand_note(brand)
+                    mapped_node.add_leaf(
+                        self._source_label(label, table_name, comp, key),
+                        data={'kind': 'source', 'table': table_name, 'var': var,
+                              'component': comp, 'local_key': key})
 
             multi_node = table_node.add(
                 f'Multiply-mapped ({len(report["multiply_mapped"])})', data={'kind': 'branch'})
@@ -1424,9 +1456,13 @@ class MapApp(App):
                 var_node = multi_node.add(
                     f'{var} ({len(entries)})',
                     data={'kind': 'var', 'table': table_name, 'var': var})
-                for comp, key in entries:
+                brands = report.get('multiply_mapped_brands', {}).get(var)
+                for index, (comp, key) in enumerate(entries):
+                    label = f'{comp}:{key}'
+                    if brands:
+                        label += self._brand_note(brands[index] or 'unresolved')
                     var_node.add_leaf(
-                        self._source_label(f'{comp}:{key}', table_name, comp, key),
+                        self._source_label(label, table_name, comp, key),
                         data={'kind': 'source', 'table': table_name, 'var': var,
                               'component': comp, 'local_key': key})
 
@@ -1683,6 +1719,16 @@ class MapApp(App):
         self._refresh_table_pending_label(table_name)
 
     def action_assign_mapping(self) -> None:
+        """Stage mapping the selected pp file to the selected CMIP variable, replacing the
+        selected source, if any."""
+        self._stage_mapping(replace=True)
+
+    def action_add_mapping(self) -> None:
+        """Stage mapping the selected pp file to the selected CMIP variable as an extra
+        source, keeping the selected one -- e.g. a second CMIP7 brand of the variable."""
+        self._stage_mapping(replace=False)
+
+    def _stage_mapping(self, replace: bool) -> None:
         if self.selected_cmip is None or self.selected_pp is None:
             self.notify('select both a CMIP variable and a pp file first', severity='warning')
             return
@@ -1713,7 +1759,7 @@ class MapApp(App):
         # variable) must clear its old (component, local_key) too, once the new mapping is
         # staged successfully -- otherwise both old and new sources stay mapped to cmip_var,
         # which fremor check would then flag as multiply-mapped.
-        reassigning_source = self.selected_cmip.get('kind') == 'source'
+        reassigning_source = replace and self.selected_cmip.get('kind') == 'source'
         old_component = self.selected_cmip.get('component')
         old_local_key = self.selected_cmip.get('local_key')
 
@@ -1923,6 +1969,8 @@ class MapApp(App):
             self.notify("can't refresh with staged changes -- press 's' to save or 'R' to "
                         'restore first', severity='warning')
             return
+        # pp files may have been staged since, letting more CMIP7 source brands resolve
+        self.session.clear_brand_cache()
         self._populate_cmip_tree()
 
     async def action_quit(self) -> None:

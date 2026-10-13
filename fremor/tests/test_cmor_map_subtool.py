@@ -2716,3 +2716,95 @@ async def test_map_app_set_reduce_needs_a_mapping(temp_dir): # pylint: disable=r
         await pilot.pause()
         assert not isinstance(app.screen, ReduceScreen)
         assert any(sev == 'warning' for _msg, sev in notifications)
+
+
+# ---------------------------------------------------------------------------
+# CMIP7: sources of one variable CMORizing to different brands
+# ---------------------------------------------------------------------------
+
+def _write_nc_over_dims(nc_path, var_name, dims):
+    ''' write a minimal real netCDF file with var_name over `dims` (each a 2-long dim) '''
+    with Dataset(nc_path, 'w') as ds:
+        for dim in dims:
+            ds.createDimension(dim, 2)
+        ds.createVariable(var_name, 'f4', tuple(dims))
+
+
+def _cmip7_brand_fixture(root_dir, monkeypatch, aer_mapped=True):
+    ''' CMIP7 atmos table with a lat-lon and a zonal-mean brand of ta; temp is mapped to ta
+    from a lat-lon atmos pp file and (if aer_mapped) a zonal-mean atmos_aer one. The pp files
+    count as staged: a just-written file can briefly have fewer allocated blocks than its
+    size, which the stat-based staging heuristic reads as offline. '''
+    monkeypatch.setattr('fremor.cmor_check._file_is_offline', lambda path, dmls_bin=None: False)
+    pp_dir, varlist_dir, tables_dir = _make_session_fixture(root_dir)
+    (Path(tables_dir) / 'CMIP7_atmos.json').write_text(json.dumps({'variable_entry': {
+        'ta_tavg-p19-hxy-air': {'dimensions': ['longitude', 'latitude', 'plev19', 'time']},
+        'ta_tavg-p39-hy-air': {'dimensions': ['latitude', 'plev39', 'time']},
+    }}), encoding='utf-8')
+    components = []
+    for name, mapped in (('atmos', True), ('atmos_aer', aer_mapped)):
+        varlist = Path(varlist_dir) / f'CMIP7_atmos_{name}.list'
+        varlist.write_text(json.dumps({'temp': 'ta' if mapped else ''}), encoding='utf-8')
+        components.append(_component_entry(name, varlist))
+    yamlfile = _write_map_yaml(root_dir, pp_dir, tables_dir,
+                               [_table_target('atmos', components)], mip_era='cmip7')
+    for name, dims in (('atmos', ('time', 'plev', 'lat', 'lon')),
+                       ('atmos_aer', ('time', 'plev', 'lat'))):
+        comp_dir = Path(pp_dir) / name / 'ts' / 'monthly' / '5yr'
+        comp_dir.mkdir(parents=True)
+        _write_nc_over_dims(comp_dir / f'{name}.000101-000512.temp.nc', 'temp', dims)
+    return yamlfile
+
+
+@pytest.mark.asyncio
+async def test_map_app_cmip7_sources_with_different_brands_listed_as_mapped(temp_dir, monkeypatch): # pylint: disable=redefined-outer-name
+    ''' a variable whose sources CMORize to different CMIP7 brands shows under Mapped, one
+    entry per source with its brand, rather than under Multiply-mapped '''
+    session = MapSession(_cmip7_brand_fixture(temp_dir, monkeypatch))
+    app = MapApp(session)
+
+    async with app.run_test():
+        table_node = app.query_one('#cmip_tree').root.children[0]
+        mapped_node, multi_node = table_node.children[1], table_node.children[2]
+        assert str(mapped_node.label) == 'Mapped (1)'
+        assert [str(node.label) for node in mapped_node.children] == [
+            'ta <- atmos:temp  (brand=tavg-p19-hxy-air)',
+            'ta <- atmos_aer:temp  (brand=tavg-p39-hy-air)',
+        ]
+        assert [node.data['component'] for node in mapped_node.children] == ['atmos', 'atmos_aer']
+        assert str(multi_node.label) == 'Multiply-mapped (0)'
+
+
+@pytest.mark.asyncio
+async def test_map_app_add_mapping_keeps_existing_source(temp_dir, monkeypatch): # pylint: disable=redefined-outer-name
+    ''' 'a' stages the selected pp file as an extra source of a mapped variable, keeping its
+    existing source; once saved, the two different-brand sources both show under Mapped '''
+    session = MapSession(_cmip7_brand_fixture(temp_dir, monkeypatch, aer_mapped=False))
+    app = MapApp(session)
+
+    async with app.run_test() as pilot:
+        cmip_tree = app.query_one('#cmip_tree')
+        source_node = cmip_tree.root.children[0].children[1].children[0]
+        app.on_tree_node_selected(_FakeTreeEvent(source_node, 'cmip_tree'))
+        await pilot.pause()  # let its auto-navigation to atmos:temp land first
+
+        pp_tree = app.query_one('#pp_tree')
+        aer_node = next(n for n in pp_tree.root.children if n.data['component'] == 'atmos_aer')
+        app.on_tree_node_expanded(_FakeTreeEvent(aer_node, 'pp_tree'))
+        freq_node = aer_node.children[0]
+        app.on_tree_node_expanded(_FakeTreeEvent(freq_node, 'pp_tree'))
+        chunk_node = freq_node.children[0]
+        app.on_tree_node_expanded(_FakeTreeEvent(chunk_node, 'pp_tree'))
+        app.on_tree_node_selected(_FakeTreeEvent(chunk_node.children[0], 'pp_tree'))
+        await pilot.press('a')
+        await pilot.pause()
+
+        assert session.mapped_variables('atmos', 'temp') == [('atmos', 'ta')]
+        assert session.mapped_variables('atmos_aer', 'temp') == [('atmos', 'ta')]
+        assert str(source_node.label).endswith('<- atmos_aer:temp')
+
+        await pilot.press('s')
+        await pilot.pause()
+
+        mapped_node = cmip_tree.root.children[0].children[1]
+        assert [n.data['component'] for n in mapped_node.children] == ['atmos', 'atmos_aer']

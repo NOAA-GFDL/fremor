@@ -12,6 +12,15 @@ against the authoritative MIP table JSON files fetched by ``fremor init`` (e.g. 
   that are not mapped from any GFDL post-processing component, and
 - variables mapped from more than one ``(component, GFDL diagnostic key)``
   pair, and
+- (CMIP7 only) variables mapped from several sources that each CMORize to a
+  different brand of the variable -- e.g. ``ta`` from a lat-lon pp file and a
+  zonal-mean one, becoming ``ta_tavg-p19-hxy-air`` and ``ta_tavg-p39-hy-air``.
+  These are not a conflict, so they're reported apart from the multiply-mapped
+  ones. Telling them apart needs each source's brand, which comes from its input
+  data (see ``cmor_helpers.resolve_input_file_brand``): only a variable with
+  several brands in the table has a representative pp file's header opened, and an
+  offline (unstaged) file is never opened -- a source whose brand can't be resolved
+  keeps the variable multiply-mapped, and
 - values written into a varlist that don't correspond to any variable
   actually defined in that MIP table (typos / stale mappings).
 
@@ -31,7 +40,9 @@ the JSON report (json_output=True / output_report) always includes them in
 full regardless.
 
 Two additional, opt-in checks look past the varlist JSON and at the actual
-pp_dir input files for every cleanly (one-to-one) mapped variable:
+pp_dir input files for every cleanly (one-to-one) mapped variable -- and, for CMIP7, every
+source of a multi-brand variable, reported under its branded name (e.g.
+``ta_tavg-p39-hy-air``) and checked against that brand's MIP table entry alone:
 
 - ``check_staging=True``: do the expected FRE time-series files exist under
   pp_dir at all, and (best-effort) are they staged/disk-resident rather than
@@ -106,8 +117,9 @@ from .cmor_check_exp import ( check_exp_config as _check_exp_config, find_emd_gr
 from .cmor_config import _load_config_yaml
 
 from .cmor_reduce import parse_varlist_value
-from .cmor_helpers import ( find_ps_companion, get_json_file_data, get_vertical_dimension,
-                            iso_to_bronx_chunk, resolve_named_ps_source )
+from .cmor_helpers import ( cmip7_brands, find_ps_companion, get_json_file_data,
+                            get_vertical_dimension, iso_to_bronx_chunk, resolve_input_file_brand,
+                            resolve_named_ps_source )
 from .cmor_constants import (
     ACCEPTED_VERT_DIMS,
     CMOR_CHECK_CATEGORY_WIDTH,
@@ -467,8 +479,7 @@ def _cmip7_expected_output_prefixes(table_data: Optional[dict], var: str) -> lis
     prefixes come from the table's branded ``variable_entry`` keys rather than the table name."""
     variable_entry = (table_data or {}).get('variable_entry', {})
     prefixes = [
-        key for key in _matching_variable_keys(variable_entry, var, 'cmip7')
-        if key.startswith(f'{var}_')
+        key for key in _matching_variable_keys(variable_entry, var, 'cmip7') if '_' in key
     ]
     return prefixes or [var]
 
@@ -548,8 +559,10 @@ def _matching_variable_keys(variable_entry: dict, var: str, mip_era: str) -> lis
     """``variable_entry`` keys that correspond to bare variable name `var`. For
     CMIP6/CMIP6Plus this is just ``[var]`` (if present); for CMIP7 a bare variable name can
     have multiple brands, each keyed as ``{var}_{brand}``, so every matching brand key is
-    returned."""
+    returned -- unless `var` is itself one of those branded keys, which matches just itself."""
     if mip_era.lower() == 'cmip7':
+        if '_' in var:
+            return [var] if var in variable_entry else []
         return [key for key in variable_entry if key.split('_')[0] == var]
     return [var] if var in variable_entry else []
 
@@ -932,8 +945,11 @@ def _build_files_report(table_path: str, table_data: Optional[dict], mip_era: st
                         output_files_index: Sequence[Path] = (), dmls_bin: Optional[str] = None,
                         start: Optional[int] = None, stop: Optional[int] = None,
                         ps_fallback: Optional[dict] = None,
-                        grid_check: Optional[dict] = None) -> dict:
-    """Per one-to-one-mapped variable: staging status, vertical-dim consistency, units/
+                        grid_check: Optional[dict] = None,
+                        multi_brand_mapped: Optional[dict] = None) -> dict:
+    """Per one-to-one-mapped variable, and per source of a CMIP7 multi-brand variable
+    (`multi_brand_mapped`, see ``_split_multi_brand``) keyed by its branded name, so its MIP
+    table lookups only see that brand's entry: staging status, vertical-dim consistency, units/
     cell_methods consistency, and/or actual-value range (all resolved straight from pp_dir),
     and/or whether CMOR has produced matching output (resolved from `output_files_index`, see
     ``_index_output_files``). Only variables mapped from exactly one component are checked --
@@ -954,8 +970,12 @@ def _build_files_report(table_path: str, table_data: Optional[dict], mip_era: st
         if ps_indir is not None:
             ps_source = {'indir': str(ps_indir), 'local_var': ps_key}
 
+    targets = dict(one_to_one_mapped)
+    for var, sources in (multi_brand_mapped or {}).items():
+        targets.update({f'{var}_{brand}': (comp, key) for comp, key, brand in sources})
+
     files_report = {}
-    for var, (component_name, gfdl_key) in sorted(one_to_one_mapped.items()):
+    for var, (component_name, gfdl_key) in sorted(targets.items()):
         component = components_by_name.get(component_name)
         if component is None:
             continue  # uncovered -- one_to_one_mapped is derived from these same components
@@ -993,6 +1013,69 @@ def _build_files_report(table_path: str, table_data: Optional[dict], mip_era: st
     return files_report
 
 
+def _input_dir_brand(input_dir: Optional[Path], gfdl_key: str, var: str, table_data: dict, # pylint: disable=too-many-arguments, too-many-positional-arguments
+                     reduce: Optional[str], start: Optional[int], stop: Optional[int],
+                     dmls_bin: Optional[str]) -> Optional[str]:
+    """The CMIP7 brand `gfdl_key`'s files in `input_dir` would be CMORized to as `var`, read
+    from its first file in the run bounds -- or None if there is no such file, it is still
+    offline (opening it could trigger a tape retrieval), or no single brand matches it."""
+    files = _matching_input_files(input_dir, gfdl_key, start, stop)
+    if not files or _file_is_offline(files[0], dmls_bin):
+        return None
+    try:
+        return resolve_input_file_brand(files[0], gfdl_key, var, table_data, reduce)
+    except Exception as exc:  # pylint: disable=broad-except
+        fre_logger.debug('could not resolve the CMIP7 brand of %s in %s: %s',
+                         gfdl_key, files[0], exc)
+        return None
+
+
+def _source_brand(table_data: dict, var: str, source: tuple, reduce: Optional[str], # pylint: disable=too-many-arguments, too-many-positional-arguments, too-many-locals
+                  pp_dir: str, table_target: dict, start: Optional[int], stop: Optional[int],
+                  dmls_bin: Optional[str], brand_cache: dict) -> Optional[str]:
+    """The CMIP7 brand of `var` that `source` -- a (component, GFDL diagnostic key) pair --
+    would be CMORized to, or None if unknown. A variable with a single brand in the table
+    needs no input file; otherwise the brand comes from the source's input data, memoized in
+    `brand_cache` by input directory, key, variable, reduce method and run bounds."""
+    brands = cmip7_brands(table_data, var)
+    if len(brands) <= 1:
+        return brands[0] if brands else None
+    component_name, gfdl_key = source
+    component = next((comp for comp in table_target.get('target_components') or []
+                      if comp.get('component_name') == component_name), None)
+    if component is None or not component.get('chunk'):
+        return None
+    input_dir = _component_input_dir(pp_dir, table_target, component)
+    cache_key = (str(input_dir), gfdl_key, var, reduce, start, stop)
+    if cache_key not in brand_cache:
+        brand_cache[cache_key] = _input_dir_brand(input_dir, gfdl_key, var, table_data, reduce,
+                                                  start, stop, dmls_bin)
+    return brand_cache[cache_key]
+
+
+def _split_multi_brand(multiply_mapped: dict, table_data: dict, reduce_by_source: dict, # pylint: disable=too-many-arguments, too-many-positional-arguments
+                       pp_dir: str, table_target: dict, start: Optional[int],
+                       stop: Optional[int], dmls_bin: Optional[str], brand_cache: dict) -> tuple:
+    """Move each CMIP7 variable in `multiply_mapped` whose sources all resolve to different
+    brands (see ``_source_brand``) out of it, in place. Returns ({var: [(component, key,
+    brand), ...]} for those, {var: [brand or None, ...]} for the remaining variables with at
+    least one resolved brand)."""
+    multi_brand_mapped, multiply_mapped_brands = {}, {}
+    for var, entries in list(multiply_mapped.items()):
+        brands = [
+            _source_brand(table_data, var, source, reduce_by_source.get(source), pp_dir,
+                          table_target, start, stop, dmls_bin, brand_cache)
+            for source in entries
+        ]
+        if None not in brands and len(set(brands)) == len(brands):
+            multi_brand_mapped[var] = [
+                (comp, key, brand) for (comp, key), brand in zip(entries, brands)]
+            del multiply_mapped[var]
+        elif any(brands):
+            multiply_mapped_brands[var] = brands
+    return multi_brand_mapped, multiply_mapped_brands
+
+
 def _build_table_report(table_path: str, mip_era: str, varlists_by_table: dict,
                         show_mapped: bool = False,
                         pp_dir: Optional[str] = None, table_target: Optional[dict] = None,
@@ -1002,8 +1085,17 @@ def _build_table_report(table_path: str, mip_era: str, varlists_by_table: dict,
                         dmls_bin: Optional[str] = None,
                         start: Optional[int] = None, stop: Optional[int] = None,
                         ps_fallback: Optional[dict] = None,
-                        grid_check: Optional[dict] = None) -> dict:
-    """Build the unmapped / multiply-mapped / unknown-mapped report for one MIP table."""
+                        grid_check: Optional[dict] = None,
+                        brand_cache: Optional[dict] = None) -> dict:
+    """Build the unmapped / multiply-mapped / unknown-mapped report for one MIP table.
+
+    For CMIP7 with `pp_dir` and `table_target` given, a variable mapped from several sources
+    is moved from 'multiply_mapped' to 'multi_brand_mapped' ({var: [(component, key, brand),
+    ...]}) when every source resolves to a different brand (see ``_source_brand``); the
+    variables left multiply-mapped get each source's brand, or None if unresolved, under
+    'multiply_mapped_brands' ({var: [brand, ...]}, in 'multiply_mapped' entry order). Both
+    keys are only present when non-empty. Pass the same `brand_cache` dict across calls to
+    avoid re-reading input files."""
     table_name = Path(table_path).stem.split('.')[0].split('_')[1]
     reference_vars = _reference_vars_for_table(table_path, mip_era)
 
@@ -1027,6 +1119,13 @@ def _build_table_report(table_path: str, mip_era: str, varlists_by_table: dict,
     multiply_mapped = {
         var: sorted(entries) for var, entries in mapped.items() if len(entries) > 1
     }
+    multi_brand_mapped, multiply_mapped_brands = {}, {}
+    if mip_era.lower() == 'cmip7' and multiply_mapped and pp_dir is not None \
+            and table_target is not None:
+        multi_brand_mapped, multiply_mapped_brands = _split_multi_brand(
+            multiply_mapped, get_json_file_data(table_path), reduce_by_source, pp_dir,
+            table_target, start, stop, dmls_bin, {} if brand_cache is None else brand_cache)
+
     unknown_mapped = sorted(set(mapped) - reference_vars)
     one_to_one_mapped = {
         var: entries[0] for var, entries in mapped.items()
@@ -1042,6 +1141,10 @@ def _build_table_report(table_path: str, mip_era: str, varlists_by_table: dict,
     }
 
     # only present when there is something to say, so reports for plain varlists are unchanged
+    if multi_brand_mapped:
+        report_entry['multi_brand_mapped'] = multi_brand_mapped
+    if multiply_mapped_brands:
+        report_entry['multiply_mapped_brands'] = multiply_mapped_brands
     if invalid_entries:
         report_entry['invalid_entries'] = invalid_entries
     reduced = {var: reduce_by_source[source] for var, source in one_to_one_mapped.items()
@@ -1061,7 +1164,8 @@ def _build_table_report(table_path: str, mip_era: str, varlists_by_table: dict,
         report_entry['files'] = _build_files_report(
             table_path, table_data, mip_era, table_target, pp_dir, one_to_one_mapped,
             check_staging, check_dims, check_output, check_attrs, check_range,
-            output_files_index, dmls_bin, start, stop, ps_fallback, grid_check
+            output_files_index, dmls_bin, start, stop, ps_fallback, grid_check,
+            multi_brand_mapped=multi_brand_mapped
         )
 
     return report_entry
@@ -1265,17 +1369,37 @@ def _print_report(report: dict, show_mapped: bool = False,
                     f'      pass --show-unmapped to list all {len(unmapped)}', dim=True))
 
         multiply_mapped = entry['multiply_mapped']
+        multiply_mapped_brands = entry.get('multiply_mapped_brands', {})
         click.echo(_category_line(
             'MULTIPLY-MAPPED', len(multiply_mapped),
             'mapped from more than one component/diagnostic'))
         if multiply_mapped:
             if show_multi_mapped:
                 for var in sorted(multiply_mapped):
-                    locs = ', '.join(f'{comp}:{key}' for comp, key in multiply_mapped[var])
+                    brands = multiply_mapped_brands.get(var)
+                    locs = ', '.join(
+                        f'{comp}:{key}' + (f' ({brands[i] or "brand unresolved"})' if brands else '')
+                        for i, (comp, key) in enumerate(multiply_mapped[var]))
                     click.echo(f'      - {var}: {locs}')
             else:
                 click.echo(click.style(
                     f'      pass --show-multi-mapped to list all {len(multiply_mapped)}', dim=True))
+
+        multi_brand_mapped = entry.get('multi_brand_mapped', {})
+        if multi_brand_mapped:
+            click.echo(_category_line(
+                'MULTI-BRAND', len(multi_brand_mapped),
+                'mapped from several components, each to a different CMIP7 brand',
+                nonzero_fg='green'))
+            if show_multi_mapped or show_mapped:
+                for var in sorted(multi_brand_mapped):
+                    locs = ', '.join(f'{comp}:{key} ({var}_{brand})'
+                                     for comp, key, brand in multi_brand_mapped[var])
+                    click.echo(f'      - {var}: {locs}')
+            else:
+                click.echo(click.style(
+                    f'      pass --show-multi-mapped to list all {len(multi_brand_mapped)}',
+                    dim=True))
 
         unknown_mapped = entry['unknown_mapped']
         click.echo(_category_line(
@@ -1308,7 +1432,8 @@ def _print_report(report: dict, show_mapped: bool = False,
         if files is not None:
             click.echo('  ' + click.style('FILES', bold=True))
             if not files:
-                click.echo(click.style('      no one-to-one-mapped variables to check', dim=True))
+                click.echo(click.style('      no one-to-one-mapped or multi-brand variables to check',
+                                       dim=True))
             common_span = _print_coverage_summary(files)
             for var in sorted(files):
                 var_entry = files[var]
@@ -1500,7 +1625,8 @@ def cmor_check_subtool(
         match any table_target, yamlfile's ``start``/``stop`` isn't a four-digit year, or
         check_output is True but yamlfile has no ``directories.outdir`` set.
     :return: enabled table_name -> report dict, with keys 'reference_var_count', 'unmapped',
-             'multiply_mapped', 'unknown_mapped', (if show_mapped) 'one_to_one_mapped', (if any
+             'multiply_mapped', 'unknown_mapped', (CMIP7, if any) 'multi_brand_mapped' and
+             'multiply_mapped_brands', (if show_mapped) 'one_to_one_mapped', (if any
              varlist value is malformed) 'invalid_entries', (if any one-to-one mapping has a
              reduce method) 'reduce', and (if check_staging or check_dims or check_output or check_attrs or check_range)
              'files'. Disabled table targets are omitted. With check_exp_config, the extra key

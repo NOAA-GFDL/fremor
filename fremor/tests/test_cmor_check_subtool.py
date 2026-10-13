@@ -1356,3 +1356,134 @@ def test_cmor_check_subtool_range_unknown_when_no_files(temp_dir): # pylint: dis
 
     report = cmor_check_subtool(yamlfile=yamlfile, check_range=True)
     assert report['Amon']['files']['tas']['range']['status'] == 'unknown'
+
+
+# ---------------------------------------------------------------------------
+# CMIP7: several sources mapped to one variable, each resolving to its own brand
+# ---------------------------------------------------------------------------
+
+def _write_nc_over_dims(nc_path, local_var, dims):
+    ''' write a minimal real netCDF file with local_var over `dims` (each a 2-long dim with a
+    coordinate variable, plev's marked axis='Z') '''
+    with Dataset(str(nc_path), 'w') as ds:
+        for dim in dims:
+            ds.createDimension(dim, 2)
+            coord = ds.createVariable(dim, 'f4', (dim,))
+            if dim == 'plev':
+                coord.axis = 'Z'
+        ds.createVariable(local_var, 'f4', tuple(dims))
+
+
+def _multi_brand_setup(temp_dir, aer_dims, monkeypatch): # pylint: disable=redefined-outer-name
+    ''' CMIP7 atmos table with a lat-lon and a zonal-mean brand of ta, mapped from both a
+    lat-lon atmos pp file and an atmos_aer pp file over `aer_dims` (None: no file at all).
+    The pp files count as staged: a just-written file can briefly have fewer allocated blocks
+    than its size, which the stat-based staging heuristic reads as offline. '''
+    monkeypatch.setattr('fremor.cmor_check._file_is_offline', lambda path, dmls_bin=None: False)
+    temp_root = Path(temp_dir)
+    tables_dir = temp_root / 'tables'
+    tables_dir.mkdir()
+    _write_cmip7_table_with_dims(tables_dir, 'atmos', {
+        'ta_tavg-p19-hxy-air': ['longitude', 'latitude', 'plev19', 'time'],
+        'ta_tavg-p39-hy-air': ['latitude', 'plev39', 'time'],
+    })
+    varlist_dir = temp_root / 'varlists'
+    varlist_dir.mkdir()
+    atmos_list = varlist_dir / 'CMIP7_atmos_atmos.list'
+    atmos_list.write_text(json.dumps({'temp': 'ta'}), encoding='utf-8')
+    aer_list = varlist_dir / 'CMIP7_atmos_atmos_aer.list'
+    aer_list.write_text(json.dumps({'temp': 'ta'}), encoding='utf-8')
+
+    pp_dir = temp_root / 'pp'
+    yamlfile = _write_yaml(temp_dir, [
+        _table_target('atmos', [_component_entry('atmos', atmos_list),
+                                _component_entry('atmos_aer', aer_list)])
+    ], mip_era='cmip7', table_dir=tables_dir, pp_dir=pp_dir)
+
+    _write_nc_over_dims(_input_dir(pp_dir, 'atmos') / 'atmos.197901-198312.temp.nc', 'temp',
+                        ['time', 'plev', 'lat', 'lon'])
+    if aer_dims is not None:
+        _write_nc_over_dims(_input_dir(pp_dir, 'atmos_aer') / 'atmos_aer.197901-198312.temp.nc',
+                            'temp', aer_dims)
+    return yamlfile
+
+
+def test_cmor_check_subtool_cmip7_sources_with_different_brands_not_multiply_mapped(temp_dir, capsys, monkeypatch): # pylint: disable=redefined-outer-name
+    ''' a lat-lon and a zonal-mean source of ta resolve to different brands, so ta is reported
+    as multi-brand rather than multiply-mapped '''
+    yamlfile = _multi_brand_setup(temp_dir, ['time', 'plev', 'lat'], monkeypatch)
+
+    report = cmor_check_subtool(yamlfile=yamlfile, show_multi_mapped=True)
+
+    assert report['atmos']['multiply_mapped'] == {}
+    assert report['atmos']['multi_brand_mapped'] == {'ta': [
+        ('atmos', 'temp', 'tavg-p19-hxy-air'), ('atmos_aer', 'temp', 'tavg-p39-hy-air')]}
+    assert 'multiply_mapped_brands' not in report['atmos']
+    out = capsys.readouterr().out
+    assert 'MULTI-BRAND' in out
+    assert 'atmos_aer:temp (ta_tavg-p39-hy-air)' in out
+
+
+def test_cmor_check_subtool_cmip7_sources_with_same_brand_stay_multiply_mapped(temp_dir, capsys, monkeypatch): # pylint: disable=redefined-outer-name
+    ''' two lat-lon sources of ta resolve to the same brand -- a real conflict, reported as
+    multiply-mapped along with each source's brand '''
+    yamlfile = _multi_brand_setup(temp_dir, ['time', 'plev', 'lat', 'lon'], monkeypatch)
+
+    report = cmor_check_subtool(yamlfile=yamlfile, show_multi_mapped=True)
+
+    assert list(report['atmos']['multiply_mapped']) == ['ta']
+    assert 'multi_brand_mapped' not in report['atmos']
+    assert report['atmos']['multiply_mapped_brands'] == {
+        'ta': ['tavg-p19-hxy-air', 'tavg-p19-hxy-air']}
+    out = capsys.readouterr().out
+    assert 'atmos:temp (tavg-p19-hxy-air), atmos_aer:temp (tavg-p19-hxy-air)' in out
+
+
+def test_cmor_check_subtool_cmip7_unresolved_brand_stays_multiply_mapped(temp_dir, capsys, monkeypatch): # pylint: disable=redefined-outer-name
+    ''' a source with no pp file has no resolvable brand, so the variable stays multiply-mapped '''
+    yamlfile = _multi_brand_setup(temp_dir, None, monkeypatch)
+
+    report = cmor_check_subtool(yamlfile=yamlfile, show_multi_mapped=True)
+
+    assert list(report['atmos']['multiply_mapped']) == ['ta']
+    assert report['atmos']['multiply_mapped_brands'] == {'ta': ['tavg-p19-hxy-air', None]}
+    assert 'atmos_aer:temp (brand unresolved)' in capsys.readouterr().out
+
+
+def test_cmor_check_subtool_cmip7_offline_source_not_opened(temp_dir, monkeypatch): # pylint: disable=redefined-outer-name
+    ''' a source whose pp file is still offline is never opened, leaving its brand unresolved '''
+    yamlfile = _multi_brand_setup(temp_dir, ['time', 'plev', 'lat'], monkeypatch)
+    monkeypatch.setattr('fremor.cmor_check._file_is_offline',
+                        lambda path, dmls_bin=None: 'atmos_aer' in path.name)
+    opened = []
+    monkeypatch.setattr('fremor.cmor_check.resolve_input_file_brand',
+                        lambda path, *args: opened.append(path.name) or 'tavg-p19-hxy-air')
+
+    report = cmor_check_subtool(yamlfile=yamlfile)
+
+    assert opened == ['atmos.197901-198312.temp.nc']
+    assert report['atmos']['multiply_mapped_brands'] == {'ta': ['tavg-p19-hxy-air', None]}
+
+
+def test_cmor_check_subtool_cmip7_multi_brand_sources_get_file_checks(temp_dir, monkeypatch): # pylint: disable=redefined-outer-name
+    ''' the optional file checks run on each source of a multi-brand variable, keyed by its
+    branded name and checked against that brand's MIP table entry alone '''
+    yamlfile = _multi_brand_setup(temp_dir, ['time', 'plev', 'lat'], monkeypatch)
+    outdir = Path(temp_dir) / 'out'
+    outdir.mkdir()
+    (outdir / 'ta_tavg-p39-hy-air_mon_glb_g999_ESM_hist_r1i1p1f1_197901-198312.nc').write_bytes(b'x')
+
+    report = cmor_check_subtool(yamlfile=yamlfile, check_staging=True, check_dims=True,
+                                check_output=True)
+
+    files = report['atmos']['files']
+    assert set(files) == {'ta_tavg-p19-hxy-air', 'ta_tavg-p39-hy-air'}
+    assert files['ta_tavg-p19-hxy-air']['staging']['status'] == 'staged'
+    assert files['ta_tavg-p39-hy-air']['staging']['status'] == 'staged'
+    assert files['ta_tavg-p19-hxy-air']['dims']['mip_table_vertical_dims'] == ['plev19']
+    assert files['ta_tavg-p39-hy-air']['dims']['mip_table_vertical_dims'] == ['plev39']
+    assert files['ta_tavg-p19-hxy-air']['output']['status'] == 'missing'
+    assert files['ta_tavg-p39-hy-air']['output']['status'] == 'produced'
+    # only the lat-lon brand gets the grid-label check
+    assert 'grid' in files['ta_tavg-p19-hxy-air']
+    assert 'grid' not in files['ta_tavg-p39-hy-air']

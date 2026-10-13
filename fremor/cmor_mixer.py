@@ -10,7 +10,6 @@ datetime for a given variable. Functions within ``cmor_helpers`` assist with the
 
 Functions
 ---------
-- ``resolve_cmip7_brand(...)``
 - ``index_existing_outputs(...)``
 - ``expected_output_prefix(...)``
 - ``find_existing_output(...)``
@@ -44,11 +43,12 @@ import netCDF4 as nc
 from .cmor_helpers import ( from_ds_get_this, create_lev_bnds,
                             get_iso_datetime_ranges, check_dataset_for_ocean_grid, get_vertical_dimension,
                             create_tmp_dir, get_json_file_data, update_grid_and_label,
-                            update_calendar_type, filter_brands,
+                            update_calendar_type,
                             normalize_calendar, get_time_calendar_ds, get_time_calendar_value,
                             calendars_are_equivalent,
-                            resolve_mip_era_table_resource, find_ps_companion, table_declares_ps )
-from .cmor_reduce import REDUCE_METHODS, apply_reduce, parse_varlist_value
+                            resolve_mip_era_table_resource, find_ps_companion, table_declares_ps,
+                            resolve_cmip7_brand, resolve_input_file_brand, scalar_z_coords )
+from .cmor_reduce import apply_reduce, parse_varlist_value
 
 from .cmor_tripolar import load_tripolar_grid
 from .cmor_validate import check_exp_config_required_attributes
@@ -58,68 +58,6 @@ from .cmor_constants import ( ACCEPTED_VERT_DIMS, NON_HYBRID_SIGMA_COORDS, ALT_H
                               CMOR_LAT_AXIS_NAME, CMOR_LON_AXIS_NAME )
 
 fre_logger = logging.getLogger(__name__)
-
-
-def _scalar_z_coords(ds: nc.Dataset, local_var: str) -> dict:
-    """
-    Scalar (0-dimensional) coordinate variables with ``axis='Z'`` referenced by ``local_var``'s
-    ``coordinates`` attribute, e.g. ``height``. MIP tables count these as dimensions, so they
-    must be accounted for before CMIP7 brand matching.
-
-    :return: ``{coord_name: netCDF4 variable}``
-    :rtype: dict
-    """
-    scalar_z_coords = {}
-    try:
-        coord_attr = ds.variables[local_var].coordinates
-        for coord_name in coord_attr.split():
-            if coord_name in ds.variables:
-                coord_var = ds.variables[coord_name]
-                if len(coord_var.dimensions) == 0:  # scalar (0-dim)
-                    if hasattr(coord_var, 'axis') and coord_var.axis == 'Z':
-                        scalar_z_coords[coord_name] = coord_var
-                        fre_logger.info('detected scalar Z-coordinate: %s', coord_name)
-    except AttributeError:
-        pass
-    return scalar_z_coords
-
-
-def resolve_cmip7_brand(ds: nc.Dataset, local_var: str, target_var: str,
-                        mip_var_cfgs: dict, var_dim_with_scalars: int) -> str:
-    """
-    Pick the CMIP7 brand of ``target_var`` that the input data matches: candidates are the
-    table's ``<target_var>_<brand>`` entries with as many dimensions as the input (scalar Z
-    coordinates included), disambiguated by ``filter_brands`` when more than one remains.
-
-    :raises ValueError: If no brand's dimensions match the input data.
-    :return: The brand, e.g. ``'tavg-h2m-hxy-u'``.
-    :rtype: str
-    """
-    brands = []
-    for mip_var in mip_var_cfgs['variable_entry'].keys():
-        if all([ target_var == mip_var.split('_')[0],
-                 var_dim_with_scalars == len(mip_var_cfgs['variable_entry'][mip_var]['dimensions']) ]):
-            brands.append(mip_var.split('_')[1])
-
-    if len(brands) == 0:
-        fre_logger.error('cmip7 case detected, but dimensions of input data do not match '
-                         'any of those found for the associated brands.')
-        raise ValueError('no variable brand was able to be identified for this CMIP7 case')
-    if len(brands) == 1:
-        var_brand = brands[0]
-        fre_logger.debug('cmip7 case, extracted brand %s', var_brand)
-    else:
-        fre_logger.warning('cmip7 case, extracted multiple brands %s, attempting disambiguation',
-                           brands)
-        var_brand = filter_brands(
-            brands, target_var, mip_var_cfgs,
-            has_time_bnds = 'time_bnds' in ds.variables,
-            input_vert_dim = get_vertical_dimension(ds, local_var),
-            cell_methods = getattr(ds.variables[local_var], 'cell_methods', None),
-            standard_name = getattr(ds.variables[local_var], 'standard_name', None)
-        )
-    fre_logger.debug('cmip7 case, filtered possible brands to %s', var_brand)
-    return var_brand
 
 
 def index_existing_outputs(outdir: str) -> List[Path]:
@@ -166,15 +104,9 @@ def expected_output_prefix(input_file: str, local_var: str, target_var: str,
             Path(json_table_config).stem.split('_', maxsplit=1)[-1]
         return f'{target_var}_{table_id.split()[-1]}_'
 
-    brands = [key.split('_', 1)[1] for key in mip_var_cfgs['variable_entry']
-              if key.split('_')[0] == target_var and '_' in key]
-    if len(brands) == 1:
-        return f'{target_var}_{brands[0]}_'
     try:
-        with nc.Dataset(input_file, 'r') as ds:
-            var_dim = ds.variables[local_var].ndim + len(_scalar_z_coords(ds, local_var)) - \
-                REDUCE_METHODS.get(reduce, 0)
-            var_brand = resolve_cmip7_brand(ds, local_var, target_var, mip_var_cfgs, var_dim)
+        var_brand = resolve_input_file_brand(input_file, local_var, target_var, mip_var_cfgs,
+                                             reduce)
     except Exception as exc:  # pylint: disable=broad-except
         fre_logger.warning('could not resolve the CMIP7 brand of %s in %s to look for '
                            'existing output: %s', local_var, input_file, exc)
@@ -303,8 +235,8 @@ def rewrite_netcdf_file_var( mip_var_cfgs: dict = None,
     # detect scalar coordinate variables (0-dimensional) with axis='Z'
     # these are auxiliary coordinates like "height" referenced via the coordinates attribute
     # and must be accounted for before brand matching, as MIP tables count them as dimensions
-    scalar_z_coords = _scalar_z_coords(ds, local_var)
-    var_dim_with_scalars = var_dim + len(scalar_z_coords)
+    scalar_coords = scalar_z_coords(ds, local_var)
+    var_dim_with_scalars = var_dim + len(scalar_coords)
 
     # CMORizing ocean grids are implemented only for scalar quantities valued at the central T/h-point of the grid cell.
     # https://en.wikipedia.org/wiki/Arakawa_grids heavily consulted for this work.
@@ -402,13 +334,13 @@ def rewrite_netcdf_file_var( mip_var_cfgs: dict = None,
 
     # if no vertical dimension found in data but scalar Z-coordinates exist,
     # identify the corresponding MIP axis name from expected dimensions
-    if vert_dim == 0 and scalar_z_coords and expected_mip_coord_dims is not None:
+    if vert_dim == 0 and scalar_coords and expected_mip_coord_dims is not None:
         dims_to_check = (expected_mip_coord_dims.split()
                          if isinstance(expected_mip_coord_dims, str)
                          else expected_mip_coord_dims)
         for dim_name in dims_to_check:
             if dim_name.lower() in [d.lower() for d in ACCEPTED_VERT_DIMS]:
-                scalar_coord_name = list(scalar_z_coords.keys())[0]
+                scalar_coord_name = list(scalar_coords.keys())[0]
                 vert_dim = dim_name
                 lev = ds.variables[scalar_coord_name]
                 lev_units = ds.variables[scalar_coord_name].units
