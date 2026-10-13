@@ -1391,6 +1391,58 @@ async def test_map_app_undo_key(temp_dir): # pylint: disable=redefined-outer-nam
 
 
 @pytest.mark.asyncio
+async def test_map_app_undo_keeps_staged_multiply_mapped_deletions(temp_dir): # pylint: disable=redefined-outer-name
+    ''' 'u' restores the undone edit's node in place rather than rebuilding the tree, so an
+    earlier staged-cleared source of a multiply-mapped variable stays under Multiply-mapped,
+    still marked (deleted), instead of the variable moving to Mapped '''
+    pp_dir, varlist_dir, tables_dir = _make_session_fixture(temp_dir)
+    (Path(varlist_dir) / 'CMIP6_Amon_atmos.list').write_text(
+        json.dumps({'sfc_pres': 'ps', 't_ref': 'tas'}), encoding='utf-8'
+    )
+    (Path(varlist_dir) / 'CMIP6_Amon_atmos_scalar.list').write_text(
+        json.dumps({'sfc_pres_scalar': 'ps'}), encoding='utf-8'
+    )
+    yamlfile = _amon_yaml(temp_dir, pp_dir, varlist_dir, tables_dir,
+                          component_names=['atmos', 'atmos_scalar'])
+    session = MapSession(yamlfile)
+    app = MapApp(session)
+
+    async with app.run_test() as pilot:
+        cmip_tree = app.query_one('#cmip_tree')
+        table_node = cmip_tree.root.children[0]
+        # branches: Unmapped, Mapped, Multiply-mapped, Unknown
+        mapped_node = table_node.children[1]
+        multi_node = table_node.children[2]
+        ps_source = next(n for n in multi_node.children[0].children
+                         if n.data['component'] == 'atmos')
+        tas_source = mapped_node.children[0]
+        tas_label = str(tas_source.label)
+
+        app.on_tree_node_selected(_FakeTreeEvent(ps_source, 'cmip_tree'))
+        await pilot.press('d')
+        app.on_tree_node_selected(_FakeTreeEvent(tas_source, 'cmip_tree'))
+        await pilot.press('d')
+        await pilot.pause()
+        assert str(tas_source.label).endswith('(deleted)')
+
+        await pilot.press('u')
+        await pilot.pause()
+
+        # same nodes, not a rebuilt tree: tas is back to its original label, ps still deleted
+        assert cmip_tree.root.children[0] is table_node
+        assert str(tas_source.label) == tas_label
+        assert str(ps_source.label).endswith('(deleted)')
+        assert ps_source.parent.parent is multi_node
+        assert '1 unsaved' in str(table_node.label)
+
+        await pilot.press('u')
+        await pilot.pause()
+        assert not str(ps_source.label).endswith('(deleted)')
+        assert 'unsaved' not in str(table_node.label)
+        assert not session.has_pending_changes
+
+
+@pytest.mark.asyncio
 async def test_map_app_restore_pending_key(temp_dir): # pylint: disable=redefined-outer-name
     ''' pressing 'R' discards every staged-but-unsaved edit at once, rebuilding the tree back
     to the last-saved state without touching disk '''
