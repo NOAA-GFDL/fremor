@@ -495,7 +495,7 @@ Prepare the CMOR YAML (``cmor_yamls/ocean_cmor.yaml``):
              chunk: "P1Y"
 
 Surface pressure for hybrid-sigma variables
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+-------------------------------------------
 
 Variables on hybrid-sigma model levels (e.g. ``cl``, ``ta`` on ``alevel``) need surface pressure
 from a file whose filename has the same date range. ``fremor`` looks for it in three places, in order:
