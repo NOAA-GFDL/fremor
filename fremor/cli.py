@@ -438,7 +438,8 @@ def config(pp_dir, mip_tables_dir, mip_era, exp_config, output_yaml, output_dir,
                    'via --json or -o/--output_report.')
 @click.option('--show-multi-mapped', '--show_multi_mapped', is_flag=True, default=False,
               help='List every variable mapped from more than one component/diagnostic, with '
-                   'each mapping location. By default only a count is shown; the full list is '
+                   'each mapping location (and, for CMIP7, its brand), plus every CMIP7 '
+                   'multi-brand variable. By default only a count is shown; the full list is '
                    'still always available via --json or -o/--output_report.')
 @click.option('--check-inputs', '--check_inputs', is_flag=True, default=False,
               help='For every one-to-one-mapped variable, also check whether its input files '
@@ -498,7 +499,9 @@ def check(tables, yamlfile, show_mapped, show_unmapped, show_multi_mapped, check
     by the table but not mapped from any component, variables mapped from more than
     one component/diagnostic, and mapped values that don't correspond to any variable
     actually defined in that table. The unmapped/multiply-mapped counts are always shown;
-    pass --show-unmapped/--show-multi-mapped to also spell out every variable.
+    pass --show-unmapped/--show-multi-mapped to also spell out every variable. For CMIP7, a
+    variable whose sources each CMORize to a different brand (resolved from the header of
+    each source's first staged pp file) is reported as MULTI-BRAND, not multiply-mapped.
 
     Pass --check-inputs and/or --check-dims to additionally check, for every one-to-one-mapped
     variable, whether its pp_dir input files are present and staged, and whether their
@@ -509,6 +512,8 @@ def check(tables, yamlfile, show_mapped, show_unmapped, show_multi_mapped, check
     representative input file's actual data values against the MIP table's valid range -- this
     reads full file contents and can be very slow, so use it sparingly. Pass --check-exp-config
     to check the yaml's experiment configuration JSON against the controlled vocabulary.
+    For CMIP7, these file checks also cover each source of a MULTI-BRAND variable, reported
+    under its branded name (e.g. ta_tavg-p39-hy-air) against that brand's table entry alone.
 
     TABLES is an optional list of MIP table names to check, e.g. 'Amon' or
     'Lmon'. Shell-style wildcards are supported, e.g. 'AER*'. If omitted,
@@ -561,7 +566,8 @@ def map_(tables, yamlfile, ncinfo_bin, dmls_bin):
     preview loads in the background (showing a loading message meanwhile) so the UI stays
     responsive, and switching to another file before it finishes discards the outdated result.
 
-    Pressing 'm'/'d' only stages a mapping/clear in memory, marking the affected node in
+    Pressing 'm'/'d' only stages a mapping/clear in memory ('a' stages a mapping as an extra
+    source, keeping the selected one -- e.g. a second CMIP7 brand of a variable), marking the affected node in
     place (a newly (re)mapped variable shows '<- component:local_key', a cleared mapping is
     struck through and labeled '(deleted)') so you can batch edits across many variables
     without the tree collapsing; press 's' to write all staged changes to disk. Press 'q' to

@@ -38,6 +38,10 @@ Functions
 - ``conv_mip_to_bronx_freq(cmor_table_freq)``
 - ``get_bronx_freq_from_mip_table(json_table_config)``
 - ``filter_brands(brands, target_var, mip_var_cfgs, has_time_bnds, input_vert_dim)``
+- ``scalar_z_coords(ds, local_var)``
+- ``resolve_cmip7_brand(ds, local_var, target_var, mip_var_cfgs, var_dim_with_scalars)``
+- ``cmip7_brands(mip_var_cfgs, target_var)``
+- ``resolve_input_file_brand(input_file, local_var, target_var, mip_var_cfgs, reduce)``
 
 Notes
 -----
@@ -56,6 +60,8 @@ from typing import Optional, List, Union
 
 import numpy as np
 from netCDF4 import Dataset, Variable
+
+from .cmor_reduce import REDUCE_METHODS
 
 from .cmor_constants import ( ARCHIVE_GOLD_DATA_DIR, CMIP7_GOLD_OCEAN_FILE_STUB, # CMIP6_GOLD_OCEAN_FILE_STUB,
                               INPUT_TO_MIP_VERT_DIM,
@@ -1076,3 +1082,94 @@ def filter_brands( brands: list,
     raise ValueError(
         f'multiple brands {filtered_brands} remain for {target_var} after '
         f'disambiguation \u2014 cannot determine which brand to use')
+
+
+def scalar_z_coords(ds: Dataset, local_var: str) -> dict:
+    """
+    Scalar (0-dimensional) coordinate variables with ``axis='Z'`` referenced by ``local_var``'s
+    ``coordinates`` attribute, e.g. ``height``. MIP tables count these as dimensions, so they
+    must be accounted for before CMIP7 brand matching.
+
+    :return: ``{coord_name: netCDF4 variable}``
+    :rtype: dict
+    """
+    coords = {}
+    try:
+        coord_attr = ds.variables[local_var].coordinates
+        for coord_name in coord_attr.split():
+            if coord_name in ds.variables:
+                coord_var = ds.variables[coord_name]
+                if len(coord_var.dimensions) == 0:  # scalar (0-dim)
+                    if hasattr(coord_var, 'axis') and coord_var.axis == 'Z':
+                        coords[coord_name] = coord_var
+                        fre_logger.info('detected scalar Z-coordinate: %s', coord_name)
+    except AttributeError:
+        pass
+    return coords
+
+
+def resolve_cmip7_brand(ds: Dataset, local_var: str, target_var: str,
+                        mip_var_cfgs: dict, var_dim_with_scalars: int) -> str:
+    """
+    Pick the CMIP7 brand of ``target_var`` that the input data matches: candidates are the
+    table's ``<target_var>_<brand>`` entries with as many dimensions as the input (scalar Z
+    coordinates included), disambiguated by ``filter_brands`` when more than one remains.
+
+    :raises ValueError: If no brand's dimensions match the input data.
+    :return: The brand, e.g. ``'tavg-h2m-hxy-u'``.
+    :rtype: str
+    """
+    brands = []
+    for mip_var in mip_var_cfgs['variable_entry'].keys():
+        if all([ target_var == mip_var.split('_')[0],
+                 var_dim_with_scalars == len(mip_var_cfgs['variable_entry'][mip_var]['dimensions']) ]):
+            brands.append(mip_var.split('_')[1])
+
+    if len(brands) == 0:
+        fre_logger.error('cmip7 case detected, but dimensions of input data do not match '
+                         'any of those found for the associated brands.')
+        raise ValueError('no variable brand was able to be identified for this CMIP7 case')
+    if len(brands) == 1:
+        var_brand = brands[0]
+        fre_logger.debug('cmip7 case, extracted brand %s', var_brand)
+    else:
+        fre_logger.warning('cmip7 case, extracted multiple brands %s, attempting disambiguation',
+                           brands)
+        var_brand = filter_brands(
+            brands, target_var, mip_var_cfgs,
+            has_time_bnds = 'time_bnds' in ds.variables,
+            input_vert_dim = get_vertical_dimension(ds, local_var),
+            cell_methods = getattr(ds.variables[local_var], 'cell_methods', None),
+            standard_name = getattr(ds.variables[local_var], 'standard_name', None)
+        )
+    fre_logger.debug('cmip7 case, filtered possible brands to %s', var_brand)
+    return var_brand
+
+
+def cmip7_brands(mip_var_cfgs: dict, target_var: str) -> list:
+    """The brands of bare variable name ``target_var`` in a CMIP7 MIP table, e.g.
+    ``['tavg-h2m-hxy-u', 'tmax-h2m-hxy-u']`` for ``tas``."""
+    return [key.split('_', 1)[1] for key in mip_var_cfgs['variable_entry']
+            if key.split('_')[0] == target_var and '_' in key]
+
+
+def resolve_input_file_brand(input_file: Union[str, Path], local_var: str, target_var: str,
+                             mip_var_cfgs: dict, reduce: Optional[str] = None) -> str:
+    """
+    The CMIP7 brand ``local_var`` in ``input_file`` would be CMORized to as ``target_var``,
+    picked the same way the CMORization does (see ``resolve_cmip7_brand``) -- counting the
+    dimensions left after the variable list's ``reduce`` method, if any. A variable with a
+    single brand in the table needs no input file; otherwise only its header is read.
+
+    :raises ValueError: If no single brand matches the input data.
+    :raises OSError: If the input file cannot be read.
+    :return: The brand, e.g. ``'tavg-h2m-hxy-u'``.
+    :rtype: str
+    """
+    brands = cmip7_brands(mip_var_cfgs, target_var)
+    if len(brands) == 1:
+        return brands[0]
+    with Dataset(input_file, 'r') as ds:
+        var_dim = ds.variables[local_var].ndim + len(scalar_z_coords(ds, local_var)) - \
+            REDUCE_METHODS.get(reduce, 0)
+        return resolve_cmip7_brand(ds, local_var, target_var, mip_var_cfgs, var_dim)

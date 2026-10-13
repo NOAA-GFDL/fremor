@@ -85,8 +85,8 @@ def test_expected_output_prefix_cmip7_multi_brand_unresolvable():
 def test_expected_output_prefix_cmip7_multi_brand_resolved_from_input():
     ''' with several brands, the brand is resolved from the input file's header '''
     cfgs = {'variable_entry': {'tas_tavg-h2m-hxy-u': {}, 'tas_tmax-h2m-hxy-u': {}}}
-    with patch('fremor.cmor_mixer.nc.Dataset') as mock_ds, \
-         patch('fremor.cmor_mixer.resolve_cmip7_brand', return_value='tmax-h2m-hxy-u') as mock_brand:
+    with patch('fremor.cmor_helpers.Dataset') as mock_ds, \
+         patch('fremor.cmor_helpers.resolve_cmip7_brand', return_value='tmax-h2m-hxy-u') as mock_brand:
         mock_ds.return_value.__enter__.return_value.variables = {'tasmax': type('V', (), {'ndim': 3})()}
         prefix = expected_output_prefix('in.nc', 'tasmax', 'tas', cfgs, 'CMIP7_atmos.json', 'CMIP7')
     assert prefix == 'tas_tmax-h2m-hxy-u_'
