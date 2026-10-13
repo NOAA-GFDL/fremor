@@ -1176,17 +1176,17 @@ class MapApp(App):
     settings in a dialog (selecting the table node itself shows them), 'z' to pick the reduce
     method of the selected mapping, 'u' to undo the single most recent staged mapping
     edit, 'R' to restore every staged edit back to the last save, 's' to save all staged
-    changes to disk, 'r' to refresh the tree, and 'q' to quit ('q' again to confirm if there
-    are unsaved staged changes). Staged-but-unsaved mapping nodes are marked in place
+    changes to disk, 'r' to refresh the tree (only with nothing staged), and 'q' to quit ('q'
+    again to confirm if there are unsaved staged changes). Staged-but-unsaved mapping nodes are marked in place
     (without rebuilding the tree, so expanded branches stay expanded while batching edits)
     and are only cleared once 's' actually writes them out. 'u' also works in place, putting
     back the label the undone edit's node had before it -- a rebuild would re-categorize
     every staged edit, e.g. moving a multiply-mapped variable with a staged-cleared source
-    into Mapped and losing its '(deleted)' marker. 'R' rebuilds the tree, since it can
-    affect many nodes at once. A disabled-flag toggle always updates its
-    table node's label in place, immediately -- it doesn't participate in 'u' undo (toggling
-    again reverses it just as easily), but does count toward 'R' restore and 's' save like
-    any other staged edit."""
+    into Mapped and losing its '(deleted)' marker -- which is also why 'r' refuses to rebuild
+    while anything is staged. 'R' rebuilds the tree, since it can affect many nodes at once. A
+    disabled-flag toggle always updates its table node's label in place, immediately -- it
+    doesn't participate in 'u' undo (toggling again reverses it just as easily), but does count
+    toward 'R' restore and 's' save like any other staged edit."""
 
     CSS = """
     #cmip_pane {
@@ -1280,8 +1280,9 @@ class MapApp(App):
         self._last_assigned = None
         # one entry per edit in the session's undo history, in the same order, so 'u' can
         # restore the affected node's label in place: (node, label before the edit), or
-        # (None, None) for an edit no node shows (the new source of a reassignment), or None
-        # once a tree rebuild has made the recorded node stale
+        # (None, None) for an edit no node shows (the new source of a reassignment) or whose
+        # node a rebuild has since replaced -- 'r' is blocked while anything is staged, so
+        # that only happens to edits that no longer change anything
         self._undo_labels = []
 
     def compose(self) -> ComposeResult:
@@ -1388,7 +1389,7 @@ class MapApp(App):
         }
         tree.root.remove_children()
         self.table_nodes = {}
-        self._undo_labels = [None] * len(self._undo_labels)
+        self._undo_labels = [(None, None)] * len(self._undo_labels)
         # Keep both groups alphabetical, but make active tables the first thing users see.
         # Use the last-saved state so staged toggles don't move a table out from under the
         # user's cursor; the new position takes effect when the toggle is saved.
@@ -1882,16 +1883,10 @@ class MapApp(App):
             return
         self.notify(f'undid staged edit for {edit.local_key} ({edit.component_name}) in '
                    f'{edit.table_name}')
-        entry = self._undo_labels.pop() if self._undo_labels else None
-        if entry is None:
-            # the edit's node went stale in a rebuild ('r'), which already re-categorized
-            # every staged edit -- so rebuilding again loses nothing still shown
-            self._populate_cmip_tree(preserve_table_expansion=True)
-        else:
-            node, label = entry
-            if node is not None:
-                node.set_label(label)
-            self._refresh_table_pending_label(edit.table_name)
+        node, label = self._undo_labels.pop()
+        if node is not None:
+            node.set_label(label)
+        self._refresh_table_pending_label(edit.table_name)
         self._quit_confirmed = False
 
     def action_restore_pending(self) -> None:
@@ -1914,6 +1909,12 @@ class MapApp(App):
         self._populate_cmip_tree(preserve_table_expansion=True)
 
     def action_refresh_tree(self) -> None:
+        # a rebuild re-categorizes staged edits from the recomputed report, dropping their
+        # in-place markers (e.g. a staged-cleared source of a multiply-mapped variable)
+        if self.session.has_pending_changes:
+            self.notify("can't refresh with staged changes -- press 's' to save or 'R' to "
+                        'restore first', severity='warning')
+            return
         self._populate_cmip_tree()
 
     async def action_quit(self) -> None:

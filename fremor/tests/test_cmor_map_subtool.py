@@ -1443,6 +1443,44 @@ async def test_map_app_undo_keeps_staged_multiply_mapped_deletions(temp_dir): # 
 
 
 @pytest.mark.asyncio
+async def test_map_app_refresh_blocked_with_staged_changes(temp_dir): # pylint: disable=redefined-outer-name
+    ''' 'r' refuses to rebuild the tree while anything is staged, which would otherwise move a
+    staged-cleared multiply-mapped source into Mapped and drop its (deleted) marker '''
+    pp_dir, varlist_dir, tables_dir = _make_session_fixture(temp_dir)
+    (Path(varlist_dir) / 'CMIP6_Amon_atmos.list').write_text(
+        json.dumps({'sfc_pres': 'ps'}), encoding='utf-8'
+    )
+    (Path(varlist_dir) / 'CMIP6_Amon_atmos_scalar.list').write_text(
+        json.dumps({'sfc_pres_scalar': 'ps'}), encoding='utf-8'
+    )
+    yamlfile = _amon_yaml(temp_dir, pp_dir, varlist_dir, tables_dir,
+                          component_names=['atmos', 'atmos_scalar'])
+    session = MapSession(yamlfile)
+    app = MapApp(session)
+
+    async with app.run_test() as pilot:
+        cmip_tree = app.query_one('#cmip_tree')
+        table_node = cmip_tree.root.children[0]
+        multi_node = table_node.children[2]
+        ps_source = next(n for n in multi_node.children[0].children
+                         if n.data['component'] == 'atmos')
+        app.on_tree_node_selected(_FakeTreeEvent(ps_source, 'cmip_tree'))
+        await pilot.press('d')
+        await pilot.press('r')
+        await pilot.pause()
+
+        assert cmip_tree.root.children[0] is table_node
+        assert str(ps_source.label).endswith('(deleted)')
+
+        await pilot.press('u')
+        await pilot.press('r')
+        await pilot.pause()
+
+        # nothing staged any more, so the refresh goes through
+        assert cmip_tree.root.children[0] is not table_node
+
+
+@pytest.mark.asyncio
 async def test_map_app_restore_pending_key(temp_dir): # pylint: disable=redefined-outer-name
     ''' pressing 'R' discards every staged-but-unsaved edit at once, rebuilding the tree back
     to the last-saved state without touching disk '''
