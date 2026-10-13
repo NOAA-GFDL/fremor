@@ -86,6 +86,10 @@ def _ncgen_for_case(testfile_dir, opt_var_name):
 
 
 # ── CMIP6 parametrized tests ───────────────────────────────────────────────
+# zonal/global means are written under the label the CV reserves for them, not the table's
+# (see cmor_helpers.variable_grid_label)
+OUTPUT_GRID_LABELS = {('AERmonZ', 'ta'): 'gr1z', ('Amon', 'ch4global'): 'gm'}
+
 @pytest.mark.parametrize(
     'testfile_dir,table,opt_var_name,grid_label,start,calendar',
     [
@@ -171,13 +175,14 @@ def test_case_cmip6(  # pylint: disable=too-many-arguments,too-many-positional-a
         calendar_type=calendar,
     )
 
+    output_grid_label = OUTPUT_GRID_LABELS.get((table, opt_var_name), grid_label)
     cmor_output_dir = (
         f'{outdir}/{CMOR_CREATES_DIR_BASE_CMIP6}'
-        f'/{table}/{opt_var_name}/{grid_label}/v{YYYYMMDD}'
+        f'/{table}/{opt_var_name}/{output_grid_label}/v{YYYYMMDD}'
     )
     cmor_output_glob = (
         f'{cmor_output_dir}/{opt_var_name}_{table}_PCMDI-test-1-0'
-        f'_piControl-withism_r3i1p1f1_{grid_label}_??????-??????.nc'
+        f'_piControl-withism_r3i1p1f1_{output_grid_label}_??????-??????.nc'
     )
     cmor_output_files = glob.glob(cmor_output_glob)
     assert len(cmor_output_files) >= 1, (

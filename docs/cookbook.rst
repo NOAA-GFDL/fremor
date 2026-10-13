@@ -246,7 +246,9 @@ Required arguments:
 
 Optional but recommended:
 
-* ``--grid_label``: Grid label (``gn`` for native, ``gr`` for regridded)
+* ``--grid_label``: Grid label (``gn`` for native, ``gr`` for regridded). Global and zonal means
+  in the table are written under the controlled vocabulary's own label instead -- ``gm`` / ``grz``
+  etc. for CMIP6, ``g010``/``g011``/``g012`` for CMIP7 -- see ``fremor run`` in the command reference
 * ``--grid_desc``: Description of the grid
 * ``--nom_res``: Nominal resolution (must match controlled vocabulary)
 * ``--opt_var_name``: Process only files matching this variable name

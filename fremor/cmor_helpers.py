@@ -42,6 +42,7 @@ Functions
 - ``resolve_cmip7_brand(ds, local_var, target_var, mip_var_cfgs, var_dim_with_scalars)``
 - ``cmip7_brands(mip_var_cfgs, target_var)``
 - ``resolve_input_file_brand(input_file, local_var, target_var, mip_var_cfgs, reduce)``
+- ``variable_grid_label(mip_era, variable_key, variable_entry, grid_label, region)``
 
 Notes
 -----
@@ -54,6 +55,7 @@ import json
 import logging
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 from typing import Optional, List, Union
@@ -64,7 +66,8 @@ from netCDF4 import Dataset, Variable
 from .cmor_reduce import REDUCE_METHODS
 
 from .cmor_constants import ( ARCHIVE_GOLD_DATA_DIR, CMIP7_GOLD_OCEAN_FILE_STUB, # CMIP6_GOLD_OCEAN_FILE_STUB,
-                              INPUT_TO_MIP_VERT_DIM,
+                              CMIP6_HORIZONTAL_DIMS, CMIP7_ICE_SHEET_AREA_LABELS,
+                              CMIP7_MEAN_GRID_LABELS, INPUT_TO_MIP_VERT_DIM,
                               MIP_ERA_RESOURCES, MIP_ERA_RESOURCE_FALLBACKS )
 
 fre_logger = logging.getLogger(__name__)
@@ -1173,3 +1176,47 @@ def resolve_input_file_brand(input_file: Union[str, Path], local_var: str, targe
         var_dim = ds.variables[local_var].ndim + len(scalar_z_coords(ds, local_var)) - \
             REDUCE_METHODS.get(reduce, 0)
         return resolve_cmip7_brand(ds, local_var, target_var, mip_var_cfgs, var_dim)
+
+
+def variable_grid_label(mip_era: str, variable_key: str, variable_entry: dict,
+                        grid_label: str, region: Optional[str] = None) -> str:
+    """
+    The grid label a variable's output should carry, given the label configured for its
+    whole table (``grid_label``): that label, except for a global or zonal mean, which the
+    controlled vocabulary labels on its own.
+
+    - CMIP7: an ``hm`` (horizontal mean) brand gets the EMD single-cell grid for the
+      dataset's ``region`` -- ``g010`` (glb), ``g011`` (nh) or ``g012`` (sh) -- unless it is an
+      ice-sheet/shelf mean (area label ``is``/``gis``/``fis``), which no such grid covers.
+      Zonal (``hy``/``hyb``) brands keep the table's label: the vocabulary has no zonal label,
+      so the grid their latitudes come from is the closest description.
+    - CMIP6/CMIP6Plus: a zonal mean (latitude but no longitude, ``longitude:`` in its
+      cell_methods) gets the table's ``gn``/``gr``/``grN`` with a ``z`` appended, e.g.
+      ``grz``. A variable with no horizontal dimension at all that is aggregated over area
+      (``area: ...`` cell_methods) gets ``gm`` -- unless it is an ice-sheet/shelf total or a
+      hemispheric one (long_name ending in North/South), which have no label of their own.
+
+    :param variable_key: The MIP table's variable_entry key, e.g. ``tos_tavg-u-hm-sea``.
+    :param variable_entry: That key's variable_entry dict.
+    :param region: The dataset's ``region`` attribute (CMIP7).
+    :return: The grid label to use.
+    :rtype: str
+    """
+    if mip_era.upper() == 'CMIP7':
+        brand = variable_key.split('_', 1)[1].split('-') if '_' in variable_key else []
+        if len(brand) == 4 and brand[2] == 'hm' and brand[3] not in CMIP7_ICE_SHEET_AREA_LABELS:
+            return CMIP7_MEAN_GRID_LABELS.get(region, grid_label)
+        return grid_label
+
+    dims = variable_entry.get('dimensions') or []
+    dims = set(dims.split() if isinstance(dims, str) else dims)
+    cell_methods = variable_entry.get('cell_methods') or ''
+    if 'latitude' in dims and 'longitude' not in dims and 'longitude:' in cell_methods:
+        return f'{grid_label}z' if re.fullmatch(r'gn|gr\d?', grid_label) else grid_label
+    is_area_aggregate = re.search(r'\barea:\s*(?!point)', cell_methods) is not None
+    is_ice_sheet = re.search(r'where \w*ice_(sheet|shelf)', cell_methods) is not None
+    is_hemispheric = (variable_entry.get('long_name') or '').endswith((' North', ' South'))
+    if not dims & CMIP6_HORIZONTAL_DIMS and is_area_aggregate and not is_ice_sheet \
+            and not is_hemispheric:
+        return 'gm'
+    return grid_label

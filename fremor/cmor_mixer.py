@@ -47,7 +47,8 @@ from .cmor_helpers import ( from_ds_get_this, create_lev_bnds,
                             normalize_calendar, get_time_calendar_ds, get_time_calendar_value,
                             calendars_are_equivalent,
                             resolve_mip_era_table_resource, find_ps_companion, table_declares_ps,
-                            resolve_cmip7_brand, resolve_input_file_brand, scalar_z_coords )
+                            resolve_cmip7_brand, resolve_input_file_brand, scalar_z_coords,
+                            variable_grid_label )
 from .cmor_reduce import apply_reduce, parse_varlist_value
 from .cmor_tripolar import load_tripolar_grid
 from .cmor_validate import check_exp_config_required_attributes
@@ -379,6 +380,20 @@ def rewrite_netcdf_file_var( mip_var_cfgs: dict = None,
     # read experiment configuration file
     fre_logger.info('cmor is opening: json_exp_config = %s', json_exp_config)
     cmor.dataset_json(json_exp_config)
+
+    # the table target's grid label suits its gridded variables; a global or zonal mean gets the
+    # label the CV reserves for it instead (CMOR itself only checks the label is in the CV)
+    variable_key = f'{target_var}_{var_brand}' if exp_cfg_mip_era == 'CMIP7' else target_var
+    table_grid_label = cmor.get_cur_dataset_attribute('grid_label')
+    region = cmor.get_cur_dataset_attribute('region') \
+        if cmor.has_cur_dataset_attribute('region') else None
+    grid_label = variable_grid_label(exp_cfg_mip_era, variable_key,
+                                     mip_var_cfgs['variable_entry'].get(variable_key, {}),
+                                     table_grid_label, region)
+    if grid_label != table_grid_label:
+        fre_logger.info('%s is a global/zonal mean: grid_label %s instead of %s',
+                        variable_key, grid_label, table_grid_label)
+        cmor.set_cur_dataset_attribute('grid_label', grid_label)
 
     # load CMOR table
     fre_logger.info('cmor is loading+setting json_table_config = %s', json_table_config)
