@@ -1326,8 +1326,10 @@ async def test_map_app_clear_mapping(temp_dir): # pylint: disable=redefined-oute
         assert session.has_pending_changes
         assert str(source_node.label).endswith('(deleted)')
         assert any(span.style == 'strike' for span in source_node.label.spans)
-        # clearing a mapping also deselects it, resetting the box
-        assert selected_box.content == MapApp.NO_CMIP_SELECTION
+        # clearing a source keeps its multiply-mapped variable selected, for a remap
+        assert app.selected_cmip is ps_node.data
+        assert app.selected_cmip_node is ps_node
+        assert selected_box.content == 'selected: Amon / ps'
 
         await pilot.press('s')
         await pilot.pause()
@@ -1671,15 +1673,19 @@ async def test_map_app_cmip_tree_selection_shows_detail_box(temp_dir): # pylint:
 
 
 @pytest.mark.asyncio
-async def test_map_app_clear_mapping_resets_detail_box(temp_dir): # pylint: disable=redefined-outer-name
-    ''' clearing a mapping drops the cmip-tree selection, so the detail box goes back to its
-    placeholder text rather than showing a stale definition '''
+async def test_map_app_clear_mapping_keeps_variable_selected(temp_dir): # pylint: disable=redefined-outer-name
+    ''' clearing a one-to-one mapping keeps its MIP variable selected (no longer as a source)
+    with its definition still shown, so 'm' can map a replacement pp file right away '''
     pp_dir, varlist_dir, tables_dir = _make_session_fixture(temp_dir)
     (Path(varlist_dir) / 'CMIP6_Amon_atmos.list').write_text(
         json.dumps({'t_ref': 'tas'}), encoding='utf-8'
     )
+    comp_ts_dir = Path(pp_dir) / 'atmos' / 'ts' / 'monthly' / '5yr'
+    comp_ts_dir.mkdir(parents=True)
+    _write_nc_file(comp_ts_dir / 'atmos.000101-000512.t_surf.nc', 't_surf', units='K')
     yamlfile = _amon_yaml(temp_dir, pp_dir, varlist_dir, tables_dir, component_names=['atmos'])
-    app = MapApp(MapSession(yamlfile))
+    session = MapSession(yamlfile)
+    app = MapApp(session)
 
     async with app.run_test() as pilot:
         cmip_tree = app.query_one('#cmip_tree')
@@ -1694,7 +1700,26 @@ async def test_map_app_clear_mapping_resets_detail_box(temp_dir): # pylint: disa
         await pilot.press('d')
         await pilot.pause()
 
-        assert detail_box.content == app.NO_CMIP_DETAIL
+        definition = detail_box.content
+        assert definition != app.NO_CMIP_DETAIL
+        assert app.selected_cmip == {'kind': 'var', 'table': 'Amon', 'var': 'tas'}
+        assert app.selected_cmip_node is source_node
+        assert app.query_one('#selected_cmip').content == 'selected: Amon / tas'
+
+        pp_tree = app.query_one('#pp_tree')
+        component_node = pp_tree.root.children[0]
+        app.on_tree_node_expanded(_FakeTreeEvent(component_node, 'pp_tree'))
+        freq_node = component_node.children[0]
+        app.on_tree_node_expanded(_FakeTreeEvent(freq_node, 'pp_tree'))
+        chunk_node = freq_node.children[0]
+        app.on_tree_node_expanded(_FakeTreeEvent(chunk_node, 'pp_tree'))
+        app.on_tree_node_selected(_FakeTreeEvent(chunk_node.children[0], 'pp_tree'))
+        await pilot.press('m')
+        await pilot.pause()
+
+        assert session.mapped_variables('atmos', 't_surf') == [('Amon', 'tas')]
+        assert session.mapped_variables('atmos', 't_ref') == []
+        assert str(source_node.label).endswith('<- atmos:t_surf')
 
 
 
