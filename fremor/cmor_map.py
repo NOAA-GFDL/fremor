@@ -1826,10 +1826,18 @@ class MapApp(App):
         self.notify(f'staged clearing {local_key} ({component}) in {table_name} '
                    "(press 's' to save)")
         self._mark_deleted(self.selected_cmip_node, table_name)
-        self.selected_cmip = None
-        self.selected_cmip_node = None
-        self.query_one('#selected_cmip', Static).update(self._format_selected_cmip(None))
-        self._set_detail_text('cmip_detail', self.NO_CMIP_DETAIL)
+        # keep the MIP variable itself selected so a replacement can be mapped straight away
+        # ('m') -- the source's parent var node under Multiply-mapped/Unknown, or the
+        # one-to-one leaf itself, now standing for its no-longer-mapped variable
+        parent = self.selected_cmip_node.parent if self.selected_cmip_node is not None else None
+        if parent is not None and (parent.data or {}).get('kind') == 'var':
+            self.selected_cmip = parent.data
+            self.selected_cmip_node = parent
+        else:
+            self.selected_cmip = {'kind': 'var', 'table': table_name,
+                                  'var': self.selected_cmip['var']}
+        self.query_one('#selected_cmip', Static).update(
+            self._format_selected_cmip(self.selected_cmip))
         self._quit_confirmed = False
 
     def action_toggle_disabled(self) -> None:
