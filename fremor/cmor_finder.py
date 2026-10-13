@@ -404,7 +404,7 @@ def make_simple_varlist( dir_targ: str,
         try:
             # read in mip vars to check against later
             fre_logger.info('attempting to read in variable entries in specified mip table')
-            full_mip_vars_list=get_json_file_data(json_mip_table)['variable_entry'].keys()
+            full_mip_vars_list=get_json_file_data(json_mip_table)['variable_entry']
         except Exception as exc:
             raise Exception( 'problem opening mip table and getting variable entry data.'
                             f'exc = {exc}') from exc
