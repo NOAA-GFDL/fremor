@@ -7,8 +7,7 @@ experiments or ensemble members from one working example.
 
 | File | Role |
 | --- | --- |
-| `fremor_submit_tables.sh` | **The submitter.** You edit its config block and run it on a login node. It splits the work into per-table jobs and `sbatch`es them. |
-| `fremor_table_job.sh` | The body of one per-table job. The submitter submits it; you don't edit or run it yourself. |
+| `fremor_submit_tables.py` | **The submitter.** You edit its config block and run it on a login node. It splits the work into per-table jobs, writes a bash job script for each table (`<WORK_DIR>/<table>/job.sh`) and `sbatch`es them. |
 | `fremor_make_cases.py` | Generates per-case inputs for many cases, plus a `submit_all.sh` that runs the submitter once per case. |
 
 Contents:
@@ -30,20 +29,25 @@ Contents:
 
 ## Requirements
 
-- **bash 4 or newer** for both shell scripts. They use `mapfile` and `declare -p` on
-  arrays. macOS's built-in `/bin/bash` 3.2 is too old, but HPC login nodes are fine.
+- **Python 3.6+ with PyYAML** for `fremor_submit_tables.py` and `fremor_make_cases.py`.
+  The fremor environment's Python has it; so may the system `python3`. MODE=run needs
+  no PyYAML on the login node.
+- **bash** on the compute nodes, for the generated job scripts.
 - **Slurm** commands `sbatch` and `squeue`.
-- **fremor** installed as an environment module or a conda environment. The submitter
-  loads it through `ENV_SETUP`, both on the login node and inside every job.
-- **PyYAML**, which comes with fremor. The submitter splits the yaml with the Python
-  from the fremor environment. `fremor_make_cases.py` runs with any Python 3.6+ that has
-  PyYAML, including the system `python3`.
+- **fremor** installed as an environment module or a conda environment. `ENV_SETUP` is
+  copied into every job script, and run once by the submitter to check it finds `fremor`.
 - *Optional:* the DMF tape tools **`dmget`** and **`dmls`**. If they're missing, jobs
   skip the tape recall and treat all inputs as ordinary disk files.
 
 Always run the submitter on a **login or analysis node**, never inside `sbatch`.
 
 ## What a table job does
+
+The submitter writes each table's job as a self-contained bash script,
+`<WORK_DIR>/<table>/job.sh`. It has the `#SBATCH` options, the table's settings and
+only the steps that apply to it (MODE, archiving, checks), so you can read exactly
+what a job will do, e.g. after `DRY_RUN=1`. The scripts are rewritten on every
+submission: change the submitter's settings, not the scripts.
 
 Staging and CMORization happen in **the same job**. A file recalled from tape is
 processed right away, so it can't be purged from the disk cache while a separate CMOR
@@ -104,38 +108,40 @@ You need two working inputs.
 Then:
 
 ```bash
-# 1. edit the USER CONFIG block of fremor_submit_tables.sh, at least:
-#      ENV_SETUP='module load fremor'     # how jobs get fremor
-#      MODE=yaml
-#      FREMOR_YAML=/path/to/cmor.yaml
+# 1. edit the USER CONFIG block of fremor_submit_tables.py, at least:
+#      ENV_SETUP = 'module load fremor'   # how jobs get fremor
+#      MODE = env('MODE', 'yaml')
+#      FREMOR_YAML = env('FREMOR_YAML', '/path/to/cmor.yaml')
 #      JOB_PARTITION / JOB_TIME / JOB_MEM / SLURM_ACCOUNT for your site
-# 2. see what would be submitted
-DRY_RUN=1 ./fremor_submit_tables.sh
+# 2. write the job scripts and see what would be submitted
+DRY_RUN=1 ./fremor_submit_tables.py
 # 3. submit
-./fremor_submit_tables.sh
+./fremor_submit_tables.py
 ```
 
 The submitter prints the work directory and one `<table>  <job id>` line per table.
-It also prints an `squeue` command for monitoring.
+It also prints an `squeue` command for monitoring. If the default `python3` lacks
+PyYAML, run it as `/path/to/fremor/env/bin/python fremor_submit_tables.py`.
 
 Settings can also be given on the command line instead of editing the file, for
-example `FREMOR_YAML=/path/to/cmor.yaml ./fremor_submit_tables.sh`. The settings that
+example `FREMOR_YAML=/path/to/cmor.yaml ./fremor_submit_tables.py`. The settings that
 allow this are marked [env] in the [reference](#configuration-reference).
 
 ## Configuration reference
 
-All settings live in the `USER CONFIG` block at the top of `fremor_submit_tables.sh`.
-Settings marked **[env]** can also be set in the environment, and the environment wins.
-Every other setting has to be edited in the file.
+All settings live in the `USER CONFIG` block at the top of `fremor_submit_tables.py`,
+written in Python. Settings marked **[env]** can also be set in the environment, and a
+non-empty environment value wins; on/off [env] settings take `1` to switch on. Every
+other setting has to be edited in the file.
 
 ### General
 
 | Setting | Default | Meaning |
 | --- | --- | --- |
 | `CASE_NAME` [env] | *(empty)* | Short name telling cases (experiments, ensemble members) apart, e.g. `esm4_hist_r1`. It's added to the default `WORK_DIR`, `ARCHIVE_DIR` and `OUTDIR`, to Slurm job names (`fremor_<CASE_NAME>_<table>`) and to log lines. Allowed characters: letters, digits, `.`, `_`, `-`. If empty, it's left out everywhere. |
-| `ENV_SETUP` | `module load fremor` | Shell code that makes `fremor` available. It's `eval`'d on the login node and in every job. For conda: `'source /path/to/miniforge3/etc/profile.d/conda.sh && conda activate fremor'`. |
+| `ENV_SETUP` | `module load fremor` | Bash code that makes `fremor` available. It's copied into every job script, and run once on the login node as a check. For conda: `'source /path/to/miniforge3/etc/profile.d/conda.sh && conda activate fremor'`. |
 | `MODE` [env] | `yaml` | `yaml`: run `fremor yaml` on per-table copies of a CMOR yaml. `run`: run `fremor run` on explicit per-table targets ([see below](#moderun-without-a-cmor-yaml)). |
-| `WORK_DIR` [env] | `~/fremor_jobs/[<CASE_NAME>/]<timestamp>` | Scratch area for per-table yamls, file lists, env files and logs ([layout](#the-work-directory)). It must be new or empty, unless you're resuming it or pass `--overwrite`. |
+| `WORK_DIR` [env] | `~/fremor_jobs/[<CASE_NAME>/]<timestamp>` | Scratch area for per-table yamls, job scripts, file lists and logs ([layout](#the-work-directory)). It must be new or empty, unless you're resuming it or pass `--overwrite`. |
 | `CONTINUE` [env] | `0` | `1` means resume `WORK_DIR`. The same as `--continue`. |
 | `OVERWRITE` [env] | `0` | `1` means redo the run in an existing `WORK_DIR` from scratch. The same as `--overwrite` ([details](#monitoring-failures-and-resuming)). |
 | `START`, `STOP` [env] | *(empty)* | Year bounds (YYYY) passed as `--start` / `--stop`. If empty, the yaml's bounds are used, or all years. |
@@ -145,10 +151,10 @@ Every other setting has to be edited in the file.
 | Setting | Default | Meaning |
 | --- | --- | --- |
 | `FREMOR_YAML` [env] | — | The CMOR yaml to process. |
-| `TABLES` | `()` = every enabled `table_target` | Tables to process. Table names on the command line override this. |
-| `YAML_EXTRA_ARGS` | `()` | Extra flags for `fremor yaml`, e.g. `(--run_strict)`. `--continue` is added automatically when resuming. |
-| `PRECHECK` | `1` | Run `fremor check --check-inputs --check-dims` after staging. |
-| `POSTCHECK` | `1` | Run `fremor check --check-outputs` after CMORizing. |
+| `TABLES` | `[]` = every enabled `table_target` | Tables to process. Table names on the command line override this. |
+| `YAML_EXTRA_ARGS` | `[]` | Extra flags for `fremor yaml`, e.g. `['--run_strict']`. `--continue` is added automatically when resuming. |
+| `PRECHECK` | `True` | Run `fremor check --check-inputs --check-dims` after staging. |
+| `POSTCHECK` | `True` | Run `fremor check --check-outputs` after CMORizing. |
 
 ### MODE=run
 
@@ -156,7 +162,7 @@ Every other setting has to be edited in the file.
 | --- | --- | --- |
 | `EXP_CONFIG` [env] | — | Experiment configuration JSON shared by all targets. |
 | `OUTDIR` [env] | `/path/to/cmorized_output[/<CASE_NAME>]` | CMOR output root. |
-| `RUN_TARGETS` | — | One entry per table, written as `"label\|table_json\|indir\|varlist_json\|extra fremor run args"`. |
+| `RUN_TARGETS` | — | One dict per table, with keys `label`, `table_json`, `indir`, `varlist` and optional `args` ([see below](#moderun-without-a-cmor-yaml)). |
 
 ### Staging and concurrency
 
@@ -166,7 +172,7 @@ Every other setting has to be edited in the file.
 | `JOB_QUEUE_FILE` [env] | *(empty)* | A file shared by several submissions, so `MAX_CONCURRENT` limits all of them together ([details](#limiting-concurrent-jobs)). |
 | `DMGET_BATCH` | `500` | Files per `dmget` / `dmls` call. |
 | `STAGE_RETRIES` | `3` | `dmget` + verify rounds before giving up. |
-| `COPY_TO_LOCAL` | `0` | `1` copies staged inputs to node-local `LOCAL_ROOT` before CMORizing. |
+| `COPY_TO_LOCAL` | `False` | `True` copies staged inputs to node-local `LOCAL_ROOT` before CMORizing. |
 | `LOCAL_ROOT` | `'${TMPDIR}'` | Node-local directory, expanded inside the job. Keep it single-quoted, e.g. `'/vftmp/${USER}/${SLURM_JOB_ID}'`. |
 
 ### Archive
@@ -187,23 +193,23 @@ Every other setting has to be edited in the file.
 | `JOB_MEM` | `16G` | `--mem`. |
 | `JOB_CPUS` | `1` | `--cpus-per-task`. |
 | `MAIL_USER` | *(empty)* | Mail address for `--mail-type=FAIL`. |
-| `SBATCH_EXTRA_ARGS` | `()` | Anything else, e.g. `(--qos=normal --constraint=bigmem)`. |
+| `SBATCH_EXTRA_ARGS` | `[]` | Anything else, one option per entry in `--option=value` form, e.g. `['--qos=normal', '--constraint=bigmem']`. They become `#SBATCH` lines of the job scripts. |
 
 ## Command line
 
 ```
-fremor_submit_tables.sh [--continue | --continue=WORK_DIR | --overwrite] [TABLE ...]
+fremor_submit_tables.py [--continue | --continue=WORK_DIR | --overwrite] [TABLE ...]
 ```
 
 | Form | Effect |
 | --- | --- |
-| `./fremor_submit_tables.sh` | Submit every selected table. |
-| `./fremor_submit_tables.sh Amon Omon` | Only these tables. This overrides `TABLES` (and `RUN_TARGETS` labels in MODE=run). |
-| `DRY_RUN=1 ./fremor_submit_tables.sh` | Print the `sbatch` commands and submit nothing. The work directory is still created. |
-| `./fremor_submit_tables.sh --continue=~/fremor_jobs/20260929_101500` | Resume that earlier run ([details](#monitoring-failures-and-resuming)). |
-| `./fremor_submit_tables.sh --continue` | Resume the `WORK_DIR` set in the config or environment. |
-| `WORK_DIR=~/fremor_jobs/20260929_101500 ./fremor_submit_tables.sh --overwrite` | Redo the selected tables of that run from scratch, rewriting its files. |
-| `CASE_NAME=esm4_hist_r1 FREMOR_YAML=... ./fremor_submit_tables.sh` | Submit one case of many. |
+| `./fremor_submit_tables.py` | Submit every selected table. |
+| `./fremor_submit_tables.py Amon Omon` | Only these tables. This overrides `TABLES` (and `RUN_TARGETS` labels in MODE=run). |
+| `DRY_RUN=1 ./fremor_submit_tables.py` | Write the job scripts, print the `sbatch` commands and submit nothing. |
+| `./fremor_submit_tables.py --continue=~/fremor_jobs/20260929_101500` | Resume that earlier run ([details](#monitoring-failures-and-resuming)). |
+| `./fremor_submit_tables.py --continue` | Resume the `WORK_DIR` set in the config or environment. |
+| `WORK_DIR=~/fremor_jobs/20260929_101500 ./fremor_submit_tables.py --overwrite` | Redo the selected tables of that run from scratch, rewriting its files. |
+| `CASE_NAME=esm4_hist_r1 FREMOR_YAML=... ./fremor_submit_tables.py` | Submit one case of many. |
 
 ## The work directory
 
@@ -212,7 +218,7 @@ WORK_DIR/
 ├── HISTORY                     # append-only record of every submission into this directory
 └── <table>/                    # one per table, e.g. Amon/
     ├── fremor_<table>.yaml     # MODE=yaml: copy of FREMOR_YAML with every other table disabled
-    ├── job.env                 # everything the job needs, written by the submitter
+    ├── job.sh                  # the table's job script, written by the submitter
     ├── JOBID                   # Slurm job id of the latest submission
     ├── input_files.txt         # inputs found for this table
     ├── missing_files.txt       # inputs that do not exist (job stops if non-empty)
@@ -249,7 +255,7 @@ CMOR's `*.log` files. Typical causes are missing inputs, files still offline aft
 **To resubmit what didn't finish**, resume the same work directory:
 
 ```bash
-./fremor_submit_tables.sh --continue=/path/to/WORK_DIR
+./fremor_submit_tables.py --continue=/path/to/WORK_DIR
 ```
 
 When resuming, the submitter:
@@ -267,11 +273,11 @@ can't overwrite an earlier run by accident.
 pass `--overwrite` (or set `OVERWRITE=1`):
 
 ```bash
-WORK_DIR=/path/to/WORK_DIR ./fremor_submit_tables.sh --overwrite [TABLE ...]
+WORK_DIR=/path/to/WORK_DIR ./fremor_submit_tables.py --overwrite [TABLE ...]
 ```
 
 Every selected table is resubmitted, including those with a `DONE` marker. Its yaml,
-`job.env`, `JOBID`, file lists and markers are rewritten, and `fremor yaml` runs
+`job.sh`, `JOBID`, file lists and markers are rewritten, and `fremor yaml` runs
 without `--continue`, so all chunks are CMORized again. Tables you don't select keep
 their files. `HISTORY` is appended to. The submitter refuses `--overwrite` while any
 job of that `WORK_DIR` is still queued or running, since those jobs read their files
@@ -303,18 +309,26 @@ overrides the yaml's `outdir` or `OUTDIR`. After a successful run and post-check
 Set `MODE=run` to call `fremor run` directly. There's one `RUN_TARGETS` entry per
 table:
 
-```bash
-EXP_CONFIG=/path/to/CMOR_input.json
-OUTDIR=/path/to/cmorized_output
-RUN_TARGETS=(
-    "Amon|/path/to/tables/CMIP6_Amon.json|/path/to/pp/atmos_cmip/ts/monthly/5yr|/path/to/varlist_Amon.json|--grid_label gr1 --calendar noleap"
-    "Omon|/path/to/tables/CMIP6_Omon.json|/path/to/pp/ocean_monthly/ts/monthly/5yr|/path/to/varlist_Omon.json|"
-)
+```python
+EXP_CONFIG = env('EXP_CONFIG', '/path/to/CMOR_input.json')
+OUTDIR = env('OUTDIR', in_case('/path/to/cmorized_output'))
+RUN_TARGETS = [
+    {'label': 'Amon',
+     'table_json': '/path/to/tables/CMIP6_Amon.json',
+     'indir': '/path/to/pp/atmos_cmip/ts/monthly/5yr',
+     'varlist': '/path/to/varlist_Amon.json',
+     'args': '--grid_label gr1 --calendar noleap'},
+    {'label': 'Omon',
+     'table_json': '/path/to/tables/CMIP6_Omon.json',
+     'indir': '/path/to/pp/ocean_monthly/ts/monthly/5yr',
+     'varlist': '/path/to/varlist_Omon.json'},
+]
 ```
 
-The fields are: the label (used for the job name and work subdirectory), the MIP
-table JSON, the input directory, the variable list JSON (its keys are the local
-variable names), and optional extra `fremor run` arguments.
+The keys are: `label` (used for the job name and work subdirectory), `table_json`
+(the MIP table JSON), `indir` (the input directory), `varlist` (the variable list
+JSON; its keys are the local variable names), and optional `args` (extra `fremor run`
+arguments, split like a shell command line).
 
 Inputs are the `*.nc` files in the input directory named like
 `<prefix>.<YYYY[MM]-YYYY[MM]>.<variable>.nc` whose variable is in the list, limited by
@@ -377,7 +391,7 @@ python fremor_make_cases.py cases.csv \
 | `--out-dir` | Where the generated files go (required). |
 | `--pp-dir`, `--outdir`, `--archive-dir` | Patterns for rows without that column. |
 | `--jobs-root` | Parent of the per-case work directories. Default `${HOME}/fremor_jobs`. A relative path is taken from the directory you run the generator in. |
-| `--submitter` | The `fremor_submit_tables.sh` to call. Default: the one next to the script. |
+| `--submitter` | The `fremor_submit_tables.py` to call. Default: the one next to the script. |
 | `--allow-new-keys` | Allow CSV columns that aren't keys of the template JSON. |
 | `--force` | Overwrite previously generated files. |
 
@@ -397,7 +411,8 @@ Check a couple of generated files before submitting.
 
 ### 3. Submit
 
-`submit_all.sh` runs `fremor_submit_tables.sh` once per case in MODE=yaml, setting
+`submit_all.sh` runs `fremor_submit_tables.py` once per case in MODE=yaml, with the
+Python that ran `fremor_make_cases.py` (or `PYTHON` from the environment), setting
 `CASE_NAME`, `FREMOR_YAML`, a fixed `WORK_DIR=<jobs-root>/<case_name>`, and any
 `ARCHIVE_DIR`/`START`/`STOP`. The Slurm, staging and archive settings still come from
 the submitter's config block, so set those there first.
@@ -451,4 +466,4 @@ submissions, set the same `JOB_QUEUE_FILE` for each. Dry runs don't write to the
 | `unexpected output layout ...` | `ARCHIVE=1` found files where it didn't expect them. MODE=yaml expects `<outdir>/<component>/<table>/<CMIP dirs>/`. |
 | `CSV columns neither in ... nor used as {column}` | `fremor_make_cases.py`: a CSV column is misspelled, or is meant to be a new JSON key (`--allow-new-keys`). |
 | `already exist (use --force to overwrite)` | `fremor_make_cases.py` was run again into the same `--out-dir`. |
-| `mapfile: command not found` | bash is older than 4 (e.g. macOS `/bin/bash`). Run on the cluster, or with a newer bash. |
+| `PyYAML not found for ...` | The Python running the submitter has no PyYAML. Run it with the fremor environment's Python. |
