@@ -9,6 +9,7 @@ CMOR's
 CMORBITE
 CPLD
 Clim
+DDEBUG
 Docstrings
 Dorkey
 Emon
@@ -113,6 +114,7 @@ dmls
 difmxybo
 docstrings
 excinfo
+esgf
 filenotfound
 forcmip
 fremake
