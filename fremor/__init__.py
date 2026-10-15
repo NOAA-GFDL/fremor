@@ -27,7 +27,7 @@ logging.addLevelName(DDEBUG_LEVEL_NUM, 'DDEBUG')
 def ddebug(self, message, *args, **kws):
     """Deep-debug logging for large arrays and dictionaries."""
     if self.isEnabledFor(DDEBUG_LEVEL_NUM):
-        self._log(DDEBUG_LEVEL_NUM, message, args, **kws)
+        self._log(DDEBUG_LEVEL_NUM, message, args, **kws) # pylint: disable=protected-access
 
 
 logging.Logger.ddebug = ddebug

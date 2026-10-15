@@ -4,6 +4,7 @@ tests for fremor.cmor_check.cmor_check_subtool
 
 import json
 import tempfile
+import logging
 from pathlib import Path
 
 import pytest
@@ -327,7 +328,7 @@ def test_cmor_check_subtool_all_disabled_returns_empty_report(temp_dir): # pylin
     assert cmor_check_subtool(yamlfile=yamlfile, table_patterns=['Amon']) == {}
 
 
-def test_cmor_check_subtool_reports_startup_progress(temp_dir, capsys): # pylint: disable=redefined-outer-name
+def test_cmor_check_subtool_reports_startup_progress(temp_dir, capsys, caplog): # pylint: disable=redefined-outer-name
     ''' progress is written to stderr from configuration load through per-table completion,
     keeping stdout available for the report (especially valid --json output) '''
     temp_root = Path(temp_dir)
@@ -342,14 +343,15 @@ def test_cmor_check_subtool_reports_startup_progress(temp_dir, capsys): # pylint
         _table_target('Amon', [_component_entry('atmos', varlist_path)])
     ], table_dir=tables_dir)
 
-    cmor_check_subtool(yamlfile=yamlfile, json_output=True)
+    with caplog.at_level( logging.INFO, logger='fremor.cmor_check'):
+         cmor_check_subtool(yamlfile=yamlfile, json_output=True)
 
-    captured = capsys.readouterr()
-    assert json.loads(captured.out)['Amon']['reference_var_count'] == 1
-    assert 'loading configuration' in captured.err
-    assert 'checking table 1/1 (Amon)' in captured.err
-    assert 'finished Amon in' in captured.err
-    assert 'complete in' in captured.err
+    captured = caplog.messages
+    assert json.loads(capsys.readouterr().out)['Amon']['reference_var_count'] == 1
+    assert 'loading configuration' in captured[0]
+    assert 'checking table 1/1 (Amon)' in captured[2]
+    assert 'finished Amon in' in captured[3]
+    assert 'complete in' in captured[4]
 
 
 def test_cmor_check_subtool_table_patterns_no_match_err(temp_dir): # pylint: disable=redefined-outer-name

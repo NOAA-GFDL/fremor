@@ -1256,6 +1256,7 @@ def _coverage_finding(coverage: Optional[dict], common_span: Optional[tuple]) ->
 
 def _print_report(report: dict, show_mapped: bool = False,
                   show_unmapped: bool = False, show_multi_mapped: bool = False) -> None:
+    """this function uses click.echo by design"""
     if EXP_CONFIG_REPORT_KEY in report:
         _print_exp_config_report(report[EXP_CONFIG_REPORT_KEY])
     table_names = sorted(name for name in report if name != EXP_CONFIG_REPORT_KEY)
@@ -1450,7 +1451,7 @@ def cmor_check_subtool(
     :rtype: dict
     """
     started_at = time.monotonic()
-    click.echo('fremor check: loading configuration...', err=True)
+    fre_logger.info('loading configuration: %s', yamlfile)
     cmor_yaml_ctx = _load_config_yaml(yamlfile)
     mip_era = cmor_yaml_ctx['mip_era']
     pp_dir = cmor_yaml_ctx['pp_dir']
@@ -1485,48 +1486,42 @@ def cmor_check_subtool(
     disabled_count = len(requested_table_names) - len(table_names)
     if disabled_count:
         click.echo(
-            f'fremor check: skipping {disabled_count} disabled MIP table(s)',
+            f'skipping {disabled_count} disabled MIP table(s)',
             err=True,
         )
     varlist_count = sum(
         len(table_target.get('target_components') or [])
         for table_target in selected_table_targets
     )
-    click.echo(
-        f'fremor check: loading {varlist_count} variable list(s) for '
+    fre_logger.info(
+        f'loading {varlist_count} variable list(s) for '
         f'{len(table_names)} MIP table(s)...',
-        err=True,
     )
     if check_staging:
-        click.echo(
-            'fremor check: staging checks query archive metadata for each mapped variable; '
+        fre_logger.warning(
+            'staging checks query archive metadata for each mapped variable; '
             'dmls and network filesystems may respond slowly...',
-            err=True,
         )
     if check_dims:
-        click.echo(
-            'fremor check: dimension checks open one NetCDF header per mapped variable...',
-            err=True,
+        fre_logger.info(
+            'dimension checks open one NetCDF header per mapped variable...',
         )
     if check_attrs:
-        click.echo(
-            'fremor check: attrs checks open one NetCDF header per mapped variable...',
-            err=True,
+        fre_logger.info(
+            'attrs checks open one NetCDF header per mapped variable...',
         )
     if check_range:
-        click.echo(
-            'fremor check: range checks read a full file\'s data values per mapped variable '
+        fre_logger.info(
+            'range checks read a full file\'s data values per mapped variable '
             'and can be VERY SLOW for large/high-frequency fields; files still offline '
             '(not staged) are skipped rather than triggering a tape retrieval...',
-            err=True,
         )
     output_files_index = []
     if check_output:
-        click.echo(f'fremor check: indexing existing output under {outdir}...', err=True)
+        fre_logger.info(f'indexing existing output under {outdir}...')
         output_files_index = _index_output_files(outdir)
-        click.echo(
-            f'fremor check: found {len(output_files_index)} existing output file(s) under {outdir}',
-            err=True,
+        fre_logger.info(
+            f'found {len(output_files_index)} existing output file(s) under {outdir}',
         )
     report = {}
     exp_json = cmor_yaml_ctx.get('exp_json')
@@ -1571,10 +1566,9 @@ def cmor_check_subtool(
             if check_range:
                 enabled_checks.append('range')
             check_detail += f' and {"/".join(enabled_checks)} input-file checks'
-        click.echo(
-            f'fremor check: checking table {index}/{len(table_names)} '
+        fre_logger.info(
+            f'checking table {index}/{len(table_names)} '
             f'({table_name}): {check_detail}...',
-            err=True,
         )
         table_started_at = time.monotonic()
         table_target = table_targets_by_name.get(table_name)
@@ -1598,14 +1592,13 @@ def cmor_check_subtool(
             grid_check=grid_check
         )
         report[table_entry.pop('table_name')] = table_entry
-        click.echo(
-            f'fremor check: finished {table_name} in '
+        fre_logger.info(
+            f'finished {table_name} in '
             f'{time.monotonic() - table_started_at:.1f}s',
-            err=True,
         )
 
     if json_output:
-        click.echo(json.dumps(report, indent=2))
+        click.echo(json.dumps(report, indent=2)) # leave this as click.echo
     else:
         _print_report(report, show_mapped=show_mapped,
                      show_unmapped=show_unmapped, show_multi_mapped=show_multi_mapped)
@@ -1615,5 +1608,5 @@ def cmor_check_subtool(
             json.dump(report, handle, indent=2)
         fre_logger.info('wrote check report to %s', output_report)
 
-    click.echo(f'fremor check: complete in {time.monotonic() - started_at:.1f}s', err=True)
+    fre_logger.info(f'complete in {time.monotonic() - started_at:.1f}s')
     return report
