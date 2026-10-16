@@ -6,6 +6,11 @@ authors:
   - family-names: "Laflotte"
     given-names: "Ian"
     orcid: "https://orcid.org/0000-0002-7366-8090"
-version: 
-date-released: 
+  - family-names: "Chongxing"
+    given-names: "Fan"
+    orcid: "https://orcid.org/0000-0002-3434-937X"
+  - family-names: "Blanton"
+    given-names: "Chris"
+  - family-names: "Nikonov"
+    given-names: "Sergey"
 repository-code: "https://github.com/NOAA-GFDL/fremor"
