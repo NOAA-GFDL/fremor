@@ -214,7 +214,20 @@ def test_cli_fremor_yaml_case1(mock_subtool, tmp_path):
         start=None,
         stop=None,
         print_cli_call=True,
+        skip_existing=False,
     )
+
+
+@patch('fremor.cli.cmor_yaml_subtool')
+def test_cli_fremor_yaml_continue(mock_subtool, tmp_path):
+    """ fremor yaml --continue -y YAMLFILE passes skip_existing=True """
+    dummy_yaml = tmp_path / 'cmor.yaml'
+    dummy_yaml.write_text('placeholder', encoding='utf-8')
+
+    result = runner.invoke(fremor, args=['yaml', '--continue', '-y', str(dummy_yaml)])
+
+    assert result.exit_code == 0
+    assert mock_subtool.call_args.kwargs['skip_existing'] is True
 
 
 # ── fremor stage ───────────────────────────────────────────────────
@@ -288,6 +301,7 @@ def test_cli_fremor_check_case(mock_subtool, tmp_path):
         check_attrs=False,
         check_range=False,
         dmls_bin=None,
+        check_exp_config=False,
     )
 
 
@@ -300,7 +314,7 @@ def test_cli_fremor_check_renamed_flags(mock_subtool, tmp_path):
     result = runner.invoke(
         fremor,
         args=['check', '-y', str(yamlfile), '--show-mapped', '--show-unmapped', '--check-inputs',
-              '--check-dims', '--check-outputs', '--check-attrs', '--check-range'],
+              '--check-dims', '--check-outputs', '--check-attrs', '--check-range', '--check-exp-config'],
     )
 
     assert result.exit_code == 0
@@ -318,6 +332,7 @@ def test_cli_fremor_check_renamed_flags(mock_subtool, tmp_path):
         check_attrs=True,
         check_range=True,
         dmls_bin=None,
+        check_exp_config=True,
     )
 
 
@@ -347,6 +362,7 @@ def test_cli_fremor_check_rejects_bare_show_unmapped(mock_subtool, tmp_path):
         check_attrs=False,
         check_range=False,
         dmls_bin=None,
+        check_exp_config=False,
     )
 
 
@@ -1127,7 +1143,7 @@ def test_cli_fremor_yaml_misplaced_global_verbose_flag():
     # Test with a short flag (-v) on the yaml subcommand
     result_v = runner.invoke(fremor, args=['yaml', '-v'])
     assert result_v.exit_code == 2
-    assert "Error: The '-v' flag is in the wrong spot." in result_v.output
+    assert "Error: The \"-v\" flag is in the wrong spot." in result_v.output
     assert "Global flags must be placed before the command (e.g., `fremor -v yaml`)." in result_v.output
 
 
@@ -1141,7 +1157,7 @@ def test_cli_fremor_run_misplaced_global_quiet_flag():
     # Test with a long flag (--quiet) on the run subcommand
     result_q = runner.invoke(fremor, args=['run', '--quiet'])
     assert result_q.exit_code == 2
-    assert "Error: The '--quiet' flag is in the wrong spot." in result_q.output
+    assert "Error: The \"--quiet\" flag is in the wrong spot." in result_q.output
     assert "Global flags must be placed before the command (e.g., `fremor --quiet run`)." in result_q.output
 
 def test_cli_fremor_genuinely_unknown_flag():

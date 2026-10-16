@@ -9,6 +9,7 @@ C tracebacks.
 Functions
 ---------
 - ``resolve_cv_path(json_exp_config, json_table_config)``
+- ``find_unset_required_attributes(exp_config_data, required)``
 - ``check_exp_config_required_attributes(json_exp_config, json_table_config)``
 """
 
@@ -49,6 +50,31 @@ def resolve_cv_path( json_exp_config: str,
     if not cv_path.exists():
         return None
     return cv_path.resolve()
+
+
+def find_unset_required_attributes( exp_config_data: dict,
+                                    required: list ) -> tuple:
+    """
+    Split the CV-required attributes the experiment config does not set into those absent
+    entirely and those left blank. Attributes CMOR supplies itself are exempt -- see
+    ``CMOR_PROVIDED_GLOBAL_ATTRIBUTES``.
+
+    :param exp_config_data: The loaded experiment configuration.
+    :type exp_config_data: dict
+    :param required: The CV's ``required_global_attributes``.
+    :type required: list
+    :return: ``(missing, blank)`` lists of attribute names.
+    :rtype: tuple
+    """
+    missing, blank = [], []
+    for attribute in required:
+        if attribute in CMOR_PROVIDED_GLOBAL_ATTRIBUTES:
+            continue
+        if attribute not in exp_config_data:
+            missing.append(attribute)
+        elif not str(exp_config_data[attribute]).strip():
+            blank.append(attribute)
+    return missing, blank
 
 
 def check_exp_config_required_attributes( json_exp_config: str,
@@ -92,14 +118,7 @@ def check_exp_config_required_attributes( json_exp_config: str,
 
     exp_config_data = get_json_file_data(json_exp_config)
 
-    missing, blank = [], []
-    for attribute in required:
-        if attribute in CMOR_PROVIDED_GLOBAL_ATTRIBUTES:
-            continue
-        if attribute not in exp_config_data:
-            missing.append(attribute)
-        elif not str(exp_config_data[attribute]).strip():
-            blank.append(attribute)
+    missing, blank = find_unset_required_attributes(exp_config_data, required)
 
     if not missing and not blank:
         fre_logger.info('all %s CV-required attributes are set in %s',

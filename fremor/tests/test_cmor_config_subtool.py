@@ -157,6 +157,7 @@ def test_cmor_config_subtool_writes_self_contained_yaml(temp_dir): # pylint: dis
             output_variable_list,
             json_mip_table,
             return_none_if_no_mip_vars, # pylint: disable=unused-argument
+            check_freq, # pylint: disable=unused-argument
     ):
         del dir_targ, json_mip_table
         Path(output_variable_list).write_text('{}', encoding='utf-8')

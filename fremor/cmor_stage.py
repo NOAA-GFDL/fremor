@@ -10,7 +10,8 @@ from typing import Optional, Sequence
 
 import yaml
 
-from .cmor_helpers import get_bronx_freq_from_mip_table, iso_to_bronx_chunk
+from .cmor_helpers import get_bronx_freq_from_mip_table, iso_to_bronx_chunk, resolve_named_ps_source
+from .cmor_reduce import varlist_target
 
 
 fre_logger = logging.getLogger(__name__)
@@ -90,9 +91,8 @@ def _table_local_variables(table_path: Path, variable_list_path: Path,
         valid_targets = set(table_variables)
 
     return {
-        local_var for local_var, target_var in variable_list.items()
-        if isinstance(local_var, str) and isinstance(target_var, str) and
-        target_var in valid_targets
+        local_var for local_var, value in variable_list.items()
+        if isinstance(local_var, str) and varlist_target(value) in valid_targets
     }
 
 
@@ -175,7 +175,8 @@ def collect_stage_files(yamlfile: str, start: Optional[str] = None,
     """Collect the unique input files that a YAML-driven fremor run can consume.
 
     The returned paths include mapped primary variables and an existing same-date
-    ``ps`` file, which is an auxiliary input used for hybrid vertical coordinates.
+    ``ps`` file, which is an auxiliary input used for hybrid vertical coordinates, plus the
+    surface-pressure files of a table target's optional ``ps_component``.
     Year bounds follow ``fremor yaml`` semantics: a chunk is selected only when its
     complete filename date range falls within the requested bounds.
     """
@@ -206,6 +207,20 @@ def collect_stage_files(yamlfile: str, start: Optional[str] = None,
                     input_dir, local_variables, stage_config.start, stage_config.stop
                 )
             )
+
+        ps_fallback = resolve_named_ps_source(
+            table_target, stage_config.document.get('table_targets') or [], stage_config.pp_dir, freq)
+        if ps_fallback is not None:
+            if Path(ps_fallback['indir']).is_dir():
+                input_files.update(
+                    _component_stage_files(
+                        Path(ps_fallback['indir']), {ps_fallback['local_var']},
+                        stage_config.start, stage_config.stop
+                    )
+                )
+            else:
+                fre_logger.warning('ps_component directory %s for table %s does not exist',
+                                   ps_fallback['indir'], table_name)
 
     return sorted(str(path) for path in input_files)
 

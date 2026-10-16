@@ -41,18 +41,18 @@ class FremorCommand(click.Command):
     and provide a user-friendly error message.
     """
     def make_context(self, info_name, args, parent=None, **extra):
-            try:
-                return super().make_context(info_name, args, parent=parent, **extra)
-            except click.NoSuchOption as e:
-                if e.option_name in MISPLACED_GLOBAL_FLAGS:
-                    # Provide the clear, specific error message requested in #219
-                    click.secho(
-                        f"Error: The '{e.option_name}' flag is in the wrong spot. "
-                        f"Global flags must be placed before the command (e.g., `fremor {e.option_name} {info_name}`).",
-                        fg="red", err=True
-                    )
-                    sys.exit(2)
-                raise # Re-raise if it's a genuinely unknown flag
+        try:
+            return super().make_context(info_name, args, parent=parent, **extra)
+        except click.NoSuchOption as e:
+            if e.option_name in MISPLACED_GLOBAL_FLAGS:
+                # Provide the clear, specific error message requested in #219
+                click.secho(
+                    f'Error: The "{e.option_name}" flag is in the wrong spot. '
+                    f'Global flags must be placed before the command (e.g., `fremor {e.option_name} {info_name}`).',
+                    fg="red", err=True
+                )
+                sys.exit(2)
+            raise # Re-raise if it's a genuinely unknown flag
 
 class FremorGroup(click.Group):
     """Main group that automatically uses FremorCommand for all subcommands."""
@@ -86,8 +86,16 @@ START_YEAR_HELP = 'string representing the minimum calendar year CMOR should sta
                   'currently, only YYYY format is supported.'
 STOP_YEAR_HELP = 'string representing the maximum calendar year CMOR should stop processing for. ' + \
                   'currently, only YYYY format is supported.'
+CONTINUE_HELP='skip input files whose CMORized output already exists under the output directory, ' + \
+              'and only process the missing ones. an output counts as existing when a non-empty file ' + \
+              'for the same variable (and CMIP7 brand) covers the same years as the input file.'
 VARLIST_STRICT_MODE_HELP='if indicated, and given a table and variable names found in filenames, if none of the ' + \
                          'found variable names are in the table (sans brand if cmip7), do not write the list.'
+CONFIG_CHECK_FREQ_HELP='only map a variable to a MIP table when the actual frequency of its pp files matches ' + \
+                       'the table. the frequency is read from the first file\'s time axis spacing, its ' + \
+                       'climatology attribute and the variable\'s cell_methods (time: point vs mean), and ' + \
+                       'compared with the table entry\'s frequency (CMIP6) and time dimension (CMIP6 and ' + \
+                       'CMIP7). opens one file per candidate variable, so offline files are recalled.'
 
 @click.version_option(
     package_name = 'fremor',
@@ -181,7 +189,10 @@ def fremor(verbose = 0, quiet = False, log_file = None):
               help = 'In dry-run mode, print the equivalent CLI invocation (default) '
                      'or the Python cmor_run_subtool() call.',
               required = False)
-def yaml(yamlfile, run_strict, run_one, dry_run, start, stop, print_cli_call):
+@click.option('--continue', 'continue_mode', is_flag = True, default = False,
+              help = CONTINUE_HELP,
+              required = False)
+def yaml(yamlfile, run_strict, run_one, dry_run, start, stop, print_cli_call, continue_mode):
     """Process a self-contained CMOR YAML file and run the requested CMORization steps."""
     cmor_yaml_subtool(
         yamlfile = yamlfile,
@@ -190,7 +201,8 @@ def yaml(yamlfile, run_strict, run_one, dry_run, start, stop, print_cli_call):
         dry_run_mode = dry_run,
         start = start,
         stop = stop,
-        print_cli_call = print_cli_call
+        print_cli_call = print_cli_call,
+        skip_existing = continue_mode
     )
 
 
@@ -338,11 +350,13 @@ def run(indir, varlist, table_config, exp_config, outdir, run_one, opt_var_name,
 
 
 @fremor.command('varlist')
-@click.option('-d', '--dir-targ', '--dir_targ', type=str, required=True, help='Target directory')
+@click.option('-d', '--dir-targ', '--dir_targ', type=str, required=True,
+              help='Target directory')
 @click.option('--strict_mode', is_flag = True, default = False,
               help=VARLIST_STRICT_MODE_HELP,
               required=False)
-@click.option('-o', '--output-variable-list', '--output_variable_list', type=str, required=True, help='Output variable list file')
+@click.option('-o', '--output-variable-list', '--output_variable_list', type=str, required=True,
+              help='Output variable list file')
 @click.option('-t', '--mip-table', '--mip_table', type=str, required=False, default=None,
               help='Target MIP table for making variable list')
 def varlist_(dir_targ, strict_mode, output_variable_list, mip_table):
@@ -384,8 +398,9 @@ def varlist_(dir_targ, strict_mode, output_variable_list, mip_table):
               help='Overwrite existing variable list files.')
 @click.option('--calendar', type=str, default='noleap',
               help='Calendar type, e.g. noleap, 360_day. Default noleap.')
-def config(pp_dir, mip_tables_dir, mip_era, exp_config, output_yaml,
-           output_dir, pp_comp_glob, strict_varlist, varlist_dir, freq, chunk, grid, overwrite, calendar):
+@click.option('--check_freq', is_flag=True, default=False, help=CONFIG_CHECK_FREQ_HELP)
+def config(pp_dir, mip_tables_dir, mip_era, exp_config, output_yaml, output_dir, pp_comp_glob,
+           strict_varlist, varlist_dir, freq, chunk, grid, overwrite, calendar, check_freq):
     """
     Generate a CMOR YAML configuration file from a post-processing directory tree.
     Scans pp_dir for components and time-series data, cross-references against MIP tables,
@@ -405,7 +420,8 @@ def config(pp_dir, mip_tables_dir, mip_era, exp_config, output_yaml,
         chunk=chunk,
         grid=grid,
         overwrite=overwrite,
-        calendar_type=calendar
+        calendar_type=calendar,
+        check_freq=check_freq
     )
 
 
@@ -430,13 +446,15 @@ def config(pp_dir, mip_tables_dir, mip_era, exp_config, output_yaml,
               help='For every one-to-one-mapped variable, also check whether its input files '
                    'exist under pp_dir and whether they are staged/disk-resident (best-effort, '
                    'via dmls if available, else a stat-only heuristic -- never reads file '
-                   'content), plus a filename-only scan for gaps between chunk date ranges.')
+                   'content), plus a filename-only scan for gaps between chunk date ranges and a '
+                   'per-variable time-coverage report (first/last date, years covered, and '
+                   'years missing between chunks or relative to the yaml\'s start/stop).')
 @click.option('--check-dims', '--check_dims', is_flag=True, default=False,
               help='For every one-to-one-mapped variable, also check whether a representative '
                    'input file\'s vertical dimension matches what the MIP table declares (e.g. '
                    'distinguishing model-level "alevel" output from fixed "plevNN" pressure '
                    'levels), and whether hybrid-sigma variables have their companion .ps.nc '
-                   'file present. Only inspects one file\'s header per variable.')
+                   'file present. For CMIP7, checks that lat-lon input grids match the grid label. Only inspects one file\'s header per variable.')
 @click.option('--check-outputs', '--check_outputs', is_flag=True, default=False,
               help='For every one-to-one-mapped variable, also report whether CMOR has '
                    'actually produced matching output file(s) under the yaml\'s outdir, plus '
@@ -457,6 +475,12 @@ def config(pp_dir, mip_tables_dir, mip_era, exp_config, output_yaml,
                    'check, this reads a file\'s full array of data and can be VERY SLOW for '
                    'large/high-frequency fields. A representative file that is still offline '
                    '(not staged) is skipped rather than triggering a tape retrieval.')
+@click.option('--check-exp-config', 'check_exp_config', is_flag=True, default=False,
+              help='Also check the yaml\'s exp_json experiment configuration against the '
+                   'controlled vocabulary CMOR will load: required attributes, CV terms '
+                   '(activity_id, experiment_id, source_id, grid_label, ...), consistency with the '
+                   'CV\'s experiment and source entries, license, calendar, and whether '
+                   'further_info_url can be written.')
 @click.option('--dmls-bin', '--dmls_bin', type=str, default=None,
               help='Path to the dmls binary for the --check-inputs check and for the offline '
                    'check that gates --check-range. If omitted, looks for \'dmls\' on PATH; if '
@@ -466,7 +490,7 @@ def config(pp_dir, mip_tables_dir, mip_era, exp_config, output_yaml,
 @click.option('-o', '--output-report','--output_report', type=str, default=None,
               help='Optional path to also write the JSON report to.')
 def check(tables, yamlfile, show_mapped, show_unmapped, show_multi_mapped, check_inputs,
-          check_dims, check_outputs, check_attrs, check_range, dmls_bin, json_output, output_report):
+          check_dims, check_outputs, check_attrs, check_range, check_exp_config, dmls_bin, json_output, output_report):
     """
     Check variable-mapping coverage of varlist files against MIP tables, and optionally
     the actual pp_dir input files those mappings resolve to, and/or the outdir output files
@@ -485,7 +509,8 @@ def check(tables, yamlfile, show_mapped, show_unmapped, show_multi_mapped, check
     under outdir. Pass --check-attrs to check a representative input file's units and
     cell_methods attributes against what the MIP table declares. Pass --check-range to check a
     representative input file's actual data values against the MIP table's valid range -- this
-    reads full file contents and can be very slow, so use it sparingly.
+    reads full file contents and can be very slow, so use it sparingly. Pass --check-exp-config
+    to check the yaml's experiment configuration JSON against the controlled vocabulary.
 
     TABLES is an optional list of MIP table names to check, e.g. 'Amon' or
     'Lmon'. Shell-style wildcards are supported, e.g. 'AER*'. If omitted,
@@ -504,7 +529,8 @@ def check(tables, yamlfile, show_mapped, show_unmapped, show_multi_mapped, check
         check_output=check_outputs,
         check_attrs=check_attrs,
         check_range=check_range,
-        dmls_bin=dmls_bin
+        dmls_bin=dmls_bin,
+        check_exp_config=check_exp_config
     )
 
 

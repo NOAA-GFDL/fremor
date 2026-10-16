@@ -36,7 +36,9 @@ pp_dir input files for every cleanly (one-to-one) mapped variable:
 - ``check_staging=True``: do the expected FRE time-series files exist under
   pp_dir at all, and (best-effort) are they staged/disk-resident rather than
   still sitting offline in the archive -- plus a filename-only scan for gaps
-  between chunk date ranges. No file content is ever read for this check.
+  between chunk date ranges and a per-variable time-coverage summary (first/last
+  date, years covered, and any years missing within the chunks or relative to the
+  yaml's run bounds). No file content is ever read for this check.
   Both checks below respect the yaml's own ``start``/``stop`` run bounds (same
   as ``fremor yaml``/``fremor stage``): a chunk is only considered if its
   complete filename date range falls within them.
@@ -68,6 +70,16 @@ pp_dir input files for every cleanly (one-to-one) mapped variable:
   large/high-frequency fields; a representative file that is still offline
   (archived, not staged) is skipped rather than triggering a tape retrieval.
 
+For CMIP7, ``check_dims=True`` also checks that each lat-lon variable's input grid matches the
+grid label CMOR will write (the table target's gridding ``grid_label``, else the experiment
+config's), as registered in the Essential Model Documentation -- e.g. that ``g225`` data really
+is a global 1.25 x 1 degree grid whose first cell centre is at 0.625E, 89.5S. See
+``cmor_check_exp``.
+
+A separate ``check_exp_config=True`` checks the experiment configuration JSON (the yaml's
+``exp_json``) against the controlled vocabulary CMOR will load, reported under the
+``_exp_config`` key -- see ``cmor_check_exp.check_exp_config``.
+
 Functions
 ---------
 - ``cmor_check_subtool(...)``
@@ -81,7 +93,7 @@ import re
 import shutil
 import subprocess
 import time
-from collections import defaultdict
+from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Optional, Sequence, Union
 
@@ -89,6 +101,8 @@ import click
 import numpy as np
 from netCDF4 import Dataset
 
+from .cmor_check_exp import ( check_exp_config as _check_exp_config, find_emd_grid_cells_dir, grid_finding,
+                              grid_label_spec, load_cv )
 from .cmor_config import _load_config_yaml
 from .cmor_constants import (
     ACCEPTED_VERT_DIMS,
@@ -96,7 +110,9 @@ from .cmor_constants import (
     DMLS_DISK_RESIDENT_STATES,
     INPUT_TO_MIP_VERT_DIM,
 )
-from .cmor_helpers import get_json_file_data, get_vertical_dimension, iso_to_bronx_chunk
+from .cmor_helpers import (find_ps_companion, get_json_file_data, get_vertical_dimension,
+                           iso_to_bronx_chunk, resolve_named_ps_source)
+from .cmor_reduce import parse_varlist_value
 from .cmor_stage import _year_bound
 
 fre_logger = logging.getLogger(__name__)
@@ -341,6 +357,63 @@ def _date_range_gaps(files: list, date_range_fn=None) -> list:
     return gaps
 
 
+def _time_coverage(files: list, start: Optional[int] = None,
+                   stop: Optional[int] = None) -> dict:
+    """Filename-only summary of the time span a variable's input chunks cover: the first
+    chunk's start date and the last chunk's end date (as written in the filenames, e.g.
+    '185001'/'201412'), the number of distinct years covered, and every year missing from
+    that span -- between chunks, plus, when the yaml sets ``start``/``stop`` run bounds,
+    before the first chunk / after the last one. status is 'complete' when nothing is
+    missing, 'incomplete' otherwise, 'missing' with no files at all, and 'unknown' when no
+    filename carries a parseable date range."""
+    coverage = {'status': 'missing', 'first_date': None, 'last_date': None,
+                'years_covered': 0, 'missing_years': [], 'requested': [start, stop]}
+    if not files:
+        return coverage
+
+    chunks = []  # (first_year, last_year, first_date, last_date)
+    for path in files:
+        years = _date_range_from_filename(path)
+        if years is not None:
+            first_date, last_date = path.name.split('.')[-3].split('-', maxsplit=1)
+            chunks.append((*years, first_date, last_date))
+    if not chunks:
+        coverage['status'] = 'unknown'
+        return coverage
+    chunks.sort()
+
+    covered = set()
+    for first_year, last_year, _, _ in chunks:
+        covered.update(range(first_year, last_year + 1))
+    span_start = chunks[0][0] if start is None else min(start, chunks[0][0])
+    span_stop = max(last for _, last, _, _ in chunks)
+    if stop is not None:
+        span_stop = max(stop, span_stop)
+
+    missing_years = _year_ranges(
+        year for year in range(span_start, span_stop + 1) if year not in covered)
+
+    coverage.update({
+        'status': 'incomplete' if missing_years else 'complete',
+        'first_date': chunks[0][2],
+        'last_date': max(chunks, key=lambda chunk: chunk[1])[3],
+        'years_covered': len(covered),
+        'missing_years': missing_years,
+    })
+    return coverage
+
+
+def _year_ranges(years) -> list:
+    """Collapse ascending years into 'YYYY' / 'YYYY-YYYY' runs, e.g. 1984..1989 -> '1984-1989'."""
+    runs = []
+    for year in years:
+        if runs and runs[-1][1] == year - 1:
+            runs[-1][1] = year
+        else:
+            runs.append([year, year])
+    return [f'{first:04d}' if first == last else f'{first:04d}-{last:04d}' for first, last in runs]
+
+
 def _staging_status(files: list, dmls_bin: Optional[str] = None,
                     companion_files: Sequence[Path] = ()) -> dict:
     """Build the staging report entry for one variable's input files. `companion_files`
@@ -512,6 +585,17 @@ def _mip_variable_field_values(table_data: dict, var: str, mip_era: str, field: 
     return values
 
 
+def _mip_variable_is_lat_lon(table_data: dict, var: str, mip_era: str) -> bool:
+    """Whether any of `var`'s MIP-table entries is on a longitude/latitude grid."""
+    variable_entry = table_data.get('variable_entry', {})
+    for key in _matching_variable_keys(variable_entry, var, mip_era):
+        dims = variable_entry[key].get('dimensions', '')
+        tokens = dims.split() if isinstance(dims, str) else (dims or [])
+        if 'longitude' in tokens and 'latitude' in tokens:
+            return True
+    return False
+
+
 # sentinel distinguishing "file exists but couldn't be opened/read" (status should be
 # reported as unknown -- the check never actually ran) from a cleanly-read file that simply
 # has no vertical dimension (int 0, an actual finding).
@@ -578,9 +662,21 @@ def _ps_companion_path(path: Path) -> Path:
     return path.with_name('.'.join((*parts[:-2], 'ps', 'nc')))
 
 
-def _vertical_dim_finding(mip_vert_tokens: list, files: list) -> dict:
+def _ps_file_for(path: Path, ps_source: Optional[dict],
+                 ps_fallback: Optional[dict] = None) -> Optional[Path]:
+    """The surface-pressure file fremor run would use for `path`, see ``find_ps_companion``."""
+    ps_file, _ps_var, _searched = find_ps_companion(path, path.name.split('.')[-2],
+                                                    ps_source, ps_fallback)
+    return None if ps_file is None else Path(ps_file)
+
+
+def _vertical_dim_finding(mip_vert_tokens: list, files: list,
+                          ps_source: Optional[dict] = None,
+                          ps_fallback: Optional[dict] = None) -> dict:
     """Build the dims report entry for one variable, comparing its MIP-table-declared
-    vertical dim(s) against the actual vertical dim found in a representative input file."""
+    vertical dim(s) against the actual vertical dim found in a representative input file.
+    `ps_source` locates the table's mapped ps variable, searched before the companion
+    '.ps.nc' file; `ps_fallback` locates the yaml's ps_component, searched after it."""
     if not files:
         return {'status': 'unknown', 'reason': 'no input files found to inspect'}
 
@@ -616,10 +712,13 @@ def _vertical_dim_finding(mip_vert_tokens: list, files: list) -> dict:
     else:
         finding['status'] = 'vertical_dim_mismatch'
 
-    if input_vert in ('alevel', 'alevhalf'):
-        ps_path = _ps_companion_path(representative)
-        if not ps_path.is_file():
-            finding['missing_ps_file'] = str(ps_path)
+    if input_vert in ('alevel', 'alevhalf') and \
+            _ps_file_for(representative, ps_source, ps_fallback) is None:
+        finding['missing_ps_file'] = str(_ps_companion_path(representative))
+        if ps_source is not None:
+            finding['missing_mapped_ps_in'] = ps_source['indir']
+        if ps_fallback is not None:
+            finding['missing_ps_component_in'] = ps_fallback['indir']
 
     return finding
 
@@ -830,7 +929,9 @@ def _build_files_report(table_path: str, table_data: Optional[dict], mip_era: st
                         check_staging: bool, check_dims: bool, check_output: bool = False,
                         check_attrs: bool = False, check_range: bool = False,
                         output_files_index: Sequence[Path] = (), dmls_bin: Optional[str] = None,
-                        start: Optional[int] = None, stop: Optional[int] = None) -> dict:
+                        start: Optional[int] = None, stop: Optional[int] = None,
+                        ps_fallback: Optional[dict] = None,
+                        grid_check: Optional[dict] = None) -> dict:
     """Per one-to-one-mapped variable: staging status, vertical-dim consistency, units/
     cell_methods consistency, and/or actual-value range (all resolved straight from pp_dir),
     and/or whether CMOR has produced matching output (resolved from `output_files_index`, see
@@ -844,6 +945,14 @@ def _build_files_report(table_path: str, table_data: Optional[dict], mip_era: st
     }
     table_name = table_target['table_name']
 
+    # the table's own mapped ps, which fremor run uses as the hybrid-sigma surface-pressure companion
+    ps_source = None
+    if 'ps' in one_to_one_mapped and one_to_one_mapped['ps'][0] in components_by_name:
+        ps_component_name, ps_key = one_to_one_mapped['ps']
+        ps_indir = _component_input_dir(pp_dir, table_target, components_by_name[ps_component_name])
+        if ps_indir is not None:
+            ps_source = {'indir': str(ps_indir), 'local_var': ps_key}
+
     files_report = {}
     for var, (component_name, gfdl_key) in sorted(one_to_one_mapped.items()):
         component = components_by_name.get(component_name)
@@ -855,11 +964,17 @@ def _build_files_report(table_path: str, table_data: Optional[dict], mip_era: st
 
         var_entry = {}
         if check_staging:
-            companions = [p for p in (_ps_companion_path(f) for f in files) if p.is_file()]
+            companions = [p for p in (_ps_file_for(f, ps_source, ps_fallback) for f in files)
+                          if p is not None and p not in files]
             var_entry['staging'] = _staging_status(files, dmls_bin, companion_files=companions)
+            var_entry['coverage'] = _time_coverage(files, start, stop)
         if check_dims:
             mip_vert_tokens = _mip_variable_vertical_tokens(table_data or {}, var, mip_era)
-            var_entry['dims'] = _vertical_dim_finding(mip_vert_tokens, files)
+            var_entry['dims'] = _vertical_dim_finding(mip_vert_tokens, files, ps_source, ps_fallback)
+            if grid_check is not None and files and \
+                    _mip_variable_is_lat_lon(table_data or {}, var, mip_era):
+                var_entry['grid'] = grid_finding(str(files[0]), gfdl_key,
+                                                 grid_check['grid_label'], grid_check['spec'])
         if check_output:
             prefixes = _expected_output_prefixes(table_data, var, table_name, mip_era)
             output_files = _matching_output_files(output_files_index, prefixes, start, stop)
@@ -884,16 +999,28 @@ def _build_table_report(table_path: str, mip_era: str, varlists_by_table: dict,
                         check_output: bool = False, check_attrs: bool = False,
                         check_range: bool = False, output_files_index: Sequence[Path] = (),
                         dmls_bin: Optional[str] = None,
-                        start: Optional[int] = None, stop: Optional[int] = None) -> dict:
+                        start: Optional[int] = None, stop: Optional[int] = None,
+                        ps_fallback: Optional[dict] = None,
+                        grid_check: Optional[dict] = None) -> dict:
     """Build the unmapped / multiply-mapped / unknown-mapped report for one MIP table."""
     table_name = Path(table_path).stem.split('.')[0].split('_')[1]
     reference_vars = _reference_vars_for_table(table_path, mip_era)
 
     mapped = defaultdict(list)  # cmip_var -> [(component, gfdl_diag_key), ...]
+    reduce_by_source = {}  # (component, gfdl_diag_key) -> reduce method, see cmor_reduce
+    invalid_entries = []  # values that are neither a name nor a valid {name, reduce} object
     for component, _fname, data in varlists_by_table.get(table_name, []):
-        for gfdl_key, cmip_var in data.items():
+        for gfdl_key, value in data.items():
+            try:
+                cmip_var, reduce = parse_varlist_value(value)
+            except ValueError as exc:
+                invalid_entries.append({'component': component, 'local_key': gfdl_key,
+                                        'error': str(exc)})
+                continue
             if cmip_var:
                 mapped[cmip_var].append((component, gfdl_key))
+                if reduce is not None:
+                    reduce_by_source[(component, gfdl_key)] = reduce
 
     unmapped = sorted(reference_vars - set(mapped))
     multiply_mapped = {
@@ -913,6 +1040,14 @@ def _build_table_report(table_path: str, mip_era: str, varlists_by_table: dict,
         'unknown_mapped': unknown_mapped,
     }
 
+    # only present when there is something to say, so reports for plain varlists are unchanged
+    if invalid_entries:
+        report_entry['invalid_entries'] = invalid_entries
+    reduced = {var: reduce_by_source[source] for var, source in one_to_one_mapped.items()
+               if source in reduce_by_source}
+    if reduced:
+        report_entry['reduce'] = reduced
+
     if show_mapped:
         report_entry['one_to_one_mapped'] = one_to_one_mapped
 
@@ -925,7 +1060,7 @@ def _build_table_report(table_path: str, mip_era: str, varlists_by_table: dict,
         report_entry['files'] = _build_files_report(
             table_path, table_data, mip_era, table_target, pp_dir, one_to_one_mapped,
             check_staging, check_dims, check_output, check_attrs, check_range,
-            output_files_index, dmls_bin, start, stop
+            output_files_index, dmls_bin, start, stop, ps_fallback, grid_check
         )
 
     return report_entry
@@ -972,8 +1107,26 @@ def _dims_findings(var_entry: dict) -> list:
              f'input has {dims.get("input_vertical_dim")})'),
         )
     if dims.get('missing_ps_file'):
-        findings.append((color, f'missing companion ps file: {dims["missing_ps_file"]}'))
+        locations = []
+        if dims.get('missing_mapped_ps_in'):
+            locations.append(f'{dims["missing_mapped_ps_in"]} (mapped ps)')
+        locations.append(dims['missing_ps_file'])
+        if dims.get('missing_ps_component_in'):
+            locations.append(f'{dims["missing_ps_component_in"]} (ps_component)')
+        findings.append((color, f'missing companion ps file: {" or ".join(locations)}'))
     return findings
+
+
+def _grid_findings(var_entry: dict) -> list:
+    """Render CMIP7 grid-label checks for input files."""
+    grid = var_entry.get('grid')
+    if grid is None:
+        return []
+    if grid['status'] == 'mismatch':
+        return [('red', f'grid={grid["grid_label"]} mismatch: ' + '; '.join(grid['problems']))]
+    if grid['status'] == 'unknown':
+        return [('yellow', f'grid=unknown ({grid.get("reason")})')]
+    return []
 
 
 def _output_findings(var_entry: dict) -> list:
@@ -1028,15 +1181,86 @@ def _file_findings(var_entry: dict) -> list:
     findings = []
     findings.extend(_staging_findings(var_entry))
     findings.extend(_dims_findings(var_entry))
+    findings.extend(_grid_findings(var_entry))
     findings.extend(_output_findings(var_entry))
     findings.extend(_attrs_findings(var_entry))
     findings.extend(_range_findings(var_entry))
     return findings
 
+# report key holding the experiment-config findings, alongside the per-table entries
+EXP_CONFIG_REPORT_KEY = '_exp_config'
+
+
+def _print_exp_config_report(exp_report: dict) -> None:
+    color = {'ok': 'green', 'warning': 'yellow', 'error': 'red'}[exp_report['status']]
+    click.echo()
+    click.echo(click.style('[EXPERIMENT CONFIG]', bold=True, fg='cyan') +
+               click.style(f'  {exp_report["file"]}', dim=True))
+    if exp_report.get('cv'):
+        click.echo(click.style(f'  checked against {exp_report["cv"]}', dim=True))
+    click.echo('  ' + click.style(f'status={exp_report["status"]}', fg=color))
+    for finding in exp_report['findings']:
+        finding_color = 'red' if finding['level'] == 'error' else 'yellow'
+        click.echo('    ' + click.style(f'{finding["level"].upper()} {finding["attribute"]}: ',
+                                        fg=finding_color, bold=True) + finding['message'])
+
+
+def _print_coverage_summary(files: dict) -> Optional[tuple]:
+    """Print one TIME COVERAGE line for a table's --check-inputs results: the span most of its
+    variables cover and how many are incomplete or differ from it. Returns that common
+    (first_date, last_date) span, so per-variable output can flag only the outliers, or None
+    when no variable has a parseable coverage."""
+    spans = Counter(
+        (entry['coverage']['first_date'], entry['coverage']['last_date'])
+        for entry in files.values()
+        if entry.get('coverage', {}).get('status') in ('complete', 'incomplete')
+    )
+    if not spans:
+        return None
+    common_span, common_count = spans.most_common(1)[0]
+    total = sum(spans.values())
+    outliers = sum(
+        1 for entry in files.values()
+        if entry.get('coverage', {}).get('status') in ('complete', 'incomplete') and
+        (entry['coverage']['status'] == 'incomplete' or
+         (entry['coverage']['first_date'], entry['coverage']['last_date']) != common_span)
+    )
+    requested = next(iter(files.values()))['coverage']['requested']
+    note = f'{common_span[0]}-{common_span[1]} for {common_count}/{total} variables'
+    if requested != [None, None]:
+        bounds = ('-' if year is None else f'{year:04d}' for year in requested)
+        note += f'; run bounds {"..".join(bounds)}'
+    if outliers:
+        note += f'; {outliers} incomplete or different'
+    color = 'green' if outliers == 0 else 'yellow'
+    click.echo('    ' + click.style('TIME COVERAGE ', bold=True, fg=color) +
+               click.style(note, dim=True))
+    return common_span
+
+
+def _coverage_finding(coverage: Optional[dict], common_span: Optional[tuple]) -> Optional[str]:
+    """Text for one variable's coverage finding, or None when it's complete and matches the
+    table's common span (or it has no files, which the staging finding already reports)."""
+    if coverage is None or coverage['status'] == 'missing':
+        return None
+    if coverage['status'] == 'unknown':
+        return 'coverage=unknown (no parseable date range in filenames)'
+    span = (coverage['first_date'], coverage['last_date'])
+    if coverage['status'] == 'complete' and span == common_span:
+        return None
+    text = f'coverage={coverage["status"]} {span[0]}-{span[1]} ({coverage["years_covered"]} yr)'
+    if coverage['missing_years']:
+        text += f', missing years: {", ".join(coverage["missing_years"])}'
+    return text
+
 
 def _print_report(report: dict, show_mapped: bool = False,
                   show_unmapped: bool = False, show_multi_mapped: bool = False) -> None:
-    for table_index, table_name in enumerate(sorted(report)):
+    """this function uses click.echo by design"""
+    if EXP_CONFIG_REPORT_KEY in report:
+        _print_exp_config_report(report[EXP_CONFIG_REPORT_KEY])
+    table_names = sorted(name for name in report if name != EXP_CONFIG_REPORT_KEY)
+    for table_index, table_name in enumerate(table_names):
         entry = report[table_name]
         if table_index:
             click.echo()
@@ -1075,23 +1299,38 @@ def _print_report(report: dict, show_mapped: bool = False,
         for var in unknown_mapped:
             click.echo(f'      - {var}')
 
+        invalid_entries = entry.get('invalid_entries', [])
+        if invalid_entries:
+            click.echo(_category_line(
+                'INVALID', len(invalid_entries),
+                'varlist values that are neither a name nor a {name, reduce} object',
+                nonzero_fg='red'))
+            for invalid in invalid_entries:
+                click.echo(f'      - {invalid["component"]}:{invalid["local_key"]}: {invalid["error"]}')
+
         if show_mapped:
             one_to_one = entry.get('one_to_one_mapped', {})
+            reduced = entry.get('reduce', {})
             click.echo(_category_line(
                 'MAPPED', len(one_to_one), 'mapped from exactly one component/diagnostic',
                 nonzero_fg='green'))
             for var in sorted(one_to_one):
                 comp, key = one_to_one[var]
-                click.echo(f'      - {var}: {comp}:{key}')
+                suffix = f' (reduce={reduced[var]})' if var in reduced else ''
+                click.echo(f'      - {var}: {comp}:{key}{suffix}')
 
         files = entry.get('files')
         if files is not None:
             click.echo('  ' + click.style('FILES', bold=True))
             if not files:
                 click.echo(click.style('      no one-to-one-mapped variables to check', dim=True))
+            common_span = _print_coverage_summary(files)
             for var in sorted(files):
                 var_entry = files[var]
                 findings = _file_findings(var_entry)
+                coverage_text = _coverage_finding(var_entry.get('coverage'), common_span)
+                if coverage_text is not None:
+                    findings.insert(0, ('yellow', coverage_text))
                 if not findings:
                     continue
                 click.echo(f'    {var}')
@@ -1112,7 +1351,8 @@ def cmor_check_subtool(
         check_output: bool = False,
         check_attrs: bool = False,
         check_range: bool = False,
-        dmls_bin: Optional[str] = None
+        dmls_bin: Optional[str] = None,
+        check_exp_config: bool = False
 ) -> dict:
     """
     Cross-reference per-component varlist files against MIP table JSON files
@@ -1149,17 +1389,27 @@ def cmor_check_subtool(
     :type json_output: bool
     :param output_report: optional path to also write the JSON report to.
     :type output_report: str or None
+    :param check_exp_config: if True, also check the yaml's ``exp_json`` experiment configuration
+        against the controlled vocabulary CMOR will load (required attributes, CV terms, the
+        experiment/source entries' activity/parent/institution, license, calendar, and whether
+        further_info_url can be written), reported under the ``_exp_config`` key.
+    :type check_exp_config: bool
     :param check_staging: if True, for every one-to-one-mapped variable also check whether its
         input files exist under pp_dir and whether they're staged/disk-resident (best-effort,
         via ``dmls`` if available else a stat-only heuristic), plus a filename-only scan for
-        gaps between chunk date ranges. The human-readable output omits normal results here to
-        keep the summary focused on missing/unstaged input problems.
+        gaps between chunk date ranges and each variable's time coverage (reported under
+        ``coverage``: first/last date, years covered, missing years incl. any shortfall
+        against the start/stop run bounds). The human-readable output omits normal staging
+        results, prints one TIME COVERAGE line per table, and lists only variables whose
+        coverage is incomplete or differs from the table's most common span.
     :type check_staging: bool
     :param check_dims: if True, for every one-to-one-mapped variable also check whether a
         representative input file's vertical dimension matches what the MIP table declares
         (e.g. distinguishing ``alevel`` model-level output from ``plevNN`` pressure levels),
-        and whether hybrid-sigma variables have their companion ``.ps.nc`` file present. The
-        human-readable output omits normal results.
+        and whether hybrid-sigma variables have their companion ``.ps.nc`` file present. For
+        CMIP7, also check that each lat-lon variable's input grid matches the grid label CMOR
+        will write (see ``cmor_check_exp.grid_label_spec``). The human-readable output omits
+        normal results.
     :type check_dims: bool
     :param check_output: if True (CLI: ``--check-outputs``), for every one-to-one-mapped variable
         also report whether CMOR has actually produced matching output file(s) under the
@@ -1193,13 +1443,15 @@ def cmor_check_subtool(
         match any table_target, yamlfile's ``start``/``stop`` isn't a four-digit year, or
         check_output is True but yamlfile has no ``directories.outdir`` set.
     :return: enabled table_name -> report dict, with keys 'reference_var_count', 'unmapped',
-             'multiply_mapped', 'unknown_mapped', (if show_mapped) 'one_to_one_mapped', and
-             (if check_staging or check_dims or check_output or check_attrs or check_range)
-             'files'. Disabled table targets are omitted.
+             'multiply_mapped', 'unknown_mapped', (if show_mapped) 'one_to_one_mapped', (if any
+             varlist value is malformed) 'invalid_entries', (if any one-to-one mapping has a
+             reduce method) 'reduce', and (if check_staging or check_dims or check_output or check_attrs or check_range)
+             'files'. Disabled table targets are omitted. With check_exp_config, the extra key
+             '_exp_config' holds the experiment-config findings.
     :rtype: dict
     """
     started_at = time.monotonic()
-    click.echo('fremor check: loading configuration...', err=True)
+    fre_logger.info('loading configuration: %s', yamlfile)
     cmor_yaml_ctx = _load_config_yaml(yamlfile)
     mip_era = cmor_yaml_ctx['mip_era']
     pp_dir = cmor_yaml_ctx['pp_dir']
@@ -1234,49 +1486,63 @@ def cmor_check_subtool(
     disabled_count = len(requested_table_names) - len(table_names)
     if disabled_count:
         click.echo(
-            f'fremor check: skipping {disabled_count} disabled MIP table(s)',
+            f'skipping {disabled_count} disabled MIP table(s)',
             err=True,
         )
     varlist_count = sum(
         len(table_target.get('target_components') or [])
         for table_target in selected_table_targets
     )
-    click.echo(
-        f'fremor check: loading {varlist_count} variable list(s) for '
+    fre_logger.info(
+        f'loading {varlist_count} variable list(s) for '
         f'{len(table_names)} MIP table(s)...',
-        err=True,
     )
     if check_staging:
-        click.echo(
-            'fremor check: staging checks query archive metadata for each mapped variable; '
+        fre_logger.warning(
+            'staging checks query archive metadata for each mapped variable; '
             'dmls and network filesystems may respond slowly...',
-            err=True,
         )
     if check_dims:
-        click.echo(
-            'fremor check: dimension checks open one NetCDF header per mapped variable...',
-            err=True,
+        fre_logger.info(
+            'dimension checks open one NetCDF header per mapped variable...',
         )
     if check_attrs:
-        click.echo(
-            'fremor check: attrs checks open one NetCDF header per mapped variable...',
-            err=True,
+        fre_logger.info(
+            'attrs checks open one NetCDF header per mapped variable...',
         )
     if check_range:
-        click.echo(
-            'fremor check: range checks read a full file\'s data values per mapped variable '
+        fre_logger.info(
+            'range checks read a full file\'s data values per mapped variable '
             'and can be VERY SLOW for large/high-frequency fields; files still offline '
             '(not staged) are skipped rather than triggering a tape retrieval...',
-            err=True,
         )
     output_files_index = []
     if check_output:
-        click.echo(f'fremor check: indexing existing output under {outdir}...', err=True)
+        fre_logger.info(f'indexing existing output under {outdir}...')
         output_files_index = _index_output_files(outdir)
-        click.echo(
-            f'fremor check: found {len(output_files_index)} existing output file(s) under {outdir}',
-            err=True,
+        fre_logger.info(
+            f'found {len(output_files_index)} existing output file(s) under {outdir}',
         )
+    report = {}
+    exp_json = cmor_yaml_ctx.get('exp_json')
+    if check_exp_config:
+        click.echo(f'fremor check: checking experiment config {exp_json}...', err=True)
+        report[EXP_CONFIG_REPORT_KEY] = _check_exp_config(exp_json, mip_tables_dir, mip_era)
+
+    # CMIP7 grid-label check, run alongside the dims check: the label CMOR will write comes from
+    # each table target's gridding block, else from the experiment config
+    exp_grid_label, grid_cv, grid_cells_dir = None, None, None
+    check_grid = check_dims and str(mip_era).upper() == 'CMIP7'
+    if check_grid:
+        exp_config_data = {}
+        try:
+            exp_config_data = get_json_file_data(exp_json) if exp_json else {}
+        except Exception:  # pylint: disable=broad-except
+            fre_logger.warning('could not read exp_json %s for the grid-label check', exp_json)
+        exp_grid_label = exp_config_data.get('grid_label')
+        grid_cv, _cv_path = load_cv(mip_tables_dir, exp_config_data, mip_era)
+        grid_cells_dir = find_emd_grid_cells_dir(mip_tables_dir)
+
     table_paths = _mip_table_paths(mip_tables_dir, mip_era, table_names)
     # Restrict reads to selected tables. On archive/network filesystems, loading unrelated
     # varlists was a significant and entirely avoidable part of startup time.
@@ -1285,7 +1551,6 @@ def cmor_check_subtool(
         table_target['table_name']: table_target for table_target in selected_table_targets
     }
 
-    report = {}
     for index, table_name in enumerate(table_names, start=1):
         check_detail = 'mapping coverage'
         if check_staging or check_dims or check_output or check_attrs or check_range:
@@ -1301,29 +1566,39 @@ def cmor_check_subtool(
             if check_range:
                 enabled_checks.append('range')
             check_detail += f' and {"/".join(enabled_checks)} input-file checks'
-        click.echo(
-            f'fremor check: checking table {index}/{len(table_names)} '
+        fre_logger.info(
+            f'checking table {index}/{len(table_names)} '
             f'({table_name}): {check_detail}...',
-            err=True,
         )
         table_started_at = time.monotonic()
+        table_target = table_targets_by_name.get(table_name)
+        ps_fallback = None
+        if table_target is not None and table_target.get('freq'):
+            ps_fallback = resolve_named_ps_source(table_target, table_targets, pp_dir,
+                                                  table_target['freq'])
+        grid_check = None
+        if check_grid:
+            grid_label = ((table_target or {}).get('gridding') or {}).get('grid_label') or exp_grid_label
+            if grid_label:
+                grid_check = {'grid_label': grid_label,
+                              'spec': grid_label_spec(grid_label, grid_cv, grid_cells_dir)}
         table_entry = _build_table_report(
             table_paths[table_name], mip_era, varlists_by_table, show_mapped=show_mapped,
-            pp_dir=pp_dir, table_target=table_targets_by_name.get(table_name),
+            pp_dir=pp_dir, table_target=table_target,
             check_staging=check_staging, check_dims=check_dims,
             check_output=check_output, check_attrs=check_attrs, check_range=check_range,
             output_files_index=output_files_index,
-            dmls_bin=dmls_bin, start=start, stop=stop
+            dmls_bin=dmls_bin, start=start, stop=stop, ps_fallback=ps_fallback,
+            grid_check=grid_check
         )
         report[table_entry.pop('table_name')] = table_entry
-        click.echo(
-            f'fremor check: finished {table_name} in '
+        fre_logger.info(
+            f'finished {table_name} in '
             f'{time.monotonic() - table_started_at:.1f}s',
-            err=True,
         )
 
     if json_output:
-        click.echo(json.dumps(report, indent=2))
+        click.echo(json.dumps(report, indent=2)) # leave this as click.echo
     else:
         _print_report(report, show_mapped=show_mapped,
                      show_unmapped=show_unmapped, show_multi_mapped=show_multi_mapped)
@@ -1333,5 +1608,5 @@ def cmor_check_subtool(
             json.dump(report, handle, indent=2)
         fre_logger.info('wrote check report to %s', output_report)
 
-    click.echo(f'fremor check: complete in {time.monotonic() - started_at:.1f}s', err=True)
+    fre_logger.info(f'complete in {time.monotonic() - started_at:.1f}s')
     return report
