@@ -280,7 +280,9 @@ def find(varlist, table_config_dir, opt_var_name):
 @fremor.command()
 @click.option('-d', '--indir', type = str,
               help='directory containing netCDF files. keys specified in json_var_list are local ' + \
-                   'variable names used for targeting specific files in this directory',
+                   'variable names used for targeting specific files in this directory. Or, to ' + \
+                   'CMORize time-invariant (fx) variables, a FRE static file ' + \
+                   '<pp_dir>/<component>/<component>.static.nc holding all of them',
               required=True)
 @click.option('--varlist', type = str,
               help=VARLIST_HELP,
@@ -387,7 +389,9 @@ def varlist_(dir_targ, strict_mode, output_variable_list, mip_table):
 @click.option('--strict-varlist','--strict_varlist', is_flag=True, default=False,
               help='pass strict_mode flag to fremor varlist')
 @click.option('--freq', type=str, default='monthly',
-              help='Temporal frequency string, e.g. monthly, daily. Default monthly.')
+              help='Temporal frequency string, e.g. monthly, daily. Default monthly. Use static '
+                   'to map the time-invariant variables in each component\'s static file, '
+                   '<component>.static.nc, onto the tables\' fixed (fx) entries instead.')
 @click.option('--chunk', type=str, default='5yr',
               help='Time chunk string, e.g. 5yr, 10yr. Default 5yr.')
 @click.option('--grid', type=str, default='g999',
@@ -397,8 +401,12 @@ def varlist_(dir_targ, strict_mode, output_variable_list, mip_table):
 @click.option('--calendar', type=str, default='noleap',
               help='Calendar type, e.g. noleap, 360_day. Default noleap.')
 @click.option('--check_freq', is_flag=True, default=False, help=CONFIG_CHECK_FREQ_HELP)
+@click.option('--dmget-bin', '--dmget_bin', type=str, default='dmget', show_default=True,
+              help='dmget executable name or path. With --freq static, every component\'s static '
+                   'file is recalled from tape with it in one batch before being read.')
 def config(pp_dir, mip_tables_dir, mip_era, exp_config, output_yaml, output_dir, pp_comp_glob,
-           strict_varlist, varlist_dir, freq, chunk, grid, overwrite, calendar, check_freq):
+           strict_varlist, varlist_dir, freq, chunk, grid, overwrite, calendar, check_freq,
+           dmget_bin):
     """
     Generate a CMOR YAML configuration file from a post-processing directory tree.
     Scans pp_dir for components and time-series data, cross-references against MIP tables,
@@ -419,7 +427,8 @@ def config(pp_dir, mip_tables_dir, mip_era, exp_config, output_yaml, output_dir,
         grid=grid,
         overwrite=overwrite,
         calendar_type=calendar,
-        check_freq=check_freq
+        check_freq=check_freq,
+        dmget_bin=dmget_bin
     )
 
 

@@ -200,7 +200,7 @@ def test_config_check_freq_real_tables(tmp_path, cli_sos_nc_file, check_freq):
 
     args = ['config', '-p', str(tmp_path / 'pp'), '-t', str(tables), '-m', 'cmip6',
             '-e', str(EXP_CONFIG), '-o', str(tmp_path / 'cmor.yaml'), '-d', str(tmp_path / 'out'),
-            '-l', str(varlists)]
+            '--varlist-dir', str(varlists)]
     if check_freq:
         args.append('--check_freq')
     # the CLI sets the package logger's level, which later caplog-based tests depend on

@@ -182,7 +182,7 @@ Or search for all variables in a varlist:
 
    fremor -v find \
        -r /path/to/cmip6-cmor-tables/Tables/ \
-       -l /path/to/varlist.json
+       --varlist /path/to/varlist.json
 
 This displays which MIP table contains the variable and its metadata requirements.
 
@@ -327,7 +327,7 @@ YAML configuration for you:
        -e exp_config.json \
        -o cmor.yaml \
        -d /path/to/output \
-       -l /path/to/varlists
+       --varlist-dir /path/to/varlists
 
 This scans the ``pp_dir`` for post-processing components, cross-references found variables against MIP
 tables, writes per-component variable list files, and emits a structured YAML that ``fremor yaml`` can
@@ -344,7 +344,7 @@ To limit which pp component directories are scanned, use ``-g``/``--pp_comp_glob
        -e exp_config.json \
        -o cmor.yaml \
        -d /path/to/output \
-       -l /path/to/varlists \
+       --varlist-dir /path/to/varlists \
        -g 'ocean*'
 
 To skip components where none of the found variables match any MIP entry (i.e., apply
@@ -359,11 +359,69 @@ To skip components where none of the found variables match any MIP entry (i.e., 
        -e exp_config.json \
        -o cmor.yaml \
        -d /path/to/output \
-       -l /path/to/varlists \
+       --varlist-dir /path/to/varlists \
        --strict_varlist
 
 Components that produce no MIP-matching variables are silently omitted from the generated YAML,
 keeping the output focused on components that actually have data that can be cmorized.
+
+Time-invariant (fx) Variables from Static Files
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+FRE post-processing writes a component's time-invariant fields (cell areas, sea-floor depth, land
+fraction, ...) once, all into one file directly under the component directory, rather than one
+time-series file per variable::
+
+   pp/<component>/<component>.static.nc
+
+These map onto the fixed (``fx``) MIP entries: the CMIP6 ``fx``/``Ofx``/``Efx``-style tables, or the
+time-invariant ``ti`` brands within the CMIP7 realm tables (e.g. ``ocean``'s ``deptho_ti-u-hxy-sea``).
+Generate a separate CMOR YAML for them with ``--freq static``:
+
+.. code-block:: bash
+
+   fremor config \
+       -p /path/to/pp \
+       -t /path/to/mip-tables \
+       -m cmip6 \
+       -e exp_config.json \
+       -o cmor_static.yaml \
+       -d /path/to/output \
+       --varlist-dir /path/to/varlists \
+       --freq static
+
+All the components' static files are first recalled from tape in one ``dmget`` batch, so they need
+not be staged beforehand. Each component's static file is then scanned for time-invariant data variables (coordinates, bounds,
+scalars and anything with a time dimension are left out), which are matched against each table's
+fixed entries only; tables without any fixed entry are left out of the YAML. The table targets get
+``freq: 'static'``, and their components ``data_series_type: 'static'`` and no ``chunk``:
+
+.. code-block:: yaml
+
+   table_targets:
+     - table_name: 'Ofx'
+       freq: 'static'
+       gridding: ...
+       target_components:
+         - component_name: 'ocean_monthly'
+           variable_list: '/path/to/varlists/CMIP6_Ofx_ocean_monthly_static.list'
+           data_series_type: 'static'
+
+The rest of the workflow is unchanged: ``fremor map -y cmor_static.yaml`` browses each component's
+static file (the ``static`` node in the pp browser), ``fremor check -y cmor_static.yaml`` checks
+mapping coverage against the tables' fixed entries and inspects the static file itself,
+``fremor stage`` stages the static files, and ``fremor yaml -y cmor_static.yaml`` CMORizes them
+without a time axis, into output files without a date range (for CMIP7, with ``frequency`` ``fx``).
+To CMORize one static file directly, pass it to ``fremor run`` as ``-d``:
+
+.. code-block:: bash
+
+   fremor run \
+       -d /path/to/pp/ocean_monthly/ocean_monthly.static.nc \
+       --varlist /path/to/varlists/CMIP6_Ofx_ocean_monthly_static.list \
+       -r /path/to/Tables/CMIP6_Ofx.json \
+       -p exp_config.json \
+       -o /path/to/output
 
 Common Issues and Solutions
 ---------------------------

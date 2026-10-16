@@ -117,15 +117,17 @@ from .cmor_check_exp import ( check_exp_config as _check_exp_config, find_emd_gr
 from .cmor_config import _load_config_yaml
 
 from .cmor_reduce import parse_varlist_value
-from .cmor_helpers import ( cmip7_brands, find_ps_companion, get_json_file_data,
+from .cmor_helpers import ( cmip7_brands, component_input_path, find_ps_companion, get_json_file_data,
                             get_vertical_dimension, iso_to_bronx_chunk, resolve_input_file_brand,
-                            resolve_named_ps_source )
+                            resolve_named_ps_source, is_static_component )
 from .cmor_constants import (
     ACCEPTED_VERT_DIMS,
     CMOR_CHECK_CATEGORY_WIDTH,
     DMLS_DISK_RESIDENT_STATES,
     INPUT_TO_MIP_VERT_DIM,
+    STATIC_FREQ,
 )
+from .cmor_finder import mip_entry_frequency
 from .cmor_stage import _year_bound
 
 fre_logger = logging.getLogger(__name__)
@@ -137,7 +139,7 @@ fre_logger = logging.getLogger(__name__)
 KNOWN_MIP_VERTICAL_TOKENS = set(ACCEPTED_VERT_DIMS) | {'alevel', 'alevhalf', 'olevel', 'olevhalf'}
 MIP_RANGE_FIELDS = ('valid_min', 'valid_max', 'ok_min_mean_abs', 'ok_max_mean_abs')
 
-def _reference_vars_for_table(table_path: str, mip_era: str) -> set:
+def _reference_vars_for_table(table_path: str, mip_era: str, fixed_only: bool = False) -> set:
     """
     Get the set of variable names a MIP table actually requires, straight
     from its ``variable_entry`` keys.
@@ -146,11 +148,18 @@ def _reference_vars_for_table(table_path: str, mip_era: str) -> set:
     :type table_path: str
     :param mip_era: MIP era string, e.g. 'cmip6' or 'cmip7'
     :type mip_era: str
+    :param fixed_only: only count the table's fixed (time-invariant, fx) entries -- all a static
+        table target can map from its components' static files, e.g. a CMIP7 realm table's ``ti``
+        brands.
+    :type fixed_only: bool
     :return: set of variable names required by this table
     :rtype: set
     """
     data = get_json_file_data(table_path)
     variable_entry = data.get('variable_entry', {})
+    if fixed_only:
+        variable_entry = {key: entry for key, entry in variable_entry.items()
+                          if mip_entry_frequency(entry)['sampling'] == 'fixed'}
     if mip_era.lower() == 'cmip7':
         # cmip7 tables key on branded variable names, e.g. "tas_tavg-h2m-hxy-u"
         return {key.split('_')[0] for key in variable_entry.keys()}
@@ -221,13 +230,13 @@ def _varlists_by_table_from_yaml(table_targets: Sequence[dict]) -> dict:
 def _component_input_dir(pp_dir: str, table_target: dict, component: dict) -> Optional[Path]:
     """Resolve the FRE ts directory a component's files live in, mirroring the
     <pp_dir>/<component>/<data_series_type>/<freq>/<chunk> convention ``fremor config`` and
-    ``fremor stage`` both use. Returns None if the table_target has no freq (nothing to check
-    against, e.g. a hand-edited yaml predating ``fremor config``)."""
+    ``fremor stage`` both use -- or, for a static component, its static file
+    <pp_dir>/<component>/<component>.static.nc. Returns None if a ts component's table_target
+    has no freq (nothing to check against, e.g. a hand-edited yaml predating ``fremor config``)."""
     freq = table_target.get('freq')
-    if not freq:
+    if not freq and not is_static_component(component):
         return None
-    chunk_bronx = iso_to_bronx_chunk(component['chunk'])
-    return Path(pp_dir) / component['component_name'] / component['data_series_type'] / freq / chunk_bronx
+    return Path(component_input_path(pp_dir, freq, component))
 
 
 def _in_run_bounds(path: Path, start: Optional[int], stop: Optional[int],
@@ -256,7 +265,10 @@ def _matching_input_files(input_dir: Optional[Path], local_var: str,
     """Files in input_dir matching the <something>.<daterange>.<local_var>.nc convention
     (same convention make_simple_varlist/cmor_stage assume) and whose date range falls
     within [start, stop] (the yaml's own run bounds, same as fremor yaml/stage would select),
-    sorted by filename."""
+    sorted by filename. A static component's input_dir is its static file, which holds every
+    one of its variables and has no date range: it is the only match, if it exists."""
+    if input_dir is not None and input_dir.is_file():
+        return [input_dir]
     if input_dir is None or not input_dir.is_dir():
         return []
     return sorted(
@@ -686,7 +698,8 @@ def _ps_file_for(path: Path, ps_source: Optional[dict],
 
 def _vertical_dim_finding(mip_vert_tokens: list, files: list,
                           ps_source: Optional[dict] = None,
-                          ps_fallback: Optional[dict] = None) -> dict:
+                          ps_fallback: Optional[dict] = None,
+                          local_var: Optional[str] = None) -> dict:
     """Build the dims report entry for one variable, comparing its MIP-table-declared
     vertical dim(s) against the actual vertical dim found in a representative input file.
     `ps_source` locates the table's mapped ps variable, searched before the companion
@@ -695,7 +708,7 @@ def _vertical_dim_finding(mip_vert_tokens: list, files: list,
         return {'status': 'unknown', 'reason': 'no input files found to inspect'}
 
     representative = files[0]
-    local_var = representative.name.split('.')[-2]
+    local_var = local_var or representative.name.split('.')[-2]
     input_vert = _input_vertical_token(str(representative), local_var, mip_vert_tokens)
 
     if input_vert is _INSPECTION_ERROR:
@@ -785,7 +798,8 @@ def _input_attrs(nc_path: str, local_var: str) -> Union[dict, object]:
         return _INSPECTION_ERROR
 
 
-def _attrs_finding(mip_units: list, mip_cell_methods: list, files: list) -> dict:
+def _attrs_finding(mip_units: list, mip_cell_methods: list, files: list,
+                   local_var: Optional[str] = None) -> dict:
     """Build the attrs report entry for one variable, comparing its MIP-table-declared
     ``units``/``cell_methods`` against the actual attributes found in a representative input
     file."""
@@ -793,7 +807,7 @@ def _attrs_finding(mip_units: list, mip_cell_methods: list, files: list) -> dict
         return {'status': 'unknown', 'reason': 'no input files found to inspect'}
 
     representative = files[0]
-    local_var = representative.name.split('.')[-2]
+    local_var = local_var or representative.name.split('.')[-2]
     input_attrs = _input_attrs(str(representative), local_var)
 
     if input_attrs is _INSPECTION_ERROR:
@@ -869,7 +883,8 @@ def _file_is_offline(path: Path, dmls_bin: Optional[str] = None) -> bool:
     return not _is_file_staged(path)
 
 
-def _range_finding(bounds: dict, files: list, dmls_bin: Optional[str] = None) -> dict:
+def _range_finding(bounds: dict, files: list, dmls_bin: Optional[str] = None,
+                   local_var: Optional[str] = None) -> dict:
     """Build the range report entry for one variable: read a representative input file's
     actual data values and compare against `bounds` (see ``_mip_variable_range_bounds``).
     Skipped (status 'skipped_offline') if the representative file is still offline, to avoid
@@ -881,7 +896,7 @@ def _range_finding(bounds: dict, files: list, dmls_bin: Optional[str] = None) ->
         return {'status': 'ok', 'reason': 'MIP table declares no range bounds for this variable'}
 
     representative = files[0]
-    local_var = representative.name.split('.')[-2]
+    local_var = local_var or representative.name.split('.')[-2]
 
     if _file_is_offline(representative, dmls_bin):
         return {
@@ -985,13 +1000,21 @@ def _build_files_report(table_path: str, table_data: Optional[dict], mip_era: st
 
         var_entry = {}
         if check_staging:
-            companions = [p for p in (_ps_file_for(f, ps_source, ps_fallback) for f in files)
-                          if p is not None and p not in files]
+            companions = [] if is_static_component(component) else \
+                [p for p in (_ps_file_for(f, ps_source, ps_fallback) for f in files)
+                 if p is not None and p not in files]
             var_entry['staging'] = _staging_status(files, dmls_bin, companion_files=companions)
-            var_entry['coverage'] = _time_coverage(files, start, stop)
+            if is_static_component(component):
+                # a static file's fields are time-invariant, there is no time span to cover
+                var_entry['coverage'] = {'status': 'static', 'first_date': None, 'last_date': None,
+                                         'years_covered': 0, 'missing_years': [],
+                                         'requested': [start, stop]}
+            else:
+                var_entry['coverage'] = _time_coverage(files, start, stop)
         if check_dims:
             mip_vert_tokens = _mip_variable_vertical_tokens(table_data or {}, var, mip_era)
-            var_entry['dims'] = _vertical_dim_finding(mip_vert_tokens, files, ps_source, ps_fallback)
+            var_entry['dims'] = _vertical_dim_finding(mip_vert_tokens, files, ps_source, ps_fallback,
+                                                      local_var=gfdl_key)
             if grid_check is not None and files and \
                     _mip_variable_is_lat_lon(table_data or {}, var, mip_era):
                 var_entry['grid'] = grid_finding(str(files[0]), gfdl_key,
@@ -1004,10 +1027,10 @@ def _build_files_report(table_path: str, table_data: Optional[dict], mip_era: st
             mip_units = _mip_variable_field_values(table_data or {}, var, mip_era, 'units')
             mip_cell_methods = _mip_variable_field_values(
                 table_data or {}, var, mip_era, 'cell_methods')
-            var_entry['attrs'] = _attrs_finding(mip_units, mip_cell_methods, files)
+            var_entry['attrs'] = _attrs_finding(mip_units, mip_cell_methods, files, local_var=gfdl_key)
         if check_range:
             bounds = _mip_variable_range_bounds(table_data or {}, var, mip_era)
-            var_entry['range'] = _range_finding(bounds, files, dmls_bin)
+            var_entry['range'] = _range_finding(bounds, files, dmls_bin, local_var=gfdl_key)
         files_report[var] = var_entry
 
     return files_report
@@ -1043,7 +1066,7 @@ def _source_brand(table_data: dict, var: str, source: tuple, reduce: Optional[st
     component_name, gfdl_key = source
     component = next((comp for comp in table_target.get('target_components') or []
                       if comp.get('component_name') == component_name), None)
-    if component is None or not component.get('chunk'):
+    if component is None or (not is_static_component(component) and not component.get('chunk')):
         return None
     input_dir = _component_input_dir(pp_dir, table_target, component)
     cache_key = (str(input_dir), gfdl_key, var, reduce, start, stop)
@@ -1086,7 +1109,8 @@ def _build_table_report(table_path: str, mip_era: str, varlists_by_table: dict,
                         start: Optional[int] = None, stop: Optional[int] = None,
                         ps_fallback: Optional[dict] = None,
                         grid_check: Optional[dict] = None,
-                        brand_cache: Optional[dict] = None) -> dict:
+                         brand_cache: Optional[dict] = None,
+                        fixed_only: Optional[bool] = None) -> dict:
     """Build the unmapped / multiply-mapped / unknown-mapped report for one MIP table.
 
     For CMIP7 with `pp_dir` and `table_target` given, a variable mapped from several sources
@@ -1095,9 +1119,12 @@ def _build_table_report(table_path: str, mip_era: str, varlists_by_table: dict,
     variables left multiply-mapped get each source's brand, or None if unresolved, under
     'multiply_mapped_brands' ({var: [brand, ...]}, in 'multiply_mapped' entry order). Both
     keys are only present when non-empty. Pass the same `brand_cache` dict across calls to
-    avoid re-reading input files."""
+    avoid re-reading input files. Static table targets are compared only against fixed entries
+    unless `fixed_only` says otherwise."""
     table_name = Path(table_path).stem.split('.')[0].split('_')[1]
-    reference_vars = _reference_vars_for_table(table_path, mip_era)
+    if fixed_only is None:
+        fixed_only = (table_target or {}).get('freq') == STATIC_FREQ
+    reference_vars = _reference_vars_for_table(table_path, mip_era, fixed_only=fixed_only)
 
     mapped = defaultdict(list)  # cmip_var -> [(component, gfdl_diag_key), ...]
     reduce_by_source = {}  # (component, gfdl_diag_key) -> reduce method, see cmor_reduce
@@ -1234,7 +1261,7 @@ def _print_coverage_summary(files: dict) -> Optional[tuple]:
 def _coverage_finding(coverage: Optional[dict], common_span: Optional[tuple]) -> Optional[str]:
     """Text for one variable's coverage finding, or None when it's complete and matches the
     table's common span (or it has no files, which the staging finding already reports)."""
-    if coverage is None or coverage['status'] == 'missing':
+    if coverage is None or coverage['status'] in ('missing', 'static'):
         return None
     if coverage['status'] == 'unknown':
         return 'coverage=unknown (no parseable date range in filenames)'
