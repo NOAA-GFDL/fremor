@@ -53,7 +53,7 @@ from .cmor_helpers import ( from_ds_get_this, create_lev_bnds,
                             resolve_mip_era_table_resource, find_ps_companion, table_declares_ps,
                             resolve_cmip7_brand, resolve_input_file_brand, scalar_z_coords,
                             variable_grid_label, is_static_file )
-from .cmor_reduce import REDUCE_METHODS, apply_reduce, parse_varlist_value
+from .cmor_reduce import apply_reduce, parse_varlist_value
 from .cmor_tripolar import load_tripolar_grid
 from .cmor_validate import check_exp_config_required_attributes
 from .cmor_constants import ( ACCEPTED_VERT_DIMS, NON_HYBRID_SIGMA_COORDS, ALT_HYBRID_SIGMA_COORDS,
