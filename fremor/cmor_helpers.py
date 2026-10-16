@@ -1174,15 +1174,12 @@ def filter_brands( brands: list,
                         filtered_brands[0])
         return filtered_brands[0]
 
+    # no error logging here: callers probing input files (fremor check/map) expect failures
     if len(filtered_brands) == 0:
-        fre_logger.error('cmip7 brand disambiguation eliminated all candidates '
-                         'from %s', brands)
         raise ValueError(
             f'multiple brands {brands} found for {target_var}, '
             f'but none survived disambiguation filtering')
 
-    fre_logger.error('cmip7 brand disambiguation could not resolve between '
-                     '%s', filtered_brands)
     raise ValueError(
         f'multiple brands {filtered_brands} remain for {target_var} after '
         f'disambiguation \u2014 cannot determine which brand to use')
@@ -1230,15 +1227,14 @@ def resolve_cmip7_brand(ds: Dataset, local_var: str, target_var: str,
             brands.append(mip_var.split('_')[1])
 
     if len(brands) == 0:
-        fre_logger.error('cmip7 case detected, but dimensions of input data do not match '
-                         'any of those found for the associated brands.')
-        raise ValueError('no variable brand was able to be identified for this CMIP7 case')
+        raise ValueError(f'no {target_var} brand in the table has the {var_dim_with_scalars} '
+                         f'dimensions of {local_var}')
     if len(brands) == 1:
         var_brand = brands[0]
         fre_logger.debug('cmip7 case, extracted brand %s', var_brand)
     else:
-        fre_logger.warning('cmip7 case, extracted multiple brands %s, attempting disambiguation',
-                           brands)
+        fre_logger.info('cmip7 case, extracted multiple brands %s, attempting disambiguation',
+                        brands)
         var_brand = filter_brands(
             brands, target_var, mip_var_cfgs,
             has_time_bnds = 'time_bnds' in ds.variables,

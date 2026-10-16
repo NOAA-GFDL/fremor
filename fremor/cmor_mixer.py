@@ -273,7 +273,12 @@ def rewrite_netcdf_file_var( mip_var_cfgs: dict = None,
     var_brand = None
     exp_cfg_mip_era = get_json_file_data(json_exp_config)['mip_era'].upper()
     if exp_cfg_mip_era == 'CMIP7':
-        var_brand = resolve_cmip7_brand(ds, local_var, target_var, mip_var_cfgs, var_dim_with_scalars)
+        try:
+            var_brand = resolve_cmip7_brand(ds, local_var, target_var, mip_var_cfgs,
+                                            var_dim_with_scalars)
+        except ValueError as exc:
+            fre_logger.error('could not resolve the CMIP7 brand of %s: %s', local_var, exc)
+            raise
     else:
         fre_logger.debug('non-cmip7 case detected, skipping variable brands')
 
