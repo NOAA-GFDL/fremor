@@ -35,8 +35,7 @@ Functions
 - ``get_vertical_dimension(ds, target_var)``
 - ``create_tmp_dir(outdir, json_exp_config)``
 - ``get_json_file_data(json_file_path)``
-- ``update_grid_and_label(json_file_path, new_grid_label, new_grid, new_nom_res, output_file_path)``
-- ``update_calendar_type(json_file_path, new_calendar_type, output_file_path)``
+- ``exp_config_overrides(grid_label, grid, nom_res, calendar_type)``
 - ``check_path_existence(some_path)``
 - ``resolve_mip_era_table_resource(json_table_config, mip_era, resource)``
 - ``iso_to_bronx_chunk(cmor_chunk_in)``
@@ -836,146 +835,46 @@ def get_json_file_data( json_file_path: Optional[str] = None) -> dict:
         raise
 
 
-def update_grid_and_label( json_file_path: str,
-                           new_grid_label: str,
-                           new_grid: str,
-                           new_nom_res: str,
-                           output_file_path: Optional[str] = None) -> None:
+def exp_config_overrides( grid_label: Optional[str] = None,
+                          grid: Optional[str] = None,
+                          nom_res: Optional[str] = None,
+                          calendar_type: Optional[str] = None) -> dict:
     """
-    Update the 'grid_label', 'grid', and 'nominal_resolution' fields in a JSON experiment config.
+    The experiment config attributes a run overrides, e.g. from the cmor yaml's gridding block and
+    calendar_type. They are set on CMOR's dataset for each variable, after the exp config is read,
+    rather than written into the exp config file, which other runs may be reading at the same time.
 
-    :param json_file_path: Path to the input JSON file.
-    :type json_file_path: str
-    :param new_grid_label: New value for the 'grid_label' field.
-    :type new_grid_label: str
-    :param new_grid: New value for the 'grid' field.
-    :type new_grid: str
-    :param new_nom_res: New value for the 'nominal_resolution' field.
-    :type new_nom_res: str
-    :param output_file_path: Path to save the updated JSON file. If None, overwrites the original file.
-    :type output_file_path: str, optional
-    :raises FileNotFoundError: If the input JSON file does not exist.
-    :raises KeyError: If a required field is not found in the JSON file.
-    :raises ValueError: If any input value is None.
-    :raises json.JSONDecodeError: If the JSON file cannot be decoded.
-    :return: None
-    :rtype: None
-
-    .. note:: The function logs before and after values, and overwrites the input file unless an output path is given.
+    :param grid_label: New value for the 'grid_label' attribute.
+    :type grid_label: str, optional
+    :param grid: New value for the 'grid' attribute.
+    :type grid: str, optional
+    :param nom_res: New value for the 'nominal_resolution' attribute.
+    :type nom_res: str, optional
+    :param calendar_type: New value for the 'calendar' attribute. CF calendar aliases (e.g., 'noleap')
+        are normalized to their canonical CF names (e.g., '365_day').
+    :type calendar_type: str, optional
+    :raises ValueError: If only some of grid_label, grid and nom_res are given.
+    :return: The overridden attributes and their values, only those given.
+    :rtype: dict
     """
-    if None in [new_grid_label, new_grid, new_nom_res]:
-        fre_logger.error(
-            'grid/grid_label/nom_res updating requested for exp_config file, but one of them is None\n'
-            'bailing...!')
-        raise ValueError
+    overrides = {}
+    gridding = {'grid_label': grid_label, 'grid': grid, 'nominal_resolution': nom_res}
+    if any(value is not None for value in gridding.values()):
+        if None in gridding.values():
+            fre_logger.error('grid/grid_label/nom_res overriding requested, but one of them is None\n'
+                             'bailing...!')
+            raise ValueError('grid, grid_label and nom_res must be given together, got '
+                             f'grid = {grid}, grid_label = {grid_label}, nom_res = {nom_res}')
+        overrides.update(gridding)
 
-    try:
-        with open(json_file_path, 'r', encoding='utf-8') as file:
-            data = json.load(file)
+    if calendar_type is not None:
+        normalized_calendar_type = normalize_calendar(calendar_type)
+        if normalized_calendar_type != str(calendar_type).lower():
+            fre_logger.info('Normalizing calendar alias %s to %s', calendar_type, normalized_calendar_type)
+        overrides['calendar'] = normalized_calendar_type
 
-        try:
-            fre_logger.info('Original grid: %s', data['grid'])
-            data['grid'] = new_grid
-            fre_logger.info('Updated grid: %s', data['grid'])
-        except KeyError as e:
-            fre_logger.error('Failed to update grid: %s', e)
-            raise KeyError('Error while updating grid. Ensure the field exists and is modifiable.') from e
+    return overrides
 
-        try:
-            fre_logger.info('Original grid_label: %s', data['grid_label'])
-            data['grid_label'] = new_grid_label
-            fre_logger.info('Updated grid_label: %s', data['grid_label'])
-        except KeyError as e:
-            fre_logger.error('Failed to update grid_label: %s', e)
-            raise KeyError('Error while updating grid_label. Ensure the field exists and is modifiable.') from e
-
-        try:
-            fre_logger.info('Original nominal_resolution: %s', data['nominal_resolution'])
-            data['nominal_resolution'] = new_nom_res
-            fre_logger.info('Updated nominal_resolution: %s', data['nominal_resolution'])
-        except KeyError as e:
-            fre_logger.error('Failed to update nominal_resolution: %s', e)
-            raise KeyError('Error updating nominal_resolution. Ensure the field exists and is modifiable.') from e
-
-        output_file_path = output_file_path or json_file_path
-
-        with open(output_file_path, 'w', encoding='utf-8') as file:
-            json.dump(data, file, indent=4)
-
-        fre_logger.info('Successfully updated fields and saved to %s', output_file_path)
-
-    except FileNotFoundError:
-        fre_logger.error('The file %s does not exist.', json_file_path)
-        raise
-    except json.JSONDecodeError:
-        fre_logger.error('Failed to decode JSON from the file %s.', json_file_path)
-        raise
-    except Exception as e:
-        fre_logger.error('An unexpected error occurred: %s', e)
-        raise
-
-
-def update_calendar_type( json_file_path: str,
-                          new_calendar_type: str,
-                          output_file_path: Optional[str] = None) -> None:
-    """
-    Update the 'calendar' field in a JSON experiment config file.
-
-    :param json_file_path: Path to the input JSON file.
-    :type json_file_path: str
-    :param new_calendar_type: New value for the 'calendar' field.
-    :type new_calendar_type: str
-    :param output_file_path: Path to save the updated JSON file. If None, overwrites the original file.
-    :type output_file_path: str, optional
-    :raises FileNotFoundError: If the input JSON file does not exist.
-    :raises KeyError: If the 'calendar' field is not found in the JSON file.
-    :raises ValueError: If new_calendar_type is None.
-    :raises json.JSONDecodeError: If the JSON file cannot be decoded.
-    :return: None
-    :rtype: None
-
-    .. note:: The function logs before and after values, and overwrites the input file unless an output path is given.
-              CF calendar aliases (e.g., 'noleap') are normalized to their canonical CF names (e.g., '365_day').
-    """
-    if new_calendar_type is None:
-        fre_logger.error(
-            'calendar_type updating requested for exp_config file, but one of them is None\n'
-            'bailing...!')
-        raise ValueError
-
-    normalized_calendar_type = normalize_calendar(new_calendar_type)
-
-    try:
-        with open(json_file_path, 'r', encoding='utf-8') as file:
-            data = json.load(file)
-
-        try:
-            fre_logger.info('Original calendar: %s', data['calendar'])
-            if normalized_calendar_type != str(new_calendar_type).lower():
-                fre_logger.info('Normalizing calendar alias %s to %s',
-                                new_calendar_type, normalized_calendar_type)
-            data['calendar'] = normalized_calendar_type
-            fre_logger.info('Updated calendar: %s', data['calendar'])
-        except KeyError as e:
-            fre_logger.error('Failed to update calendar: %s', e)
-            raise KeyError('Error while updating calendar. Ensure the field exists and is modifiable.') from e
-
-        output_file_path = output_file_path or json_file_path
-
-        with open(output_file_path, 'w', encoding='utf-8') as file:
-            json.dump(data, file, indent=4)
-
-        fre_logger.info('Successfully updated fields and saved to %s', output_file_path)
-
-    except FileNotFoundError:
-        fre_logger.error('The file %s does not exist.', json_file_path)
-        raise
-    except json.JSONDecodeError:
-        fre_logger.error('Failed to decode JSON from the file %s.', json_file_path)
-        raise
-    except Exception as e:
-        fre_logger.error('An unexpected error occurred: %s', e)
-        raise
 
 def check_path_existence(some_path: str):
     """

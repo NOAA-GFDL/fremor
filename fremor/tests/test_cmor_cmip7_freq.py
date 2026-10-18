@@ -1,6 +1,7 @@
 """
 tests for passing the table target's freq to CMOR as the CMIP7 dataset frequency. CMIP7 tables
-carry no frequency, so without it CMOR cannot check the time axis.
+carry no frequency, so without it CMOR cannot check the time axis. Like the run's gridding and
+calendar, it is set on CMOR's dataset rather than written into the exp config file.
 """
 
 import json
@@ -95,8 +96,11 @@ def test_run_sets_cmip7_frequency(tmp_path, sos_indir, exp_freq):
     exp_config.pop('frequency', None)
     if exp_freq is not None:
         exp_config['frequency'] = exp_freq
+    # gridding and calendar the run overrides
+    exp_config.update(grid_label='gn', grid='native', nominal_resolution='250 km', calendar='360_day')
     exp_json = tmp_path / 'exp_config.json'
     exp_json.write_text(json.dumps(exp_config), encoding='utf-8')
+    exp_json_text = exp_json.read_text(encoding='utf-8')
     varlist = tmp_path / 'varlist'
     varlist.write_text(json.dumps({'sos': 'sos'}), encoding='utf-8')
     outdir = tmp_path / 'out'
@@ -117,6 +121,13 @@ def test_run_sets_cmip7_frequency(tmp_path, sos_indir, exp_freq):
 
     outputs = list((outdir / 'CMIP').rglob('sos_*.nc'))
     assert len(outputs) == 1
-    assert '_mon_' in outputs[0].name
+    assert '_mon_glb_g010_' in outputs[0].name
     with netCDF4.Dataset(outputs[0]) as ds_out:
         assert ds_out.getncattr('frequency') == 'mon'
+        assert ds_out.getncattr('grid_label') == 'g010'
+        assert ds_out.getncattr('grid') == 'regridded to FOO grid from native'
+        assert ds_out.getncattr('nominal_resolution') == '100 km'
+        assert ds_out['time'].calendar == 'julian'
+
+    # the overrides are set on CMOR's dataset, the exp config file is left alone
+    assert exp_json.read_text(encoding='utf-8') == exp_json_text

@@ -18,7 +18,7 @@ from fremor.cmor_helpers import ( find_statics_file, print_data_minmax, variable
                                   find_gold_ocean_statics_file,
                                   create_lev_bnds, get_iso_datetime_ranges, iso_to_bronx_chunk,
                                   create_tmp_dir, get_json_file_data,
-                                  update_grid_and_label, get_bronx_freq_from_mip_table,
+                                  get_bronx_freq_from_mip_table,
                                   filter_brands, get_vertical_dimension,
                                   from_ds_get_this, resolve_mip_era_table_resource,
                                   find_ps_companion, resolve_cmip7_brand )
@@ -302,32 +302,6 @@ def test_get_json_file_data_actually_dir(tmp_path):
     f.mkdir(parents=True)
     with pytest.raises(Exception):
         get_json_file_data(str(f))
-
-# ---- update_grid_and_label None-args test ----
-
-def test_update_grid_and_label_none_grid_label(tmp_path):
-    """ should raise ValueError when new_grid_label is None """
-    f = tmp_path / 'exp.json'
-    f.write_text(json.dumps({'grid_label': 'gr', 'grid': 'g', 'nominal_resolution': '50 km'}))
-    with pytest.raises(ValueError):
-        update_grid_and_label(str(f), None, 'new_grid', '100 km')
-
-
-def test_update_grid_and_label_none_grid(tmp_path):
-    """ should raise ValueError when new_grid is None """
-    f = tmp_path / 'exp.json'
-    f.write_text(json.dumps({'grid_label': 'gr', 'grid': 'g', 'nominal_resolution': '50 km'}))
-    with pytest.raises(ValueError):
-        update_grid_and_label(str(f), 'gn', None, '100 km')
-
-
-def test_update_grid_and_label_none_nom_res(tmp_path):
-    """ should raise ValueError when new_nom_res is None """
-    f = tmp_path / 'exp.json'
-    f.write_text(json.dumps({'grid_label': 'gr', 'grid': 'g', 'nominal_resolution': '50 km'}))
-    with pytest.raises(ValueError):
-        update_grid_and_label(str(f), 'gn', 'new_grid', None)
-
 
 # ---- get_bronx_freq_from_mip_table tests ----
 
