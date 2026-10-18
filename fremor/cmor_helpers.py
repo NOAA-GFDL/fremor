@@ -38,6 +38,7 @@ Functions
 - ``create_tmp_dir(outdir, json_exp_config)``
 - ``get_json_file_data(json_file_path)``
 - ``exp_config_overrides(grid_label, grid, nom_res, calendar_type)``
+- ``warn_overridden_exp_config(exp_config_data, overrides, json_exp_config)``
 - ``check_path_existence(some_path)``
 - ``resolve_mip_era_table_resource(json_table_config, mip_era, resource)``
 - ``iso_to_bronx_chunk(cmor_chunk_in)``
@@ -879,6 +880,38 @@ def exp_config_overrides( grid_label: Optional[str] = None,
         overrides['calendar'] = normalized_calendar_type
 
     return overrides
+
+
+def warn_overridden_exp_config(exp_config_data: dict, overrides: dict,
+                               json_exp_config: Optional[str] = None) -> List[str]:
+    """
+    Warn about each attribute the experiment config sets that ``overrides`` replaces with a
+    different value at runtime, since the output will then not match the config. Equivalent
+    calendars, e.g. 'noleap' and '365_day', do not count as different.
+
+    :param exp_config_data: The loaded experiment configuration.
+    :type exp_config_data: dict
+    :param overrides: Attributes set on CMOR's dataset over the experiment config's, see
+        ``exp_config_overrides``.
+    :type overrides: dict
+    :param json_exp_config: Path to the experiment configuration, for the warning only.
+    :type json_exp_config: str, optional
+    :return: The names of the attributes overridden with a different value.
+    :rtype: list of str
+    """
+    overridden = []
+    for attribute, value in overrides.items():
+        if attribute not in exp_config_data:
+            continue
+        exp_value = exp_config_data[attribute]
+        if attribute == 'calendar' and calendars_are_equivalent(exp_value, value):
+            continue
+        if str(exp_value) == str(value):
+            continue
+        fre_logger.warning('%s = %r in the exp config %s is overridden by %r at runtime',
+                           attribute, exp_value, json_exp_config or '', value)
+        overridden.append(attribute)
+    return overridden
 
 
 def check_path_existence(some_path: str):
