@@ -43,6 +43,7 @@ Functions
 - ``resolve_mip_era_table_resource(json_table_config, mip_era, resource)``
 - ``iso_to_bronx_chunk(cmor_chunk_in)``
 - ``conv_mip_to_bronx_freq(cmor_table_freq)``
+- ``conv_bronx_to_cmip7_freq(bronx_freq)``
 - ``get_bronx_freq_from_mip_table(json_table_config)``
 - ``filter_brands(brands, target_var, mip_var_cfgs, has_time_bnds, input_vert_dim)``
 - ``scalar_z_coords(ds, local_var)``
@@ -1044,6 +1045,33 @@ def conv_mip_to_bronx_freq(cmor_table_freq: str) -> Optional[str]:
     if cmor_table_freq not in cmor_to_bronx_dict:
         raise KeyError(f'MIP table frequency = {cmor_table_freq} is not a valid MIP frequency')
     return bronx_freq
+
+def conv_bronx_to_cmip7_freq(bronx_freq: str) -> str:
+    """
+    Convert a FRE-bronx frequency string to the CMIP7 ``frequency`` dataset attribute. CMIP7
+    tables carry no frequency, so CMOR takes it from the dataset instead.
+
+    :param bronx_freq: FRE-bronx frequency, e.g. 'monthly', 'daily'. A CMIP7 frequency, e.g.
+        'mon', is passed through.
+    :type bronx_freq: str
+    :raises ValueError: If the frequency has no CMIP7 equivalent.
+    :return: CMIP7 frequency string, e.g. 'mon'.
+    :rtype: str
+    """
+    bronx_to_cmip7_dict = {
+        '1hr'      : '1hr',
+        '3hr'      : '3hr',
+        '6hr'      : '6hr',
+        'daily'    : 'day',
+        'monthly'  : 'mon',
+        'annual'   : 'yr',
+        STATIC_FREQ: 'fx'
+    }
+    if bronx_freq in bronx_to_cmip7_dict.values():
+        return bronx_freq
+    if bronx_freq not in bronx_to_cmip7_dict:
+        raise ValueError(f'frequency = {bronx_freq} has no CMIP7 equivalent')
+    return bronx_to_cmip7_dict[bronx_freq]
 
 def get_bronx_freq_from_mip_table(json_table_config: str) -> str:
     """

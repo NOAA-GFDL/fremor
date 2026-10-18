@@ -329,8 +329,13 @@ def find(varlist, table_config_dir, opt_var_name):
 @click.option('--calendar', type=str, default=None,
               help = 'calendar type, e.g. 360_day, noleap, gregorian... etc',
               required = False)
+@click.option('--freq', type=str, default=None,
+              help = 'frequency of the input data, e.g. monthly, daily. For CMIP7, whose tables carry no ' + \
+                     'frequency, it sets the frequency CMOR expects. If not given, the frequency in the ' + \
+                     'experiment configuration file is used.',
+              required = False)
 def run(indir, varlist, table_config, exp_config, outdir, run_one, opt_var_name,
-        grid_label, grid_desc, nom_res, start, stop, calendar):
+        grid_label, grid_desc, nom_res, start, stop, calendar, freq):
     """
     Rewrite climate model output files with CMIP-compliant metadata for down-stream publishing
     """
@@ -347,7 +352,8 @@ def run(indir, varlist, table_config, exp_config, outdir, run_one, opt_var_name,
         nom_res = nom_res,
         start = start,
         stop = stop,
-        calendar_type = calendar
+        calendar_type = calendar,
+        freq = freq
     )
 
 
