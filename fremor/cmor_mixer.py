@@ -52,7 +52,8 @@ from .cmor_helpers import ( from_ds_get_this, create_lev_bnds,
                             calendars_are_equivalent,
                             resolve_mip_era_table_resource, find_ps_companion, table_declares_ps,
                             resolve_cmip7_brand, resolve_input_file_brand, scalar_z_coords,
-                            variable_grid_label, is_static_file )
+                            variable_grid_label, is_static_file,
+                            conv_bronx_to_cmip7_freq )
 from .cmor_reduce import apply_reduce, parse_varlist_value
 from .cmor_tripolar import load_tripolar_grid
 from .cmor_validate import check_exp_config_required_attributes
@@ -192,7 +193,8 @@ def rewrite_netcdf_file_var( mip_var_cfgs: dict = None,
                              prev_path: Optional[str] = None,
                              ps_file: Optional[str] = None,
                              ps_var: str = 'ps',
-                             ps_searched: Optional[List[str]] = None ) -> str:
+                             ps_searched: Optional[List[str]] = None,
+                             freq: Optional[str] = None ) -> str:
     """
     Rewrite the input NetCDF file for a target variable in a CMIP-compliant manner and write output using CMOR.
 
@@ -217,6 +219,9 @@ def rewrite_netcdf_file_var( mip_var_cfgs: dict = None,
     :type ps_var: str
     :param ps_searched: Places already searched for ``ps_file``, reported if it is required but missing.
     :type ps_searched: list of str, optional
+    :param freq: The table target's FRE-bronx frequency, e.g. 'monthly'. For CMIP7, whose tables carry
+                 no frequency, it sets the dataset's ``frequency``. If None, the exp config's is used.
+    :type freq: str, optional
     :raises ValueError: If unsupported vertical dimensions or inconsistent grid dimensions are found.
     :raises FileNotFoundError: If required statics file for tripolar ocean grid is missing, or if
                                hybrid-sigma data has no surface-pressure file.
@@ -424,10 +429,15 @@ def rewrite_netcdf_file_var( mip_var_cfgs: dict = None,
                         variable_key, grid_label, table_grid_label)
         cmor.set_cur_dataset_attribute('grid_label', grid_label)
 
-    # CMIP7 tables carry no frequency, so static fields need an explicit fx frequency.
+    # CMIP7 tables carry no frequency, so static fields need an explicit fx frequency, and
+    # time-varying ones the table target's frequency (if not given, the exp config's is kept).
     if exp_cfg_mip_era == 'CMIP7' and not has_time:
         fre_logger.info('setting frequency = fx for time-invariant %s', local_var)
         cmor.set_cur_dataset_attribute('frequency', 'fx')
+    elif exp_cfg_mip_era == 'CMIP7' and freq is not None:
+        mip_freq = conv_bronx_to_cmip7_freq(freq)
+        fre_logger.info('setting frequency = %s (from freq = %s) for %s', mip_freq, freq, local_var)
+        cmor.set_cur_dataset_attribute('frequency', mip_freq)
 
     # load CMOR table
     fre_logger.info('cmor is loading+setting json_table_config = %s', json_table_config)
@@ -755,7 +765,8 @@ def cmorize_target_var_files(indir: str = None,
                              ps_fallback: Optional[Dict[str, str]] = None,
                              existing_outputs: Optional[List[Path]] = None,
                              reduce: Optional[str] = None,
-                             static_file: Optional[str] = None):
+                             static_file: Optional[str] = None,
+                             freq: Optional[str] = None):
     """
     CMORize a target variable across all NetCDF files in a directory.
 
@@ -794,6 +805,8 @@ def cmorize_target_var_files(indir: str = None,
     :param static_file: A FRE static file to read ``local_var`` from, instead of per-variable time-series
                         files in ``indir``. ``iso_datetime_range_arr`` is then ``[STATIC_ISO_DATETIME]``.
     :type static_file: str, optional
+    :param freq: The table target's FRE-bronx frequency, see ``rewrite_netcdf_file_var``.
+    :type freq: str, optional
     :raises ValueError: See function body for details.
     :raises OSError: See function body for details.
     :raises Exception: See function body for details.
@@ -883,7 +896,8 @@ def cmorize_target_var_files(indir: str = None,
                                                       prev_path=nc_fls[i],
                                                       ps_file=nc_ps_file_work,
                                                       ps_var=ps_var,
-                                                      ps_searched=ps_searched )
+                                                      ps_searched=ps_searched,
+                                                      freq=freq )
         except Exception as exc:
             cmor_logfile = CMOR_LOG if CMOR_LOG is not None else nc_file_work.replace('.nc','.log')
             _pprint_cmor_logfile(cmor_logfile, None)
@@ -954,7 +968,8 @@ def cmorize_all_variables_in_dir(vars_to_run: Dict[str, Any],
                                  ps_fallback: Optional[Dict[str, str]] = None,
                                  existing_outputs: Optional[List[Path]] = None,
                                  var_reduce: Optional[Dict[str, str]] = None,
-                                 static_file: Optional[str] = None) -> int:
+                                 static_file: Optional[str] = None,
+                                 freq: Optional[str] = None) -> int:
     """
     CMORize all variables in a directory according to a variable mapping.
 
@@ -986,6 +1001,8 @@ def cmorize_all_variables_in_dir(vars_to_run: Dict[str, Any],
     :type var_reduce: dict, optional
     :param static_file: A FRE static file to read every variable from, see ``cmorize_target_var_files``.
     :type static_file: str, optional
+    :param freq: The table target's FRE-bronx frequency, see ``rewrite_netcdf_file_var``.
+    :type freq: str, optional
     :return: 0 if last file processed was successful, 1 if last file processed failed, -1 if no files were processed.
     :rtype: int
 
@@ -1012,7 +1029,7 @@ def cmorize_all_variables_in_dir(vars_to_run: Dict[str, Any],
                                      ps_source=ps_source, ps_fallback=ps_fallback,
                                      existing_outputs=existing_outputs,
                                      reduce=(var_reduce or {}).get(local_var),
-                                     static_file=static_file)
+                                     static_file=static_file, freq=freq)
             return_status = 0
         except Exception as exc:
             return_status = 1
@@ -1060,7 +1077,8 @@ def cmor_run_subtool(indir: str = None,
                      calendar_type: Optional[str] = None,
                      ps_source: Optional[Dict[str, str]] = None,
                      ps_fallback: Optional[Dict[str, str]] = None,
-                     skip_existing: bool = False) -> int:
+                     skip_existing: bool = False,
+                     freq: Optional[str] = None) -> int:
     """
     Main entry point for CMORization workflow, steering all routines in this file.
 
@@ -1102,6 +1120,9 @@ def cmor_run_subtool(indir: str = None,
     :param skip_existing: If True, skip input files whose CMOR output already exists under ``outdir``,
                           and only CMORize the missing ones.
     :type skip_existing: bool
+    :param freq: FRE-bronx frequency of the input data, e.g. 'monthly'. For CMIP7 it sets the dataset's
+                 ``frequency``, see ``rewrite_netcdf_file_var``. If None, the exp config's is used.
+    :type freq: str, optional
     :raises ValueError: If required parameters are missing or inconsistent.
     :raises FileNotFoundError: If required files do not exist.
     :return: 0 if successful.
@@ -1311,4 +1332,4 @@ def cmor_run_subtool(indir: str = None,
                                          outdir, mip_var_cfgs, json_table_config, run_one_mode,
                                          ps_source=ps_source, ps_fallback=ps_fallback,
                                          existing_outputs=existing_outputs, var_reduce=var_reduce,
-                                         static_file=static_file )
+                                         static_file=static_file, freq=freq )
