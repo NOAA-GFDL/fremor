@@ -46,7 +46,7 @@ import netCDF4 as nc
 
 from .cmor_helpers import ( from_ds_get_this, create_lev_bnds,
                             get_iso_datetime_ranges, check_dataset_for_ocean_grid, get_vertical_dimension,
-                            create_tmp_dir, get_json_file_data, exp_config_overrides,
+                            create_tmp_dir, get_json_file_data, exp_config_overrides, warn_overridden_exp_config,
                             normalize_calendar, get_time_calendar_ds, get_time_calendar_value,
                             calendars_are_equivalent,
                             resolve_mip_era_table_resource, find_ps_companion, table_declares_ps,
@@ -1167,6 +1167,7 @@ def cmor_run_subtool(indir: str = None,
     if exp_cfg_mip_era == 'CMIP7' and freq is not None:
         exp_overrides['frequency'] = conv_bronx_to_cmip7_freq(freq)
     fre_logger.info('overriding the exp config with %s', exp_overrides)
+    warn_overridden_exp_config(get_json_file_data(json_exp_config), exp_overrides, json_exp_config)
 
 
     # open CMOR table config file - need it here for checking the TABLE's variable list

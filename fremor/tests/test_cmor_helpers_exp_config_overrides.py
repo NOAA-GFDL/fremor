@@ -1,10 +1,12 @@
 """
-unit tests for cmor_helpers.exp_config_overrides
+unit tests for cmor_helpers.exp_config_overrides and cmor_helpers.warn_overridden_exp_config
 """
+
+import logging
 
 import pytest
 
-from fremor.cmor_helpers import exp_config_overrides
+from fremor.cmor_helpers import exp_config_overrides, warn_overridden_exp_config
 
 
 def test_exp_config_overrides_none():
@@ -39,3 +41,33 @@ def test_exp_config_overrides_all():
     assert exp_config_overrides('gr1', 'regridded', '100 km', 'julian') == {
         'grid_label': 'gr1', 'grid': 'regridded', 'nominal_resolution': '100 km',
         'calendar': 'julian'}
+
+
+EXP_CONFIG_DATA = {'grid_label': 'gn', 'grid': 'native', 'nominal_resolution': '250 km',
+                   'calendar': 'noleap', 'frequency': 'monthly'}
+
+
+def test_warn_overridden_exp_config_different_values(caplog):
+    ''' each exp config attribute overridden with a different value is warned about '''
+    overrides = {'grid_label': 'g010', 'grid': 'native', 'nominal_resolution': '100 km',
+                 'frequency': 'mon'}
+    with caplog.at_level(logging.WARNING):
+        overridden = warn_overridden_exp_config(EXP_CONFIG_DATA, overrides, 'exp.json')
+    assert overridden == ['grid_label', 'nominal_resolution', 'frequency']
+    assert "grid_label = 'gn' in the exp config exp.json is overridden by 'g010' at runtime" in caplog.text
+    assert 'grid =' not in caplog.text
+
+
+def test_warn_overridden_exp_config_equivalent_calendar(caplog):
+    ''' an equivalent calendar alias is not a different value '''
+    with caplog.at_level(logging.WARNING):
+        assert not warn_overridden_exp_config(EXP_CONFIG_DATA, {'calendar': '365_day'})
+        assert warn_overridden_exp_config(EXP_CONFIG_DATA, {'calendar': '360_day'}) == ['calendar']
+    assert caplog.text.count('overridden') == 1
+
+
+def test_warn_overridden_exp_config_absent_attribute(caplog):
+    ''' an attribute the exp config does not set is filled in, not overridden '''
+    with caplog.at_level(logging.WARNING):
+        assert not warn_overridden_exp_config({'grid_label': 'gn'}, {'frequency': 'mon'})
+    assert not caplog.text

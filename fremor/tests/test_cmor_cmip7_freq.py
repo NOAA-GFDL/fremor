@@ -5,6 +5,7 @@ calendar, it is set on CMOR's dataset rather than written into the exp config fi
 """
 
 import json
+import logging
 from pathlib import Path
 import subprocess
 
@@ -87,7 +88,7 @@ def fixture_sos_indir(tmp_path):
 
 
 @pytest.mark.parametrize('exp_freq', [None, 'monthly'])
-def test_run_sets_cmip7_frequency(tmp_path, sos_indir, exp_freq):
+def test_run_sets_cmip7_frequency(tmp_path, sos_indir, exp_freq, caplog):
     '''
     with freq given, the CMIP7 frequency CMOR expects comes from it, whether the exp config
     has no frequency or one CMOR does not know
@@ -105,19 +106,26 @@ def test_run_sets_cmip7_frequency(tmp_path, sos_indir, exp_freq):
     varlist.write_text(json.dumps({'sos': 'sos'}), encoding='utf-8')
     outdir = tmp_path / 'out'
 
-    cmor_run_subtool(
-        indir = str(sos_indir),
-        json_var_list = str(varlist),
-        json_table_config = TABLE_CONFIG,
-        json_exp_config = str(exp_json),
-        outdir = str(outdir),
-        run_one_mode = True,
-        grid_label = 'g010',
-        grid = 'regridded to FOO grid from native',
-        nom_res = '100 km',
-        calendar_type = 'julian',
-        freq = 'monthly'
-    )
+    with caplog.at_level(logging.WARNING):
+        cmor_run_subtool(
+            indir = str(sos_indir),
+            json_var_list = str(varlist),
+            json_table_config = TABLE_CONFIG,
+            json_exp_config = str(exp_json),
+            outdir = str(outdir),
+            run_one_mode = True,
+            grid_label = 'g010',
+            grid = 'regridded to FOO grid from native',
+            nom_res = '100 km',
+            calendar_type = 'julian',
+            freq = 'monthly'
+        )
+
+    # the exp config's own values, overridden with different ones, are warned about
+    warned = [attribute for attribute in ('grid_label', 'grid', 'nominal_resolution', 'calendar', 'frequency')
+              if f"{attribute} = '" in caplog.text]
+    assert warned == ['grid_label', 'grid', 'nominal_resolution', 'calendar'] + \
+        (['frequency'] if exp_freq is not None else [])
 
     outputs = list((outdir / 'CMIP').rglob('sos_*.nc'))
     assert len(outputs) == 1
