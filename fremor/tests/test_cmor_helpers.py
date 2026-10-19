@@ -13,7 +13,7 @@ import netCDF4
 import cmor
 
 from fremor.cmor_constants import CMOR_EXIT_CTL, CMOR_EXIT_CTL_BY_ERA
-from fremor.cmor_helpers import ( find_statics_file, print_data_minmax,
+from fremor.cmor_helpers import ( find_statics_file, print_data_minmax, variable_grid_label,
                                   find_gold_ocean_statics_file,
                                   create_lev_bnds, get_iso_datetime_ranges, iso_to_bronx_chunk,
                                   create_tmp_dir, get_json_file_data,
@@ -679,3 +679,54 @@ def test_cmor_exit_ctl_by_era():
     assert CMOR_EXIT_CTL_BY_ERA['CMIP6PLUS'] == cmor.CMOR_EXIT_ON_MAJOR
     assert CMOR_EXIT_CTL_BY_ERA['CMIP6'] == CMOR_EXIT_CTL
     assert CMOR_EXIT_CTL_BY_ERA['CMIP7'] == CMOR_EXIT_CTL
+
+
+# ---------------------------------------------------------------------------
+# variable_grid_label: global/zonal means get the CV's own grid label
+# ---------------------------------------------------------------------------
+
+_TEST_FILES = Path(__file__).parent / 'test_files'
+
+
+def _cmip6_entry(table, var):
+    table_path = _TEST_FILES / 'cmip6-cmor-tables' / 'Tables' / f'CMIP6_{table}.json'
+    return json.loads(table_path.read_text(encoding='utf-8'))['variable_entry'][var]
+
+
+def _cmip7_entry(realm, key):
+    table_path = _TEST_FILES / 'cmip7-cmor-tables' / 'tables' / f'CMIP7_{realm}.json'
+    return json.loads(table_path.read_text(encoding='utf-8'))['variable_entry'][key]
+
+
+@pytest.mark.parametrize('table,var,table_label,expected', [
+    ('Omon', 'tos', 'gn', 'gn'),             # gridded: the table's label
+    ('Omon', 'thetaoga', 'gn', 'gm'),        # global mean
+    ('Omon', 'volo', 'gr', 'gm'),            # global sum
+    ('Amon', 'co2mass', 'gr1', 'gm'),
+    ('AERmonZ', 'ta', 'gr1', 'gr1z'),        # zonal mean
+    ('AERmonZ', 'ta', 'gr', 'grz'),
+    ('AERmonZ', 'ta', 'grz', 'grz'),         # already a zonal label
+    ('Omon', 'msftmz', 'gn', 'gnz'),         # zonal (basin) sum on native latitudes
+    ('Omon', 'mfo', 'gn', 'gn'),             # transport through passages: not a mean
+    ('CFsubhr', 'tas', 'gn', 'gn'),          # sites
+    ('SImon', 'siarean', 'gn', 'gn'),        # hemispheric: the CV has no label for it
+    ('IyrAnt', 'lim', 'gn', 'gn'),           # ice-sheet total: likewise
+    ('ImonAnt', 'acabf', 'gn', 'gn'),        # ice-sheet x/y grid
+])
+def test_variable_grid_label_cmip6(table, var, table_label, expected):
+    ''' CMIP6 global means get gm and zonal means the table's label with a z appended '''
+    assert variable_grid_label('CMIP6', var, _cmip6_entry(table, var), table_label) == expected
+
+
+@pytest.mark.parametrize('realm,key,region,expected', [
+    ('ocean', 'tos_tavg-u-hm-sea', 'glb', 'g010'),   # global mean
+    ('seaIce', 'siarea_tavg-u-hm-u', 'nh', 'g011'),  # hemispheric
+    ('seaIce', 'siarea_tavg-u-hm-u', 'sh', 'g012'),
+    ('ocean', 'tos_tavg-u-hm-sea', None, 'g100'),    # no region: the table's label
+    ('atmos', 'tas_tavg-h2m-hm-is', 'glb', 'g100'),  # ice-sheet mean: no single-cell grid
+    ('atmos', 'ta_tavg-p39-hy-air', 'glb', 'g100'),  # zonal: no zonal label in the CV
+    ('atmos', 'ta_tavg-p19-hxy-air', 'glb', 'g100'),
+])
+def test_variable_grid_label_cmip7(realm, key, region, expected):
+    ''' CMIP7 hm brands get the EMD single-cell grid for the region '''
+    assert variable_grid_label('CMIP7', key, _cmip7_entry(realm, key), 'g100', region) == expected

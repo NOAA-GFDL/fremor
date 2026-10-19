@@ -1326,8 +1326,10 @@ async def test_map_app_clear_mapping(temp_dir): # pylint: disable=redefined-oute
         assert session.has_pending_changes
         assert str(source_node.label).endswith('(deleted)')
         assert any(span.style == 'strike' for span in source_node.label.spans)
-        # clearing a mapping also deselects it, resetting the box
-        assert selected_box.content == MapApp.NO_CMIP_SELECTION
+        # clearing a source keeps its multiply-mapped variable selected, for a remap
+        assert app.selected_cmip is ps_node.data
+        assert app.selected_cmip_node is ps_node
+        assert selected_box.content == 'selected: Amon / ps'
 
         await pilot.press('s')
         await pilot.pause()
@@ -1388,6 +1390,96 @@ async def test_map_app_undo_key(temp_dir): # pylint: disable=redefined-outer-nam
         await pilot.press('u')
         await pilot.pause()
         assert not session.has_pending_changes
+
+
+@pytest.mark.asyncio
+async def test_map_app_undo_keeps_staged_multiply_mapped_deletions(temp_dir): # pylint: disable=redefined-outer-name
+    ''' 'u' restores the undone edit's node in place rather than rebuilding the tree, so an
+    earlier staged-cleared source of a multiply-mapped variable stays under Multiply-mapped,
+    still marked (deleted), instead of the variable moving to Mapped '''
+    pp_dir, varlist_dir, tables_dir = _make_session_fixture(temp_dir)
+    (Path(varlist_dir) / 'CMIP6_Amon_atmos.list').write_text(
+        json.dumps({'sfc_pres': 'ps', 't_ref': 'tas'}), encoding='utf-8'
+    )
+    (Path(varlist_dir) / 'CMIP6_Amon_atmos_scalar.list').write_text(
+        json.dumps({'sfc_pres_scalar': 'ps'}), encoding='utf-8'
+    )
+    yamlfile = _amon_yaml(temp_dir, pp_dir, varlist_dir, tables_dir,
+                          component_names=['atmos', 'atmos_scalar'])
+    session = MapSession(yamlfile)
+    app = MapApp(session)
+
+    async with app.run_test() as pilot:
+        cmip_tree = app.query_one('#cmip_tree')
+        table_node = cmip_tree.root.children[0]
+        # branches: Unmapped, Mapped, Multiply-mapped, Unknown
+        mapped_node = table_node.children[1]
+        multi_node = table_node.children[2]
+        ps_source = next(n for n in multi_node.children[0].children
+                         if n.data['component'] == 'atmos')
+        tas_source = mapped_node.children[0]
+        tas_label = str(tas_source.label)
+
+        app.on_tree_node_selected(_FakeTreeEvent(ps_source, 'cmip_tree'))
+        await pilot.press('d')
+        app.on_tree_node_selected(_FakeTreeEvent(tas_source, 'cmip_tree'))
+        await pilot.press('d')
+        await pilot.pause()
+        assert str(tas_source.label).endswith('(deleted)')
+
+        await pilot.press('u')
+        await pilot.pause()
+
+        # same nodes, not a rebuilt tree: tas is back to its original label, ps still deleted
+        assert cmip_tree.root.children[0] is table_node
+        assert str(tas_source.label) == tas_label
+        assert str(ps_source.label).endswith('(deleted)')
+        assert ps_source.parent.parent is multi_node
+        assert '1 unsaved' in str(table_node.label)
+
+        await pilot.press('u')
+        await pilot.pause()
+        assert not str(ps_source.label).endswith('(deleted)')
+        assert 'unsaved' not in str(table_node.label)
+        assert not session.has_pending_changes
+
+
+@pytest.mark.asyncio
+async def test_map_app_refresh_blocked_with_staged_changes(temp_dir): # pylint: disable=redefined-outer-name
+    ''' 'r' refuses to rebuild the tree while anything is staged, which would otherwise move a
+    staged-cleared multiply-mapped source into Mapped and drop its (deleted) marker '''
+    pp_dir, varlist_dir, tables_dir = _make_session_fixture(temp_dir)
+    (Path(varlist_dir) / 'CMIP6_Amon_atmos.list').write_text(
+        json.dumps({'sfc_pres': 'ps'}), encoding='utf-8'
+    )
+    (Path(varlist_dir) / 'CMIP6_Amon_atmos_scalar.list').write_text(
+        json.dumps({'sfc_pres_scalar': 'ps'}), encoding='utf-8'
+    )
+    yamlfile = _amon_yaml(temp_dir, pp_dir, varlist_dir, tables_dir,
+                          component_names=['atmos', 'atmos_scalar'])
+    session = MapSession(yamlfile)
+    app = MapApp(session)
+
+    async with app.run_test() as pilot:
+        cmip_tree = app.query_one('#cmip_tree')
+        table_node = cmip_tree.root.children[0]
+        multi_node = table_node.children[2]
+        ps_source = next(n for n in multi_node.children[0].children
+                         if n.data['component'] == 'atmos')
+        app.on_tree_node_selected(_FakeTreeEvent(ps_source, 'cmip_tree'))
+        await pilot.press('d')
+        await pilot.press('r')
+        await pilot.pause()
+
+        assert cmip_tree.root.children[0] is table_node
+        assert str(ps_source.label).endswith('(deleted)')
+
+        await pilot.press('u')
+        await pilot.press('r')
+        await pilot.pause()
+
+        # nothing staged any more, so the refresh goes through
+        assert cmip_tree.root.children[0] is not table_node
 
 
 @pytest.mark.asyncio
@@ -1581,15 +1673,19 @@ async def test_map_app_cmip_tree_selection_shows_detail_box(temp_dir): # pylint:
 
 
 @pytest.mark.asyncio
-async def test_map_app_clear_mapping_resets_detail_box(temp_dir): # pylint: disable=redefined-outer-name
-    ''' clearing a mapping drops the cmip-tree selection, so the detail box goes back to its
-    placeholder text rather than showing a stale definition '''
+async def test_map_app_clear_mapping_keeps_variable_selected(temp_dir): # pylint: disable=redefined-outer-name
+    ''' clearing a one-to-one mapping keeps its MIP variable selected (no longer as a source)
+    with its definition still shown, so 'm' can map a replacement pp file right away '''
     pp_dir, varlist_dir, tables_dir = _make_session_fixture(temp_dir)
     (Path(varlist_dir) / 'CMIP6_Amon_atmos.list').write_text(
         json.dumps({'t_ref': 'tas'}), encoding='utf-8'
     )
+    comp_ts_dir = Path(pp_dir) / 'atmos' / 'ts' / 'monthly' / '5yr'
+    comp_ts_dir.mkdir(parents=True)
+    _write_nc_file(comp_ts_dir / 'atmos.000101-000512.t_surf.nc', 't_surf', units='K')
     yamlfile = _amon_yaml(temp_dir, pp_dir, varlist_dir, tables_dir, component_names=['atmos'])
-    app = MapApp(MapSession(yamlfile))
+    session = MapSession(yamlfile)
+    app = MapApp(session)
 
     async with app.run_test() as pilot:
         cmip_tree = app.query_one('#cmip_tree')
@@ -1604,7 +1700,26 @@ async def test_map_app_clear_mapping_resets_detail_box(temp_dir): # pylint: disa
         await pilot.press('d')
         await pilot.pause()
 
-        assert detail_box.content == app.NO_CMIP_DETAIL
+        definition = detail_box.content
+        assert definition != app.NO_CMIP_DETAIL
+        assert app.selected_cmip == {'kind': 'var', 'table': 'Amon', 'var': 'tas'}
+        assert app.selected_cmip_node is source_node
+        assert app.query_one('#selected_cmip').content == 'selected: Amon / tas'
+
+        pp_tree = app.query_one('#pp_tree')
+        component_node = pp_tree.root.children[0]
+        app.on_tree_node_expanded(_FakeTreeEvent(component_node, 'pp_tree'))
+        freq_node = component_node.children[0]
+        app.on_tree_node_expanded(_FakeTreeEvent(freq_node, 'pp_tree'))
+        chunk_node = freq_node.children[0]
+        app.on_tree_node_expanded(_FakeTreeEvent(chunk_node, 'pp_tree'))
+        app.on_tree_node_selected(_FakeTreeEvent(chunk_node.children[0], 'pp_tree'))
+        await pilot.press('m')
+        await pilot.pause()
+
+        assert session.mapped_variables('atmos', 't_surf') == [('Amon', 'tas')]
+        assert session.mapped_variables('atmos', 't_ref') == []
+        assert str(source_node.label).endswith('<- atmos:t_surf')
 
 
 
@@ -2601,3 +2716,95 @@ async def test_map_app_set_reduce_needs_a_mapping(temp_dir): # pylint: disable=r
         await pilot.pause()
         assert not isinstance(app.screen, ReduceScreen)
         assert any(sev == 'warning' for _msg, sev in notifications)
+
+
+# ---------------------------------------------------------------------------
+# CMIP7: sources of one variable CMORizing to different brands
+# ---------------------------------------------------------------------------
+
+def _write_nc_over_dims(nc_path, var_name, dims):
+    ''' write a minimal real netCDF file with var_name over `dims` (each a 2-long dim) '''
+    with Dataset(nc_path, 'w') as ds:
+        for dim in dims:
+            ds.createDimension(dim, 2)
+        ds.createVariable(var_name, 'f4', tuple(dims))
+
+
+def _cmip7_brand_fixture(root_dir, monkeypatch, aer_mapped=True):
+    ''' CMIP7 atmos table with a lat-lon and a zonal-mean brand of ta; temp is mapped to ta
+    from a lat-lon atmos pp file and (if aer_mapped) a zonal-mean atmos_aer one. The pp files
+    count as staged: a just-written file can briefly have fewer allocated blocks than its
+    size, which the stat-based staging heuristic reads as offline. '''
+    monkeypatch.setattr('fremor.cmor_check._file_is_offline', lambda path, dmls_bin=None: False)
+    pp_dir, varlist_dir, tables_dir = _make_session_fixture(root_dir)
+    (Path(tables_dir) / 'CMIP7_atmos.json').write_text(json.dumps({'variable_entry': {
+        'ta_tavg-p19-hxy-air': {'dimensions': ['longitude', 'latitude', 'plev19', 'time']},
+        'ta_tavg-p39-hy-air': {'dimensions': ['latitude', 'plev39', 'time']},
+    }}), encoding='utf-8')
+    components = []
+    for name, mapped in (('atmos', True), ('atmos_aer', aer_mapped)):
+        varlist = Path(varlist_dir) / f'CMIP7_atmos_{name}.list'
+        varlist.write_text(json.dumps({'temp': 'ta' if mapped else ''}), encoding='utf-8')
+        components.append(_component_entry(name, varlist))
+    yamlfile = _write_map_yaml(root_dir, pp_dir, tables_dir,
+                               [_table_target('atmos', components)], mip_era='cmip7')
+    for name, dims in (('atmos', ('time', 'plev', 'lat', 'lon')),
+                       ('atmos_aer', ('time', 'plev', 'lat'))):
+        comp_dir = Path(pp_dir) / name / 'ts' / 'monthly' / '5yr'
+        comp_dir.mkdir(parents=True)
+        _write_nc_over_dims(comp_dir / f'{name}.000101-000512.temp.nc', 'temp', dims)
+    return yamlfile
+
+
+@pytest.mark.asyncio
+async def test_map_app_cmip7_sources_with_different_brands_listed_as_mapped(temp_dir, monkeypatch): # pylint: disable=redefined-outer-name
+    ''' a variable whose sources CMORize to different CMIP7 brands shows under Mapped, one
+    entry per source with its brand, rather than under Multiply-mapped '''
+    session = MapSession(_cmip7_brand_fixture(temp_dir, monkeypatch))
+    app = MapApp(session)
+
+    async with app.run_test():
+        table_node = app.query_one('#cmip_tree').root.children[0]
+        mapped_node, multi_node = table_node.children[1], table_node.children[2]
+        assert str(mapped_node.label) == 'Mapped (1)'
+        assert [str(node.label) for node in mapped_node.children] == [
+            'ta <- atmos:temp  (brand=tavg-p19-hxy-air)',
+            'ta <- atmos_aer:temp  (brand=tavg-p39-hy-air)',
+        ]
+        assert [node.data['component'] for node in mapped_node.children] == ['atmos', 'atmos_aer']
+        assert str(multi_node.label) == 'Multiply-mapped (0)'
+
+
+@pytest.mark.asyncio
+async def test_map_app_add_mapping_keeps_existing_source(temp_dir, monkeypatch): # pylint: disable=redefined-outer-name
+    ''' 'a' stages the selected pp file as an extra source of a mapped variable, keeping its
+    existing source; once saved, the two different-brand sources both show under Mapped '''
+    session = MapSession(_cmip7_brand_fixture(temp_dir, monkeypatch, aer_mapped=False))
+    app = MapApp(session)
+
+    async with app.run_test() as pilot:
+        cmip_tree = app.query_one('#cmip_tree')
+        source_node = cmip_tree.root.children[0].children[1].children[0]
+        app.on_tree_node_selected(_FakeTreeEvent(source_node, 'cmip_tree'))
+        await pilot.pause()  # let its auto-navigation to atmos:temp land first
+
+        pp_tree = app.query_one('#pp_tree')
+        aer_node = next(n for n in pp_tree.root.children if n.data['component'] == 'atmos_aer')
+        app.on_tree_node_expanded(_FakeTreeEvent(aer_node, 'pp_tree'))
+        freq_node = aer_node.children[0]
+        app.on_tree_node_expanded(_FakeTreeEvent(freq_node, 'pp_tree'))
+        chunk_node = freq_node.children[0]
+        app.on_tree_node_expanded(_FakeTreeEvent(chunk_node, 'pp_tree'))
+        app.on_tree_node_selected(_FakeTreeEvent(chunk_node.children[0], 'pp_tree'))
+        await pilot.press('a')
+        await pilot.pause()
+
+        assert session.mapped_variables('atmos', 'temp') == [('atmos', 'ta')]
+        assert session.mapped_variables('atmos_aer', 'temp') == [('atmos', 'ta')]
+        assert str(source_node.label).endswith('<- atmos_aer:temp')
+
+        await pilot.press('s')
+        await pilot.pause()
+
+        mapped_node = cmip_tree.root.children[0].children[1]
+        assert [n.data['component'] for n in mapped_node.children] == ['atmos', 'atmos_aer']

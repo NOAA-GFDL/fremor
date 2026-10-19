@@ -44,23 +44,23 @@ workflows are supported. Available subcommands:
 
 * Rewrites netCDF files in a directory to be CMIP-compliant
 * Requires MIP tables and controlled vocabulary configuration
-* Minimal Syntax: ``fremor run -d [indir] -l [varlist] -r [table_config] -p [exp_config] -o [outdir] [options]``
+* Minimal Syntax: ``fremor run -d [indir] --varlist [varlist] -r [table_config] -p [exp_config] -o [outdir] [options]``
 * Required Options:
-   - ``-d, --indir TEXT`` — Input directory with netCDF files
-   - ``-l, --varlist TEXT`` — Variable list dictionary mapping modeler variable names to MIP table variable names
+   - ``-d, --indir TEXT`` — Input directory with netCDF files, or a FRE static file ``<pp_dir>/<component>/<component>.static.nc``, whose time-invariant variables are then CMORized into fixed (fx) MIP entries without a time axis (``--start``/``--stop`` do not apply)
+   - ``--varlist TEXT`` — Variable list dictionary mapping modeler variable names to MIP table variable names
    - ``-r, --table_config TEXT`` — MIP table JSON configuration
    - ``-p, --exp_config TEXT`` — Experiment/model metadata JSON
    - ``-o, --outdir TEXT`` — Output directory prefix
 * Optional:
    - ``-v, --opt_var_name TEXT`` — Target specific variable
    - ``--run_one`` — Process one file for testing
-   - ``-g, --grid_label TEXT`` — Grid type (e.g. ``gn``, ``gr``)
+   - ``-g, --grid_label TEXT`` — Grid type (e.g. ``gn``, ``gr``). Global and zonal means are relabeled per variable to the controlled vocabulary's own label, since CMOR only checks that a label is in the CV: CMIP6/CMIP6Plus global means get ``gm`` and zonal means get this label with a ``z`` appended (``gnz``, ``grz``, ``gr1z``, ...); CMIP7 ``hm`` (horizontal-mean) brands get the single-cell grid for the experiment config's ``region`` (``g010`` glb, ``g011`` nh, ``g012`` sh). Hemispheric CMIP6 totals (e.g. ``siarean``), ice-sheet totals and CMIP7 zonal (``hy``/``hyb``) brands keep this label, as the CV has none of their own
    - ``--grid_desc TEXT`` — Grid description
    - ``--nom_res TEXT`` — Nominal resolution
    - ``--start TEXT`` — Minimum year (``YYYY``)
    - ``--stop TEXT`` — Maximum year (``YYYY``)
    - ``--calendar TEXT`` — Calendar type
-* Example: ``fremor run --run_one -g gr --nom_res "10000 km" -d input/ -l varlist.json -r CMIP6_Omon.json -p exp_config.json -o output/``
+* Example: ``fremor run --run_one -g gr --nom_res "10000 km" -d input/ --varlist varlist.json -r CMIP6_Omon.json -p exp_config.json -o output/``
 
 ``yaml``
 --------
@@ -121,7 +121,7 @@ workflows are supported. Available subcommands:
 * Required Options:
    - ``-r, --table_config_dir TEXT`` — Directory with MIP tables
 * Optional:
-   - ``-l, --varlist TEXT`` — Variable list file
+   - ``--varlist TEXT`` — Variable list file
    - ``-v, --opt_var_name TEXT`` — Specific variable to search
 * Example: ``fremor find -r cmip6-cmor-tables/Tables/ -v sos``
 
@@ -149,7 +149,7 @@ workflows are supported. Available subcommands:
 
 * Generates a CMOR YAML configuration file by scanning a post-processing directory tree and cross-referencing against MIP tables
 * Creates per-component variable list JSON files and the structured YAML that ``fremor yaml`` consumes
-* Minimal Syntax: ``fremor config -p [pp_dir] -t [mip_tables_dir] -m [mip_era] -e [exp_config] -o [output_yaml] -d [output_dir] -l [varlist_dir]``
+* Minimal Syntax: ``fremor config -p [pp_dir] -t [mip_tables_dir] -m [mip_era] -e [exp_config] -o [output_yaml] -d [output_dir] --varlist-dir [varlist_dir]``
 * Required Options:
    - ``-p, --pp_dir TEXT`` — Root post-processing directory
    - ``-t, --mip_tables_dir TEXT`` — Directory containing MIP table JSON files
@@ -157,23 +157,27 @@ workflows are supported. Available subcommands:
    - ``-e, --exp_config TEXT`` — Path to experiment configuration JSON
    - ``-o, --output_yaml TEXT`` — Path for the output CMOR YAML file
    - ``-d, --output_dir TEXT`` — Root output directory for CMORized data
-   - ``-l, --varlist_dir TEXT`` — Directory for per-component variable list files
+   - ``--varlist-dir TEXT`` — Directory for per-component variable list files
 * Optional:
    - ``-g, --pp_comp_glob TEXT`` — Glob pattern for selecting pp component directory names (default: ``*``)
    - ``--strict_varlist`` — When generating per-component variable lists, apply ``--strict_mode``: if none of a component's variables match any MIP entry, skip that component entirely (no varlist file, no entry in the generated YAML)
-   - ``--freq TEXT`` — Temporal frequency (default: ``monthly``)
+   - ``--freq TEXT`` — Temporal frequency (default: ``monthly``). ``static`` scans each component's static file, ``<pp_dir>/<component>/<component>.static.nc``, instead of its time series, and matches its time-invariant variables against the tables' fixed entries only (CMIP6 ``fx``/``Ofx``-style tables, CMIP7 ``ti`` brands). The table targets it writes have ``freq: 'static'`` and components ``data_series_type: 'static'`` with no ``chunk``; varlists are named ``<ERA>_<table>_<component>_static.list``. Static files split per tile (``.static.tileN.nc``) are skipped with a warning. Before any static file is read, all of them are recalled from tape in one ``dmget`` batch (skipped if ``dmget`` is not found; a failed ``dmget`` only warns, leaving each file to be recalled as it is read)
    - ``--chunk TEXT`` — Time chunk string (default: ``5yr``)
    - ``--grid TEXT`` — Grid label anchor name (default: ``g999``; the previous documentation incorrectly listed ``g99``)
    - ``--overwrite`` — Overwrite existing variable list files
    - ``--calendar TEXT`` — Calendar type (default: ``noleap``)
+   - ``--dmget-bin TEXT`` — ``dmget`` executable name or path, used with ``--freq static`` (default: ``dmget``)
    - ``--check_freq`` — Only map a variable to a MIP table when the actual frequency of its pp files is consistent with the table. The input frequency is read from the variable's first file: the base frequency from the median time-axis spacing (or the time bounds' width for a single time step), and the sampling from the time axis' ``climatology`` attribute and the variable's ``cell_methods`` (``time: point`` vs mean/max/min/sum). It is compared with each matching table entry's ``frequency`` (CMIP6, e.g. ``mon``, ``day``, ``3hrPt``, ``monC``) and time dimension (``time``, ``time1``, ``time2``/``time3``, or none for ``fx``/``ti``; CMIP6 and CMIP7). CMIP7 tables have no ``frequency`` field, so for CMIP7 only the sampling is checked. A variable with no consistent entry is treated like one not in the table (``""`` in the varlist, or left out with ``--strict_varlist``); anything that cannot be read from the file is not held against it. One file per candidate variable is opened, so files offline on tape are recalled
-* Example: ``fremor config -p /path/to/pp -t /path/to/tables -m cmip7 -e exp_config.json -o cmor.yaml -d /path/to/output -l /path/to/varlists``
+* Example: ``fremor config -p /path/to/pp -t /path/to/tables -m cmip7 -e exp_config.json -o cmor.yaml -d /path/to/output --varlist-dir /path/to/varlists``
+* Static example (a separate yaml): ``fremor config -p /path/to/pp -t /path/to/tables -m cmip6 -e exp_config.json -o cmor_static.yaml -d /path/to/output --varlist-dir /path/to/varlists --freq static``
 
 ``check``
 ---------
 
 * Cross-references per-component varlist files against MIP table JSON files and reports, per MIP table: variables required by the table but not mapped from any component (unmapped), variables mapped from more than one component/diagnostic (multiply-mapped), and mapped values that don't correspond to any variable actually defined in that table (unknown / likely typos)
+* For CMIP7, a variable mapped from several components is only multiply-mapped if two of its sources would CMORize to the same brand: sources that each resolve to a different brand -- e.g. ``ta`` from a lat-lon and a zonal-mean pp file, becoming ``ta_tavg-p19-hxy-air`` and ``ta_tavg-p39-hy-air`` -- are reported as ``MULTI-BRAND`` instead (listed with ``--show-multi-mapped`` or ``--show-mapped``), and multiply-mapped sources are listed with their brands. A source's brand is resolved like ``fremor run`` does, from the dimensions of its first pp file in the run bounds (after its ``reduce`` method, if any); only variables with more than one brand in the table need a file, whose header alone is read, and an offline file is never opened -- a source whose brand can't be resolved keeps the variable multiply-mapped
 * Skips MIP table targets marked ``disabled: true``, including their optional staging and dimension checks
+* A static table target (``freq: 'static'``, see ``fremor config --freq static``) is checked against the table's fixed (``fx``/``ti``) entries only, and its input-file checks inspect each component's static file, ``<component>.static.nc``; there is no time coverage to report for it
 * pp_dir, the MIP tables directory, the MIP era, and each component's variable list path are all derived from ``yamlfile``, the self-contained CMOR YAML written by ``fremor config`` — no separate directory/era flags are needed
 * Startup and per-table progress, including elapsed timings, is written to stderr so long archive/network-filesystem checks remain visibly active without corrupting ``--json`` output
 * Minimal Syntax: ``fremor check -y [yamlfile] [TABLES...]``
@@ -188,6 +192,7 @@ workflows are supported. Available subcommands:
    - ``--check-outputs`` — For each one-to-one mapping, report whether matching CMOR output files exist under the configured ``outdir`` and whether output-date ranges have gaps
    - ``--dmls_bin TEXT`` — Path to the ``dmls`` executable used by ``--check-inputs``; defaults to searching ``PATH``
    - ``--json`` — Print the report as JSON instead of a text summary
+   - For CMIP7, the input/dims/outputs/attrs/range file checks also run on each source of a ``MULTI-BRAND`` variable, reported under its branded name (e.g. ``ta_tavg-p39-hy-air``) and checked against that brand's MIP-table entry alone
    - ``-o, --output_report TEXT`` — Optional path to also write the JSON report to
 * Examples:
    - ``fremor check -y cmor.yaml --show-mapped``
@@ -202,15 +207,17 @@ workflows are supported. Available subcommands:
 * Shows each selected MIP table as a tree of variables alongside their mapping status (unmapped / mapped / multiply-mapped / unknown), and lets you browse time-series files under ``pp_dir`` to assign or fix a mapping
 * Selecting a MIP variable shows its own MIP-table definition (such as long name, units, dimensions, and cell methods); CMIP7 variables with multiple brands show each matching definition
 * A box above the pp browser always shows the currently-selected CMIP variable (and its current source, if reassigning an existing mapping)
-* Press ``m`` to stage mapping the selected pp file to the selected CMIP variable, ``d`` to stage clearing a selected existing mapping, ``t`` to stage toggling the ``disabled`` flag of the MIP table currently in context (select the table node itself, or any of its variables), ``e`` to edit that table's grid and surface-pressure settings in a dialog, ``z`` to set the reduce method of the selected mapping (see below), ``s`` to save all staged changes to disk, ``r`` to refresh the tree (re-categorizing it from current, possibly-unsaved, state), ``q`` to quit
+* Press ``m`` to stage mapping the selected pp file to the selected CMIP variable, ``a`` to stage it as an extra source of the variable (keeping the selected existing source), ``d`` to stage clearing a selected existing mapping, ``t`` to stage toggling the ``disabled`` flag of the MIP table currently in context (select the table node itself, or any of its variables), ``e`` to edit that table's grid and surface-pressure settings in a dialog, ``z`` to set the reduce method of the selected mapping (see below), ``s`` to save all staged changes to disk, ``r`` to refresh the tree (refused while anything is staged -- save with ``s`` or restore with ``R`` first), ``q`` to quit
 * Staged-but-unsaved edits are marked in place instead of triggering a full tree rebuild, so expanded branches stay expanded while you batch edits across many variables: a newly (re)mapped variable shows ``<- component:local_key`` pointing at its new source, a cleared mapping is struck through and labeled ``(deleted)``, and a disabled table's node is labeled ``(disabled)``; nothing is written to disk until you press ``s`` — for a disabled toggle or a grid/ps settings edit, that rewrites the whole yamlfile (so hand-added comments/formatting there won't survive a save that includes one)
 * If there are unsaved staged changes, ``q`` warns first instead of quitting immediately; press ``q`` again to quit anyway and discard them, or ``s`` to save first
 * File previews use the ``ncinfo`` tool if it's found on PATH (or via ``--ncinfo_bin``), falling back to a plain netCDF4-based preview otherwise; previews load in a background thread (showing a loading message while they do) so the UI stays responsive, and switching to another file before a preview finishes discards the outdated result once it arrives
 * pp_dir, the MIP tables directory, the MIP era, and each component's variable list path are all derived from ``yamlfile``, the self-contained CMOR YAML written by ``fremor config`` — mapping edits are saved straight back into the variable list files referenced there
+* A component's static file (``<component>.static.nc``) shows up in the pp browser as a ``static`` node next to its time-series freq directories, listing its time-invariant variables (unless the file is still on tape). They can only be mapped into a static table target (``freq: 'static'``, see ``fremor config --freq static``); a component newly mapped from one is staged with ``data_series_type: 'static'`` and no ``chunk``
 * Each MIP table's configured ``freq`` (shown in its tree label) is enforced: staging a mapping from a pp file under a different freq subdirectory is refused, since ``fremor yaml`` would never actually read from there at CMORization time; auto-navigating to an already-mapped variable's source prefers a file under that freq too, falling back to a mismatched one (with a warning) only if that's all that exists. A component's configured ``chunk`` is enforced the same way
 * Selecting a MIP table node shows its grid settings in the detail box -- the table target's ``gridding`` block (``grid_label``, ``grid_desc``, ``nom_res``), or, when it has none, the experiment config's ``grid_label``/``grid``/``nominal_resolution`` that CMOR uses instead -- and where surface pressure for hybrid-sigma variables comes from, in the order ``fremor yaml`` searches: the table's own ``ps`` entry and which local variable is mapped to it, the companion ``.ps.nc`` file, then the table target's ``ps_component``/``ps_local_name``. The table's grid label also shows in its tree label
 * ``e`` opens a dialog editing those five fields for the table in context (Enter or *Stage* to stage, Escape or *Cancel* to close). The three grid fields must be set together or all left empty, which writes ``gridding: null`` so the experiment config's grid is used; an empty ``ps_component`` or ``ps_local_name`` is removed from the table target, and ``ps_local_name`` needs a ``ps_component``. Like a ``disabled`` toggle, the edit is staged until ``s`` rewrites the yamlfile, is discarded by ``R``, and is not undone by ``u``
 * ``z`` opens a picker for the reduce method of the selected ``component:local_key`` mapping (or of a variable you have just mapped with ``m``): ``none`` or ``zonal_mean``. Choosing one stages the varlist value as ``{"name": ..., "reduce": ...}``, or back to the plain name for ``none``; like any mapping edit it is undone by ``u``, discarded by ``R`` and written by ``s``. Mappings show their reduce method in the tree, e.g. ``ta <- atmos:ta  (reduce=zonal_mean)``. Mapping (``m``) onto a variable whose every definition in the table has latitude but no longitude (e.g. CMIP6 ``AERmonZ`` ``ta``) opens the picker straight away with ``zonal_mean`` highlighted -- press Enter to accept, or Escape (or pick ``none``) if the pp file is already a zonal mean. CMIP7 variables that also have lat-lon brands (e.g. ``ta``) are not offered it automatically, since there the reduce method picks the brand; use ``z``
+* For CMIP7, a variable whose sources each CMORize to a different brand (see ``fremor check``) is listed under Mapped, one entry per source with its brand, e.g. ``ta <- atmos_aer:ta  (brand=tavg-p39-hy-air)``; each multiply-mapped source shows its brand too. Use ``a`` to add such a source to an already-mapped variable
 * Reassigning an already-mapped variable to a new pp source (``m`` with an existing mapping selected) also stages clearing its previous source in the same action, so it doesn't end up mapped from both at once
 * Before previewing a selected pp file, its ``dmls`` status (or via ``--dmls_bin``) is checked to confirm it's actually been retrieved from tape; an offline file shows a "still on tape" message instead of a preview, falling back to a stat-only heuristic if ``dmls`` isn't available
 * Minimal Syntax: ``fremor map -y [yamlfile] [TABLES...]``

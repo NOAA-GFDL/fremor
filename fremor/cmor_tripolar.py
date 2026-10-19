@@ -197,6 +197,10 @@ def load_tripolar_grid( ds: nc.Dataset,
     # create h-point bounds from the q-point lat lons
     fre_logger.info('creating yh_bnds, xh_bnds from yq, xq')
 
+    # time-series files bring 'nv' along with their time_bnds; a static file has no time axis
+    if 'nv' not in ds.dimensions:
+        ds.createDimension('nv', 2)
+
     yh_bnds = ds.createVariable('yh_bnds', yq.dtype, ('yh', 'nv'))
     for i in range(0, yh_dim):
         yh_bnds[i, 0] = yq[i]

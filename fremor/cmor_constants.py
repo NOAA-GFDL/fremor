@@ -204,6 +204,18 @@ EMD_GRID_CELL_DIRNAME = 'emd_horizontal_grid_cell'
 # Tolerance, in degrees, when comparing input coordinates against a grid-label spec.
 GRID_SPEC_TOLERANCE_DEG = 1.0e-3
 
+# Per-variable grid labels (see cmor_helpers.variable_grid_label). CMOR only checks that a
+# grid_label is in the CV, never that it suits the variable, so a table target's single label
+# would otherwise also land on the table's global/zonal means.
+# CMIP7: the EMD's single-cell grids, by the dataset's region, for an hm (horizontal mean) brand
+CMIP7_MEAN_GRID_LABELS = {'glb': 'g010', 'nh': 'g011', 'sh': 'g012'}
+# CMIP7 hm area labels for ice-sheet/shelf means, which no single-cell grid covers
+CMIP7_ICE_SHEET_AREA_LABELS = {'is', 'gis', 'fis'}
+# CMIP6/CMIP6Plus: dimensions locating data horizontally -- a variable with none of them that
+# is aggregated over area (cell_methods 'area: ...') is a global mean ('gm')
+CMIP6_HORIZONTAL_DIMS = {'latitude', 'longitude', 'xant', 'yant', 'xgre', 'ygre', 'site',
+                         'oline', 'siline', 'gridlatitude', 'basin'}
+
 # CF calendar names (CF-1.11 section 4.4.1), plus the deprecated alias 'gregorian'.
 CF_CALENDARS = [
     'standard', 'gregorian', 'proleptic_gregorian', 'julian', 'noleap', '365_day',
@@ -215,6 +227,16 @@ CF_CALENDARS = [
 # with the CMIP6Plus MIP tables (used by cmor_init to fetch it alongside them).
 CMIP6PLUS_CV_URL = ('https://raw.githubusercontent.com/WCRP-CMIP/CMIP6Plus_CVs/'
                     'main/CVs/CMIP6Plus_CV.json')
+
+
+# ---------------------------------------------------------------------------
+# static (time-invariant) pp files
+# ---------------------------------------------------------------------------
+# FRE writes each component's time-invariant fields once, all into one file sitting directly
+# under the component directory: <pp_dir>/<component>/<component>.static.nc. A cmor yaml table
+# target reading from it uses this freq, and its target components this data_series_type.
+STATIC_FREQ = 'static'
+STATIC_DATA_SERIES_TYPE = 'static'
 
 
 # ---------------------------------------------------------------------------
