@@ -7,9 +7,26 @@ import logging
 from pathlib import Path
 
 import pytest
+from netCDF4 import Dataset
 
-from fremor.cmor_finder import ( make_simple_varlist, cmor_find_subtool, print_var_content,
+from fremor.cmor_finder import ( cmor_find_subtool, detect_input_frequency, make_simple_varlist,
+                                 make_static_varlist, print_var_content,
                                  print_var_content_in_dir_w_mip_tables )
+
+
+def _write_frequency_input(path, *, units='days since 2000-01-01', values=(0.0, 1.0),
+                           time_variable=True):
+    """Create a minimal time-dependent NetCDF variable for frequency detection."""
+    with Dataset(path, 'w') as ds:
+        ds.createDimension('time', len(values))
+        if time_variable:
+            time = ds.createVariable('time', 'f8', ('time',))
+            time.units = units
+            time[:] = values
+        variable = ds.createVariable('tas', 'f4', ('time',))
+        variable.cell_methods = 'time: mean'
+        variable[:] = range(len(values))
+    return str(path)
 
 def test_make_simple_varlist(tmp_path):
     """
@@ -37,6 +54,58 @@ def test_make_simple_varlist(tmp_path):
         'var3': 'var3'
     }
     assert var_list == expected_var_list
+
+
+def test_detect_input_frequency_unknown_time_units(tmp_path):
+    """Unrecognized CF time units leave both the input base frequency and spacing unknown."""
+    nc_file = _write_frequency_input(tmp_path / 'unknown_units.nc',
+                                    units='fortnights since 2000-01-01')
+
+    assert detect_input_frequency(nc_file, 'tas') == {'base': None, 'sampling': 'mean'}
+
+
+def test_detect_input_frequency_unrecognized_spacing(tmp_path):
+    """A valid time axis with an unrecognized spacing has no base frequency."""
+    nc_file = _write_frequency_input(tmp_path / 'unknown_spacing.nc', values=(0.0, 2.0))
+
+    assert detect_input_frequency(nc_file, 'tas') == {'base': None, 'sampling': 'mean'}
+
+
+def test_detect_input_frequency_without_time_coordinate_variable(tmp_path):
+    """A time dimension without a time coordinate variable leaves frequency unknown."""
+    nc_file = _write_frequency_input(tmp_path / 'missing_time_variable.nc', time_variable=False)
+
+    assert detect_input_frequency(nc_file, 'tas') == {'base': None, 'sampling': 'mean'}
+
+
+def test_make_static_varlist_missing_file_returns_none(tmp_path, caplog):
+    """A nonexistent static input is reported and does not create a variable list."""
+    static_file = tmp_path / 'missing.static.nc'
+    output_list = tmp_path / 'varlist.json'
+
+    with caplog.at_level(logging.ERROR):
+        result = make_static_varlist(str(static_file), str(output_list))
+
+    assert result is None
+    assert f'static file not found: {static_file}' in caplog.text
+    assert not output_list.exists()
+
+
+def test_make_static_varlist_without_candidate_variables_returns_none(tmp_path, caplog):
+    """A static file containing only a coordinate has no variable-list candidates."""
+    static_file = tmp_path / 'coordinates_only.static.nc'
+    with Dataset(static_file, 'w') as ds:
+        ds.createDimension('x', 2)
+        coordinate = ds.createVariable('x', 'f4', ('x',))
+        coordinate[:] = [0.0, 1.0]
+    output_list = tmp_path / 'varlist.json'
+
+    with caplog.at_level(logging.WARNING):
+        result = make_static_varlist(str(static_file), str(output_list))
+
+    assert result is None
+    assert f'no time-invariant data variables found in {static_file}' in caplog.text
+    assert not output_list.exists()
 
 
 def test_find_subtool_no_json_dir_err(tmp_path):
