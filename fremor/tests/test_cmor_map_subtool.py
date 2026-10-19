@@ -738,11 +738,12 @@ def test_format_previewtext(temp_dir):
 
 def test_read_exp_grid(temp_dir, caplog):
     ''' error condition for _read_exp_grid'''
-    Path('foo_exp_json').touch()
+    fake_exp_json_path =  Path(temp_dir) / 'foo_exp.json'
+    fake_exp_json_path.touch()
     with caplog.at_level(logging.WARNING):
-        assert _read_exp_grid('foo_exp.json') == {}
-    assert 'ERROR: json file at foo_exp.json likely has a syntax error' in caplog.messages
-    assert 'could not read exp_json foo_exp.json: Expecting value: line 1 column 1 (char 0)' in caplog.messages
+        assert _read_exp_grid(str(fake_exp_json_path)) == {}
+    assert f'ERROR: json file at {fake_exp_json_path} likely has a syntax error' in caplog.messages
+    assert f'could not read exp_json {fake_exp_json_path}: Expecting value: line 1 column 1 (char 0)' in caplog.messages
 
 
 def test_format_selected_cmip_none(temp_dir): # pylint: disable=redefined-outer-name
