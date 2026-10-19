@@ -143,6 +143,52 @@ def test_zonal_mean_equal_weights_without_bounds(tmp_path):
         assert ds.variables['ta'][0, 0, 0] == pytest.approx(201.5)
 
 
+def test_zonal_mean_copies_fill_value_of_other_variables(tmp_path):
+    ''' a copied variable retains its fill value when no fill is passed explicitly '''
+    nc_path = _write_ta(tmp_path / 'in.nc')
+    with Dataset(nc_path, 'a') as ds:
+        lat_copy = ds.createVariable('lat_copy', 'f4', ('lat',), fill_value=-999.0)
+        lat_copy[:] = ds.variables['lat'][:]
+
+    apply_reduce(nc_path, 'ta', 'zonal_mean')
+
+    with Dataset(nc_path) as ds:
+        assert ds.variables['lat_copy']._FillValue == pytest.approx(-999.0)
+        assert ds.variables['lat_copy'][:].tolist() == [-60.0, 0.0, 60.0]
+
+
+def test_zonal_mean_copies_scalar_variables(tmp_path):
+    ''' a scalar variable is copied using its scalar value '''
+    nc_path = _write_ta(tmp_path / 'in.nc')
+    with Dataset(nc_path, 'a') as ds:
+        scalar = ds.createVariable('scalar', 'i4')
+        scalar.assignValue(42)
+
+    apply_reduce(nc_path, 'ta', 'zonal_mean')
+
+    with Dataset(nc_path) as ds:
+        assert ds.variables['scalar'].getValue() == 42
+
+
+def test_zonal_mean_with_longitude_as_first_dimension(tmp_path):
+    ''' a leading longitude dimension is averaged across the whole variable '''
+    nc_path = _write_ta(tmp_path / 'in.nc', mask_point=False)
+    with Dataset(nc_path, 'a') as ds:
+        surface = ds.createVariable('surface', 'f4', ('lon', 'lat'))
+        surface[:] = np.array([
+            [1.0, 2.0, 3.0],
+            [3.0, 4.0, 5.0],
+            [5.0, 6.0, 7.0],
+            [7.0, 8.0, 9.0],
+        ])
+
+    apply_reduce(nc_path, 'surface', 'zonal_mean')
+
+    with Dataset(nc_path) as ds:
+        assert ds.variables['surface'].dimensions == ('lat',)
+        assert ds.variables['surface'][:].tolist() == [4.0, 5.0, 6.0]
+
+
 def test_apply_reduce_none_unknown_and_no_longitude(tmp_path):
     ''' no method leaves the file alone; an unknown method or a missing 1-D longitude axis is
     an error '''
