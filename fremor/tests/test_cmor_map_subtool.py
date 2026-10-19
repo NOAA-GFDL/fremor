@@ -24,6 +24,7 @@ from fremor.cmor_map import (
     _discover_pp_components,
     _find_ncinfo_bin,
     _format_table_settings,
+    _format_preview_text,
     _is_zonal_mean,
     _format_variable_detail,
     _format_year_coverage,
@@ -106,6 +107,7 @@ def test_discover_freqs_and_chunks_and_nc_files(temp_dir): # pylint: disable=red
     _write_nc_file(nc_path, 'sos')
 
     assert _discover_freqs(str(component_dir)) == ['monthly']
+    assert _discover_chunks(str(component_dir), 'annual') == []
     assert _discover_chunks(str(component_dir), 'monthly') == ['5yr']
     files = _discover_nc_files(str(component_dir), 'monthly', '5yr')
     assert files == [str(nc_path)]
@@ -723,6 +725,10 @@ def test_mapsession_usage_count_reflects_staged_edits(temp_dir): # pylint: disab
 
 
 # ── selected-CMIP-variable box formatting ───────────────────────────────────
+def test_format_preview_text(temp_dir):
+    ''' various returns of _format_preview_text '''
+    _format_preview_text(local_var_name = 'foo', source= 'none', data={}) == 'no preview available for variable foo'
+    _format_preview_text(local_var_name = 'foo', source= 'ncinfo', data={}) == '[ncinfo] foo\ntype=None dims=()'
 
 def test_format_selected_cmip_none(temp_dir): # pylint: disable=redefined-outer-name
     ''' with nothing selected, the box shows the placeholder text '''
