@@ -6,6 +6,7 @@ import json
 import stat
 import tempfile
 from pathlib import Path
+import logging
 
 import pytest
 import yaml
@@ -34,6 +35,7 @@ from fremor.cmor_map import (
     _merge_year_ranges,
     _ncinfo_preview,
     _preview_nc_file,
+    _read_exp_grid
 )
 
 
@@ -725,10 +727,23 @@ def test_mapsession_usage_count_reflects_staged_edits(temp_dir): # pylint: disab
 
 
 # ── selected-CMIP-variable box formatting ───────────────────────────────────
-def test_format_preview_text(temp_dir):
+def test_format_previewtext(temp_dir):
     ''' various returns of _format_preview_text '''
-    _format_preview_text(local_var_name = 'foo', source= 'none', data={}) == 'no preview available for variable foo'
-    _format_preview_text(local_var_name = 'foo', source= 'ncinfo', data={}) == '[ncinfo] foo\ntype=None dims=()'
+    assert _format_preview_text(local_var_name = 'foo', source = 'none'  , data = {}) == 'no preview available for variable "foo"'
+    assert _format_preview_text(local_var_name = 'foo', source = 'ncinfo', data = {}) == '[ncinfo] foo\ntype=None dims=()'
+    assert _format_preview_text(local_var_name = 'foo', source = 'ncinfo',
+                         data = {"attributes":[ {'name':'some_attr'},
+                                                {'value':'some_value'} ] }
+    ) == '[ncinfo] foo\ntype=None dims=()\n  some_attr: None\n  None: some_value'
+
+def test_read_exp_grid(temp_dir, caplog):
+    ''' error condition for _read_exp_grid'''
+    Path('foo_exp_json').touch()
+    with caplog.at_level(logging.WARNING):
+        assert _read_exp_grid('foo_exp.json') == {}
+    assert 'ERROR: json file at foo_exp.json likely has a syntax error' in caplog.messages
+    assert 'could not read exp_json foo_exp.json: Expecting value: line 1 column 1 (char 0)' in caplog.messages
+
 
 def test_format_selected_cmip_none(temp_dir): # pylint: disable=redefined-outer-name
     ''' with nothing selected, the box shows the placeholder text '''
