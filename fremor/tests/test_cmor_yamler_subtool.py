@@ -103,6 +103,27 @@ def test_find_table_ps_source_skips_unreadable_table(tmp_path, caplog):
     assert f'could not read {table_path} while looking for a ps entry, skipping' in caplog.text
 
 
+def test_find_table_ps_source_skips_unreadable_variable_list(tmp_path, caplog):
+    """A missing component variable list warns and is skipped while searching for ps."""
+    table_path = tmp_path / 'CMIP6_Omon.json'
+    table_path.write_text(json.dumps({'variable_entry': {'ps': {}}}), encoding='utf-8')
+    variable_list = tmp_path / 'missing-varlist.json'
+    components = [{
+        'component_name': 'atmos',
+        'data_series_type': 'ts',
+        'chunk': 'P5Y',
+        'variable_list': str(variable_list),
+    }]
+
+    with caplog.at_level(logging.WARNING, logger='fremor.cmor_yamler'):
+        result = _find_table_ps_source(str(table_path), components, str(tmp_path / 'pp'),
+                                      'monthly')
+
+    assert result == (None, None)
+    assert (f'could not read {variable_list} while looking for a ps mapping, skipping it'
+            in caplog.text)
+
+
 def test_find_table_ps_source_returns_none_without_ps_mapping(tmp_path):
     """A table declaring ps but with no component mapping it needs no ps source."""
     table_path = tmp_path / 'CMIP6_Omon.json'
