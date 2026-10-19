@@ -716,14 +716,9 @@ def rewrite_netcdf_file_var( mip_var_cfgs: dict = None,
     cmor.write(cmor_var, var)
     fre_logger.info('DONE cmor.write call: for var data into cmor_var')
     if save_ps:
-        if any([ips is None, ps is None]):
-            fre_logger.warning('ps or ips is None!, but save_ps is True!\n' #uncovered
-                               'ps = %s, ips = %s\n'
-                               'skipping ps writing!', ps, ips)
-        else:
-            fre_logger.info('cmor.write call: for interp-pressure data (ips)')
-            cmor.write(ips, ps, store_with=cmor_var, ntimes_passed=ntimes_passed)
-            fre_logger.info('DONE cmor.write call: for interp-pressure data (ips)')
+        fre_logger.info('cmor.write call: for interp-pressure data (ips)')
+        cmor.write(ips, ps, store_with=cmor_var, ntimes_passed=ntimes_passed)
+        fre_logger.info('DONE cmor.write call: for interp-pressure data (ips)')
 
     fre_logger.info('cmor.close call: for cmor_var')
     filename = cmor.close(cmor_var, file_name=True, preserve=False)
