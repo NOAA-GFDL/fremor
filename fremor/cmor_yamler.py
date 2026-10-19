@@ -6,6 +6,10 @@ This module powers the ``fremor yaml`` command, steering the CMORization workflo
 self-contained CMOR YAML file, resolving required metadata and paths, and orchestrating calls to
 ``cmor_run_subtool`` for each target variable/component.
 
+A table target with ``freq: 'static'`` reads its components' (``data_series_type: 'static'``)
+time-invariant variables from their FRE static files, ``<pp_dir>/<component>/<component>.static.nc``,
+rather than from time series.
+
 Functions
 ---------
 - ``cmor_yaml_subtool(...)``
@@ -21,9 +25,10 @@ from typing import Optional
 
 import yaml
 
+from .cmor_constants import STATIC_FREQ
 from .cmor_mixer import cmor_run_subtool
 from .cmor_reduce import varlist_target
-from .cmor_helpers import ( check_path_existence, iso_to_bronx_chunk,
+from .cmor_helpers import ( check_path_existence, component_input_path, is_static_component,
                             get_bronx_freq_from_mip_table, get_json_file_data,
                             table_declares_ps, resolve_named_ps_source )
 
@@ -31,10 +36,26 @@ fre_logger = logging.getLogger(__name__)
 
 
 def _component_indir(pp_dir: str, freq: str, targ_comp_config: dict) -> str:
-    """Input directory holding one target component's time series for a table target."""
-    bronx_chunk = iso_to_bronx_chunk(targ_comp_config['chunk'])
-    data_series_type = targ_comp_config['data_series_type']
-    return f"{pp_dir}/{targ_comp_config['component_name']}/{data_series_type}/{freq}/{bronx_chunk}"
+    """Input directory holding one target component's time series for a table target, or the
+    component's static file for a static component."""
+    return component_input_path(pp_dir, freq, targ_comp_config)
+
+
+def _check_static_consistency(table_name: str, freq: str, table_components_list: list) -> None:
+    """A static table target (``freq: 'static'``) must only hold static components, and a
+    time-series one only time-series components -- a cmor yaml holds each in its own table targets.
+
+    :raises ValueError: If the table target mixes them.
+    """
+    static_table = freq == STATIC_FREQ
+    mismatched = [comp['component_name'] for comp in table_components_list
+                  if is_static_component(comp) != static_table]
+    if mismatched:
+        raise ValueError(
+            f'table target {table_name} has freq {freq!r} but its target components {mismatched} '
+            f"{'are not' if static_table else 'are'} data_series_type '{STATIC_FREQ}'.\n"
+            f"  static components belong in a table target with freq '{STATIC_FREQ}' "
+            f"(see fremor config --freq {STATIC_FREQ}), time-series ones in another.")
 
 
 def _find_table_ps_source(json_mip_table_config: str, table_components_list: list,
@@ -229,13 +250,19 @@ def cmor_yaml_subtool( yamlfile: str = None,
         fre_logger.info('json_mip_table_config = %s', json_mip_table_config)
         check_path_existence(json_mip_table_config)
 
-        # frequency of data ---- the reason this spot looks kind of awkward is because of the case where
-        #                        the table if e.g. Ofx and thus the table's frequency field is smth like 'fx'
-        #                        if that's the case, we only demand that the freq field is filled out in the yaml
-        #                        which is really more about path resolving than anything.
+        # frequency of data ---- the FRE frequency directory the table's time series are read from. a table of
+        #                        time-invariant variables (e.g. Ofx, whose MIP frequency is 'fx') instead has
+        #                        freq 'static', read from each component's static file.
 
         # check frequency info from user
         freq = cmor_yaml_table_target['freq']
+
+        table_components_list = cmor_yaml_table_target['target_components']
+
+        # a table target of only static components needs no frequency directory
+        if freq is None and table_components_list and \
+                all(is_static_component(comp) for comp in table_components_list):
+            freq = STATIC_FREQ
 
         # if freq not supplied, behavior depends on MIP era
         if freq is None:
@@ -262,6 +289,7 @@ def cmor_yaml_subtool( yamlfile: str = None,
         # update the table target dict so downstream code sees the resolved freq
         cmor_yaml_table_target['freq'] = freq
         fre_logger.info('freq = %s', freq)
+        _check_static_consistency(table_name, freq, table_components_list)
 
         # gridding info of data ---- revisit/TODO
         gridding_dict = cmor_yaml_table_target['gridding']
@@ -274,11 +302,10 @@ def cmor_yaml_subtool( yamlfile: str = None,
             if None in [grid_label, grid_desc, nom_res]:
                 raise ValueError('gridding dictionary, if present, must have all three fields be non-empty.')
 
-        table_components_list = cmor_yaml_table_target['target_components']
-
         # if the table maps a ps variable, CMORize its component first and use that ps as the
-        # surface-pressure companion for every hybrid-sigma variable in the table.
-        ps_source, ps_component = _find_table_ps_source(
+        # surface-pressure companion for every hybrid-sigma variable in the table. static fields
+        # have no vertical coordinate needing one.
+        ps_source, ps_component = (None, None) if freq == STATIC_FREQ else _find_table_ps_source(
             json_mip_table_config, table_components_list, pp_dir, freq)
         if ps_source is not None:
             fre_logger.info('table %s maps ps to %s in component %s, using it as the '

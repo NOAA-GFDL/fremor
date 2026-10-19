@@ -24,6 +24,11 @@ Functions
 - ``table_declares_ps(mip_var_cfgs)``
 - ``find_ps_companion(var_file, local_var, ps_source, ps_fallback)``
 - ``resolve_named_ps_source(table_target, table_targets, pp_dir, freq)``
+- ``is_static_component(component)``
+- ``static_file_path(pp_dir, component_name)``
+- ``is_static_file(path)``
+- ``component_input_path(pp_dir, freq, component)``
+- ``static_file_variables(static_file)``
 - ``create_lev_bnds(bound_these)``
 - ``get_iso_datetime_ranges(var_filenames, iso_daterange_arr, start, stop)``
 - ``check_dataset_for_ocean_grid(ds)``
@@ -38,6 +43,11 @@ Functions
 - ``conv_mip_to_bronx_freq(cmor_table_freq)``
 - ``get_bronx_freq_from_mip_table(json_table_config)``
 - ``filter_brands(brands, target_var, mip_var_cfgs, has_time_bnds, input_vert_dim)``
+- ``scalar_z_coords(ds, local_var)``
+- ``resolve_cmip7_brand(ds, local_var, target_var, mip_var_cfgs, var_dim_with_scalars)``
+- ``cmip7_brands(mip_var_cfgs, target_var)``
+- ``resolve_input_file_brand(input_file, local_var, target_var, mip_var_cfgs, reduce)``
+- ``variable_grid_label(mip_era, variable_key, variable_entry, grid_label, region)``
 
 Notes
 -----
@@ -50,6 +60,7 @@ import json
 import logging
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 from typing import Optional, List, Union
@@ -57,9 +68,13 @@ from typing import Optional, List, Union
 import numpy as np
 from netCDF4 import Dataset, Variable
 
+from .cmor_reduce import REDUCE_METHODS
+
 from .cmor_constants import ( ARCHIVE_GOLD_DATA_DIR, CMIP7_GOLD_OCEAN_FILE_STUB, # CMIP6_GOLD_OCEAN_FILE_STUB,
-                              INPUT_TO_MIP_VERT_DIM,
-                              MIP_ERA_RESOURCES, MIP_ERA_RESOURCE_FALLBACKS )
+                              CMIP6_HORIZONTAL_DIMS, CMIP7_ICE_SHEET_AREA_LABELS,
+                              CMIP7_MEAN_GRID_LABELS, INPUT_TO_MIP_VERT_DIM,
+                              MIP_ERA_RESOURCES, MIP_ERA_RESOURCE_FALLBACKS,
+                              STATIC_DATA_SERIES_TYPE, STATIC_FREQ )
 
 fre_logger = logging.getLogger(__name__)
 
@@ -398,6 +413,11 @@ def resolve_named_ps_source( table_target: dict,
     ps_component = table_target.get('ps_component')
     if not ps_component:
         return None
+    if freq == STATIC_FREQ:
+        fre_logger.warning('ignoring ps_component %s of static table target %s: static fields '
+                           'have no surface-pressure companion', ps_component,
+                           table_target.get('table_name'))
+        return None
 
     own_components = table_target.get('target_components') or []
     candidates = own_components + [
@@ -417,6 +437,84 @@ def resolve_named_ps_source( table_target: dict,
     indir = (f"{pp_dir}/{ps_component}/{component['data_series_type']}/{freq}/"
              f"{iso_to_bronx_chunk(component['chunk'])}")
     return {'indir': indir, 'local_var': table_target.get('ps_local_name') or 'ps'}
+
+
+def is_static_component(component: dict) -> bool:
+    """
+    Whether a cmor yaml target component reads from its pp component's static file
+    (``data_series_type: 'static'``) rather than from time series.
+
+    :param component: One of a cmor yaml table target's ``target_components`` entries.
+    :type component: dict
+    :rtype: bool
+    """
+    return component.get('data_series_type') == STATIC_DATA_SERIES_TYPE
+
+
+def static_file_path(pp_dir: Union[str, Path], component_name: str) -> str:
+    """
+    The FRE static file of a pp component, ``<pp_dir>/<component>/<component>.static.nc``, holding
+    all of that component's time-invariant fields in one file.
+
+    :param pp_dir: The pp directory.
+    :type pp_dir: str or Path
+    :param component_name: The pp component, e.g. 'ocean_monthly'.
+    :type component_name: str
+    :rtype: str
+    """
+    return f'{pp_dir}/{component_name}/{component_name}.static.nc'
+
+
+def is_static_file(path: Union[str, Path]) -> bool:
+    """
+    Whether ``path`` names a FRE static file, ``<component>.static.nc``.
+
+    :rtype: bool
+    """
+    return Path(path).name.endswith('.static.nc')
+
+
+def component_input_path(pp_dir: Union[str, Path], freq: Optional[str], component: dict) -> str:
+    """
+    Where a cmor yaml target component's input data lives under ``pp_dir``: the component's static
+    file (see ``static_file_path``) for a ``data_series_type: 'static'`` component, otherwise the
+    ``<pp_dir>/<component>/<data_series_type>/<freq>/<bronx chunk>`` time-series directory.
+
+    :param pp_dir: The cmor yaml's pp directory.
+    :type pp_dir: str or Path
+    :param freq: The table target's FRE frequency directory, e.g. 'monthly'. Unused for static components.
+    :type freq: str or None
+    :param component: One of the table target's ``target_components`` entries.
+    :type component: dict
+    :raises ValueError: If a time-series component's chunk is not an ISO8601 duration in years.
+    :return: The static file path, or the time-series directory path.
+    :rtype: str
+    """
+    if is_static_component(component):
+        return static_file_path(pp_dir, component['component_name'])
+    return (f"{pp_dir}/{component['component_name']}/{component['data_series_type']}/{freq}/"
+            f"{iso_to_bronx_chunk(component['chunk'])}")
+
+
+def static_file_variables(static_file: Union[str, Path]) -> List[str]:
+    """
+    The time-invariant data variables in a FRE static file -- the candidates for mapping onto fixed
+    (fx) MIP table entries. Left out are coordinate variables (named after a dimension), cell
+    bounds (named by another variable's ``bounds`` attribute), anything with a time dimension, and
+    scalars.
+
+    :param static_file: Path to a ``<component>.static.nc`` file.
+    :type static_file: str or Path
+    :return: The variable names, in file order.
+    :rtype: list of str
+    """
+    with Dataset(static_file, 'r') as ds:
+        bounds = {getattr(var, 'bounds') for var in ds.variables.values() if hasattr(var, 'bounds')}
+        return [ name for name, var in ds.variables.items()
+                 if name not in ds.dimensions
+                 and name not in bounds
+                 and var.ndim > 0
+                 and not any(dim.startswith('time') for dim in var.dimensions) ]
 
 
 def create_lev_bnds(bound_these: Variable) -> np.ndarray:
@@ -927,7 +1025,7 @@ def conv_mip_to_bronx_freq(cmor_table_freq: str) -> Optional[str]:
         '6hrPt'  : None,
         'day'    : 'daily',
         'dec'    : None,
-        'fx'     : None,
+        'fx'     : STATIC_FREQ,
         'mon'    : 'monthly',
         'monC'   : None,
         'monPt'  : None,
@@ -972,16 +1070,19 @@ def filter_brands( brands: list,
                    has_time_bnds: bool,
                    input_vert_dim: Union[str, int],
                    cell_methods: Optional[str] = None,
-                   standard_name: Optional[str] = None) -> str:
+                   standard_name: Optional[str] = None,
+                   has_time_dim: bool = True) -> str:
     """
     Disambiguate multiple CMIP7 variable brands by comparing input data
     properties against each candidate brand's MIP dimension list.
 
     Two filters are applied in sequence:
 
-    1. **Time type**: The presence or absence of time bounds in the input data
-       is compared to whether the brand's MIP dimensions contain ``time``
-       (time-mean, has bounds) or ``time1`` (instantaneous, no bounds).
+    1. **Time type**: Time-invariant input data (``has_time_dim=False``, e.g.
+       from a static file) keeps only the brands without any time dimension
+       (the ``ti`` brands). Otherwise, the presence or absence of time bounds in
+       the input data is compared to whether the brand's MIP dimensions contain
+       ``time`` (time-mean, has bounds) or ``time1`` (instantaneous, no bounds).
     2. **Vertical coordinate**: The input data's vertical dimension name is
        mapped to the corresponding MIP dimension name (via
        ``INPUT_TO_MIP_VERT_DIM``) and brands whose MIP dimensions do not
@@ -999,6 +1100,8 @@ def filter_brands( brands: list,
     :param input_vert_dim: The vertical dimension name from the input dataset,
         or ``0`` if no vertical dimension is present.
     :type input_vert_dim: str or int
+    :param has_time_dim: Whether the input variable has a time dimension.
+    :type has_time_dim: bool
     :raises ValueError: If zero or more than one brand survives filtering.
     :return: The single brand string that survived disambiguation.
     :rtype: str
@@ -1017,11 +1120,17 @@ def filter_brands( brands: list,
         mip_standard_name = mip_var_cfgs['variable_entry'][mip_key]['standard_name']
 
         # time filter
-        if has_time_bnds and 'time1' in mip_dims:
+        mip_has_time = any(dim.startswith('time') for dim in
+                           (mip_dims.split() if isinstance(mip_dims, str) else mip_dims))
+        if not has_time_dim and mip_has_time:
+            fre_logger.debug('filtering out brand %s: MIP dims contain a time dimension '
+                             'but input data is time-invariant', brand)
+            continue
+        if has_time_dim and has_time_bnds and 'time1' in mip_dims:
             fre_logger.debug('filtering out brand %s: MIP dims contain time1 '
                              'but input data has time_bnds', brand)
             continue
-        if not has_time_bnds and 'time' in mip_dims and 'time1' not in mip_dims:
+        if has_time_dim and not has_time_bnds and 'time' in mip_dims and 'time1' not in mip_dims:
             fre_logger.debug('filtering out brand %s: MIP dims contain time (mean) '
                              'but input data lacks time_bnds', brand)
             continue
@@ -1032,8 +1141,9 @@ def filter_brands( brands: list,
                              'not found in %s', brand, expected_mip_vert, mip_dims)
             continue
 
-        # cell_methods temporal filter: match brand temporal prefix to input cell_methods
-        if cell_methods is not None:
+        # cell_methods temporal filter: match brand temporal prefix to input cell_methods. static
+        # fields often still carry e.g. 'time: point' from the history file they were taken from
+        if cell_methods is not None and has_time_dim:
             time_method = None
             if 'time: mean' in cell_methods:
                 time_method = 'tavg'
@@ -1076,3 +1186,139 @@ def filter_brands( brands: list,
     raise ValueError(
         f'multiple brands {filtered_brands} remain for {target_var} after '
         f'disambiguation \u2014 cannot determine which brand to use')
+
+
+def scalar_z_coords(ds: Dataset, local_var: str) -> dict:
+    """
+    Scalar (0-dimensional) coordinate variables with ``axis='Z'`` referenced by ``local_var``'s
+    ``coordinates`` attribute, e.g. ``height``. MIP tables count these as dimensions, so they
+    must be accounted for before CMIP7 brand matching.
+
+    :return: ``{coord_name: netCDF4 variable}``
+    :rtype: dict
+    """
+    coords = {}
+    try:
+        coord_attr = ds.variables[local_var].coordinates
+        for coord_name in coord_attr.split():
+            if coord_name in ds.variables:
+                coord_var = ds.variables[coord_name]
+                if len(coord_var.dimensions) == 0:  # scalar (0-dim)
+                    if hasattr(coord_var, 'axis') and coord_var.axis == 'Z':
+                        coords[coord_name] = coord_var
+                        fre_logger.info('detected scalar Z-coordinate: %s', coord_name)
+    except AttributeError:
+        pass
+    return coords
+
+
+def resolve_cmip7_brand(ds: Dataset, local_var: str, target_var: str,
+                        mip_var_cfgs: dict, var_dim_with_scalars: int) -> str:
+    """
+    Pick the CMIP7 brand of ``target_var`` that the input data matches: candidates are the
+    table's ``<target_var>_<brand>`` entries with as many dimensions as the input (scalar Z
+    coordinates included), disambiguated by ``filter_brands`` when more than one remains.
+
+    :raises ValueError: If no brand's dimensions match the input data.
+    :return: The brand, e.g. ``'tavg-h2m-hxy-u'``.
+    :rtype: str
+    """
+    brands = []
+    for mip_var in mip_var_cfgs['variable_entry'].keys():
+        if all([ target_var == mip_var.split('_')[0],
+                 var_dim_with_scalars == len(mip_var_cfgs['variable_entry'][mip_var]['dimensions']) ]):
+            brands.append(mip_var.split('_')[1])
+
+    if len(brands) == 0:
+        fre_logger.error('cmip7 case detected, but dimensions of input data do not match '
+                         'any of those found for the associated brands.')
+        raise ValueError('no variable brand was able to be identified for this CMIP7 case')
+    if len(brands) == 1:
+        var_brand = brands[0]
+        fre_logger.debug('cmip7 case, extracted brand %s', var_brand)
+    else:
+        fre_logger.warning('cmip7 case, extracted multiple brands %s, attempting disambiguation',
+                           brands)
+        var_brand = filter_brands(
+            brands, target_var, mip_var_cfgs,
+            has_time_bnds = 'time_bnds' in ds.variables,
+            input_vert_dim = get_vertical_dimension(ds, local_var),
+            cell_methods = getattr(ds.variables[local_var], 'cell_methods', None),
+            standard_name = getattr(ds.variables[local_var], 'standard_name', None),
+            has_time_dim = any(dim.startswith('time') for dim in ds.variables[local_var].dimensions)
+        )
+    fre_logger.debug('cmip7 case, filtered possible brands to %s', var_brand)
+    return var_brand
+
+
+def cmip7_brands(mip_var_cfgs: dict, target_var: str) -> list:
+    """The brands of bare variable name ``target_var`` in a CMIP7 MIP table, e.g.
+    ``['tavg-h2m-hxy-u', 'tmax-h2m-hxy-u']`` for ``tas``."""
+    return [key.split('_', 1)[1] for key in mip_var_cfgs['variable_entry']
+            if key.split('_')[0] == target_var and '_' in key]
+
+
+def resolve_input_file_brand(input_file: Union[str, Path], local_var: str, target_var: str,
+                             mip_var_cfgs: dict, reduce: Optional[str] = None) -> str:
+    """
+    The CMIP7 brand ``local_var`` in ``input_file`` would be CMORized to as ``target_var``,
+    picked the same way the CMORization does (see ``resolve_cmip7_brand``) -- counting the
+    dimensions left after the variable list's ``reduce`` method, if any. A variable with a
+    single brand in the table needs no input file; otherwise only its header is read.
+
+    :raises ValueError: If no single brand matches the input data.
+    :raises OSError: If the input file cannot be read.
+    :return: The brand, e.g. ``'tavg-h2m-hxy-u'``.
+    :rtype: str
+    """
+    brands = cmip7_brands(mip_var_cfgs, target_var)
+    if len(brands) == 1:
+        return brands[0]
+    with Dataset(input_file, 'r') as ds:
+        var_dim = ds.variables[local_var].ndim + len(scalar_z_coords(ds, local_var)) - \
+            REDUCE_METHODS.get(reduce, 0)
+        return resolve_cmip7_brand(ds, local_var, target_var, mip_var_cfgs, var_dim)
+
+
+def variable_grid_label(mip_era: str, variable_key: str, variable_entry: dict,
+                        grid_label: str, region: Optional[str] = None) -> str:
+    """
+    The grid label a variable's output should carry, given the label configured for its
+    whole table (``grid_label``): that label, except for a global or zonal mean, which the
+    controlled vocabulary labels on its own.
+
+    - CMIP7: an ``hm`` (horizontal mean) brand gets the EMD single-cell grid for the
+      dataset's ``region`` -- ``g010`` (glb), ``g011`` (nh) or ``g012`` (sh) -- unless it is an
+      ice-sheet/shelf mean (area label ``is``/``gis``/``fis``), which no such grid covers.
+      Zonal (``hy``/``hyb``) brands keep the table's label: the vocabulary has no zonal label,
+      so the grid their latitudes come from is the closest description.
+    - CMIP6/CMIP6Plus: a zonal mean (latitude but no longitude, ``longitude:`` in its
+      cell_methods) gets the table's ``gn``/``gr``/``grN`` with a ``z`` appended, e.g.
+      ``grz``. A variable with no horizontal dimension at all that is aggregated over area
+      (``area: ...`` cell_methods) gets ``gm`` -- unless it is an ice-sheet/shelf total or a
+      hemispheric one (long_name ending in North/South), which have no label of their own.
+
+    :param variable_key: The MIP table's variable_entry key, e.g. ``tos_tavg-u-hm-sea``.
+    :param variable_entry: That key's variable_entry dict.
+    :param region: The dataset's ``region`` attribute (CMIP7).
+    :return: The grid label to use.
+    :rtype: str
+    """
+    if mip_era.upper() == 'CMIP7':
+        brand = variable_key.split('_', 1)[1].split('-') if '_' in variable_key else []
+        if len(brand) == 4 and brand[2] == 'hm' and brand[3] not in CMIP7_ICE_SHEET_AREA_LABELS:
+            return CMIP7_MEAN_GRID_LABELS.get(region, grid_label)
+        return grid_label
+
+    dims = variable_entry.get('dimensions') or []
+    dims = set(dims.split() if isinstance(dims, str) else dims)
+    cell_methods = variable_entry.get('cell_methods') or ''
+    if 'latitude' in dims and 'longitude' not in dims and 'longitude:' in cell_methods:
+        return f'{grid_label}z' if re.fullmatch(r'gn|gr\d?', grid_label) else grid_label
+    is_area_aggregate = re.search(r'\barea:\s*(?!point)', cell_methods) is not None
+    is_ice_sheet = re.search(r'where \w*ice_(sheet|shelf)', cell_methods) is not None
+    is_hemispheric = (variable_entry.get('long_name') or '').endswith((' North', ' South'))
+    if not dims & CMIP6_HORIZONTAL_DIMS and is_area_aggregate and not is_ice_sheet \
+            and not is_hemispheric:
+        return 'gm'
+    return grid_label

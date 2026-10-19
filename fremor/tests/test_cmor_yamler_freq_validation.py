@@ -21,7 +21,7 @@ def test_conv_mip_to_bronx_freq_valid_frequencies():
         ('6hrPt', None),
         ('day', 'daily'),
         ('dec', None),
-        ('fx', None),
+        ('fx', 'static'),
         ('mon', 'monthly'),
         ('monC', None),
         ('monPt', None),

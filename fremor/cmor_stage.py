@@ -10,7 +10,9 @@ from typing import Optional, Sequence
 
 import yaml
 
-from .cmor_helpers import get_bronx_freq_from_mip_table, iso_to_bronx_chunk, resolve_named_ps_source
+from .cmor_constants import STATIC_FREQ
+from .cmor_helpers import ( component_input_path, get_bronx_freq_from_mip_table, is_static_component,
+                            resolve_named_ps_source )
 from .cmor_reduce import varlist_target
 
 
@@ -97,10 +99,14 @@ def _table_local_variables(table_path: Path, variable_list_path: Path,
 
 
 def _frequency(table_target: dict, table_path: Path, mip_era: str) -> str:
-    """Resolve a YAML table target's FRE directory frequency."""
+    """Resolve a YAML table target's FRE directory frequency ('static' for a table target of
+    only static components)."""
     freq = table_target.get('freq')
     if freq is not None:
         return freq
+    components = table_target.get('target_components') or []
+    if components and all(is_static_component(component) for component in components):
+        return STATIC_FREQ
     if mip_era == 'CMIP7':
         raise ValueError(
             f"freq is required for CMIP7 table target {table_target.get('table_name')!r}"
@@ -170,6 +176,16 @@ def _component_stage_files(input_dir: Path, local_variables: set[str],
     return input_files
 
 
+def _static_stage_files(static_file: Path, local_variables: set[str]) -> set[Path]:
+    """The static file a static component's mapped variables are all read from, if any are
+    mapped. Its fields are time-invariant, so the run's year bounds do not apply."""
+    if not local_variables:
+        return set()
+    if not static_file.is_file():
+        raise FileNotFoundError(f'static file does not exist: {static_file}')
+    return {static_file.resolve()}
+
+
 def collect_stage_files(yamlfile: str, start: Optional[str] = None,
                         stop: Optional[str] = None) -> list[str]:
     """Collect the unique input files that a YAML-driven fremor run can consume.
@@ -178,7 +194,8 @@ def collect_stage_files(yamlfile: str, start: Optional[str] = None,
     ``ps`` file, which is an auxiliary input used for hybrid vertical coordinates, plus the
     surface-pressure files of a table target's optional ``ps_component``.
     Year bounds follow ``fremor yaml`` semantics: a chunk is selected only when its
-    complete filename date range falls within the requested bounds.
+    complete filename date range falls within the requested bounds. A static component's
+    static file, ``<component>.static.nc``, is selected regardless of them.
     """
     stage_config = _load_stage_config(yamlfile, start, stop)
 
@@ -197,11 +214,11 @@ def collect_stage_files(yamlfile: str, start: Optional[str] = None,
             local_variables = _table_local_variables(
                 table_path, variable_list_path, stage_config.mip_era
             )
-            input_dir = (
-                stage_config.pp_dir / component['component_name'] /
-                component['data_series_type'] /
-                freq / iso_to_bronx_chunk(component['chunk'])
-            )
+            input_path = Path(component_input_path(stage_config.pp_dir, freq, component))
+            if is_static_component(component):
+                input_files.update(_static_stage_files(input_path, local_variables))
+                continue
+            input_dir = input_path
             input_files.update(
                 _component_stage_files(
                     input_dir, local_variables, stage_config.start, stage_config.stop

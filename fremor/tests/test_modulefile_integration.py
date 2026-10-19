@@ -319,8 +319,9 @@ def _write_job_script(shell_name, shell_root, runtime, job_out, job_err, case):
 
 def _assert_job_artifacts(shell_root, shell_name, job_out, job_err, case):
     ## helpful debug locally/interactively, please keep. - inl
-    #shutil.copy2(job_out, '/home/{os.getuser()}/'+str(job_out.name)+case['name'])
-    #shutil.copy2(job_err, '/home/{os.getuser()}/'+str(job_err.name)+case['name'])
+    # import getpass
+    # shutil.copy2(job_out, f'/home/{getpass.getuser()}/'+str(job_out.name)+case['name'])
+    # shutil.copy2(job_err, f'/home/{getpass.getuser()}/'+str(job_err.name)+case['name'])
 
     stdout_text = job_out.read_text(encoding='utf-8')
     stderr_text = job_err.read_text(encoding='utf-8')

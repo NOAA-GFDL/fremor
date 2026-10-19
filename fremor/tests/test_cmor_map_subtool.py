@@ -6,6 +6,7 @@ import json
 import stat
 import tempfile
 from pathlib import Path
+import logging
 
 import pytest
 import yaml
@@ -24,6 +25,7 @@ from fremor.cmor_map import (
     _discover_pp_components,
     _find_ncinfo_bin,
     _format_table_settings,
+    _format_preview_text,
     _is_zonal_mean,
     _format_variable_detail,
     _format_year_coverage,
@@ -33,6 +35,8 @@ from fremor.cmor_map import (
     _merge_year_ranges,
     _ncinfo_preview,
     _preview_nc_file,
+    _read_exp_grid,
+    cmor_map_subtool,
 )
 
 
@@ -106,6 +110,7 @@ def test_discover_freqs_and_chunks_and_nc_files(temp_dir): # pylint: disable=red
     _write_nc_file(nc_path, 'sos')
 
     assert _discover_freqs(str(component_dir)) == ['monthly']
+    assert _discover_chunks(str(component_dir), 'annual') == []
     assert _discover_chunks(str(component_dir), 'monthly') == ['5yr']
     files = _discover_nc_files(str(component_dir), 'monthly', '5yr')
     assert files == [str(nc_path)]
@@ -723,6 +728,24 @@ def test_mapsession_usage_count_reflects_staged_edits(temp_dir): # pylint: disab
 
 
 # ── selected-CMIP-variable box formatting ───────────────────────────────────
+def test_format_previewtext(temp_dir):
+    ''' various returns of _format_preview_text '''
+    assert _format_preview_text(local_var_name = 'foo', source = 'none'  , data = {}) == 'no preview available for variable "foo"'
+    assert _format_preview_text(local_var_name = 'foo', source = 'ncinfo', data = {}) == '[ncinfo] foo\ntype=None dims=()'
+    assert _format_preview_text(local_var_name = 'foo', source = 'ncinfo',
+                         data = {"attributes":[ {'name':'some_attr'},
+                                                {'value':'some_value'} ] }
+    ) == '[ncinfo] foo\ntype=None dims=()\n  some_attr: None\n  None: some_value'
+
+def test_read_exp_grid(temp_dir, caplog):
+    ''' error condition for _read_exp_grid'''
+    fake_exp_json_path =  Path(temp_dir) / 'foo_exp.json'
+    fake_exp_json_path.touch()
+    with caplog.at_level(logging.WARNING):
+        assert _read_exp_grid(str(fake_exp_json_path)) == {}
+    assert f'ERROR: json file at {fake_exp_json_path} likely has a syntax error' in caplog.messages
+    assert f'could not read exp_json {fake_exp_json_path}: Expecting value: line 1 column 1 (char 0)' in caplog.messages
+
 
 def test_format_selected_cmip_none(temp_dir): # pylint: disable=redefined-outer-name
     ''' with nothing selected, the box shows the placeholder text '''
@@ -1326,8 +1349,10 @@ async def test_map_app_clear_mapping(temp_dir): # pylint: disable=redefined-oute
         assert session.has_pending_changes
         assert str(source_node.label).endswith('(deleted)')
         assert any(span.style == 'strike' for span in source_node.label.spans)
-        # clearing a mapping also deselects it, resetting the box
-        assert selected_box.content == MapApp.NO_CMIP_SELECTION
+        # clearing a source keeps its multiply-mapped variable selected, for a remap
+        assert app.selected_cmip is ps_node.data
+        assert app.selected_cmip_node is ps_node
+        assert selected_box.content == 'selected: Amon / ps'
 
         await pilot.press('s')
         await pilot.pause()
@@ -1388,6 +1413,96 @@ async def test_map_app_undo_key(temp_dir): # pylint: disable=redefined-outer-nam
         await pilot.press('u')
         await pilot.pause()
         assert not session.has_pending_changes
+
+
+@pytest.mark.asyncio
+async def test_map_app_undo_keeps_staged_multiply_mapped_deletions(temp_dir): # pylint: disable=redefined-outer-name
+    ''' 'u' restores the undone edit's node in place rather than rebuilding the tree, so an
+    earlier staged-cleared source of a multiply-mapped variable stays under Multiply-mapped,
+    still marked (deleted), instead of the variable moving to Mapped '''
+    pp_dir, varlist_dir, tables_dir = _make_session_fixture(temp_dir)
+    (Path(varlist_dir) / 'CMIP6_Amon_atmos.list').write_text(
+        json.dumps({'sfc_pres': 'ps', 't_ref': 'tas'}), encoding='utf-8'
+    )
+    (Path(varlist_dir) / 'CMIP6_Amon_atmos_scalar.list').write_text(
+        json.dumps({'sfc_pres_scalar': 'ps'}), encoding='utf-8'
+    )
+    yamlfile = _amon_yaml(temp_dir, pp_dir, varlist_dir, tables_dir,
+                          component_names=['atmos', 'atmos_scalar'])
+    session = MapSession(yamlfile)
+    app = MapApp(session)
+
+    async with app.run_test() as pilot:
+        cmip_tree = app.query_one('#cmip_tree')
+        table_node = cmip_tree.root.children[0]
+        # branches: Unmapped, Mapped, Multiply-mapped, Unknown
+        mapped_node = table_node.children[1]
+        multi_node = table_node.children[2]
+        ps_source = next(n for n in multi_node.children[0].children
+                         if n.data['component'] == 'atmos')
+        tas_source = mapped_node.children[0]
+        tas_label = str(tas_source.label)
+
+        app.on_tree_node_selected(_FakeTreeEvent(ps_source, 'cmip_tree'))
+        await pilot.press('d')
+        app.on_tree_node_selected(_FakeTreeEvent(tas_source, 'cmip_tree'))
+        await pilot.press('d')
+        await pilot.pause()
+        assert str(tas_source.label).endswith('(deleted)')
+
+        await pilot.press('u')
+        await pilot.pause()
+
+        # same nodes, not a rebuilt tree: tas is back to its original label, ps still deleted
+        assert cmip_tree.root.children[0] is table_node
+        assert str(tas_source.label) == tas_label
+        assert str(ps_source.label).endswith('(deleted)')
+        assert ps_source.parent.parent is multi_node
+        assert '1 unsaved' in str(table_node.label)
+
+        await pilot.press('u')
+        await pilot.pause()
+        assert not str(ps_source.label).endswith('(deleted)')
+        assert 'unsaved' not in str(table_node.label)
+        assert not session.has_pending_changes
+
+
+@pytest.mark.asyncio
+async def test_map_app_refresh_blocked_with_staged_changes(temp_dir): # pylint: disable=redefined-outer-name
+    ''' 'r' refuses to rebuild the tree while anything is staged, which would otherwise move a
+    staged-cleared multiply-mapped source into Mapped and drop its (deleted) marker '''
+    pp_dir, varlist_dir, tables_dir = _make_session_fixture(temp_dir)
+    (Path(varlist_dir) / 'CMIP6_Amon_atmos.list').write_text(
+        json.dumps({'sfc_pres': 'ps'}), encoding='utf-8'
+    )
+    (Path(varlist_dir) / 'CMIP6_Amon_atmos_scalar.list').write_text(
+        json.dumps({'sfc_pres_scalar': 'ps'}), encoding='utf-8'
+    )
+    yamlfile = _amon_yaml(temp_dir, pp_dir, varlist_dir, tables_dir,
+                          component_names=['atmos', 'atmos_scalar'])
+    session = MapSession(yamlfile)
+    app = MapApp(session)
+
+    async with app.run_test() as pilot:
+        cmip_tree = app.query_one('#cmip_tree')
+        table_node = cmip_tree.root.children[0]
+        multi_node = table_node.children[2]
+        ps_source = next(n for n in multi_node.children[0].children
+                         if n.data['component'] == 'atmos')
+        app.on_tree_node_selected(_FakeTreeEvent(ps_source, 'cmip_tree'))
+        await pilot.press('d')
+        await pilot.press('r')
+        await pilot.pause()
+
+        assert cmip_tree.root.children[0] is table_node
+        assert str(ps_source.label).endswith('(deleted)')
+
+        await pilot.press('u')
+        await pilot.press('r')
+        await pilot.pause()
+
+        # nothing staged any more, so the refresh goes through
+        assert cmip_tree.root.children[0] is not table_node
 
 
 @pytest.mark.asyncio
@@ -1581,15 +1696,19 @@ async def test_map_app_cmip_tree_selection_shows_detail_box(temp_dir): # pylint:
 
 
 @pytest.mark.asyncio
-async def test_map_app_clear_mapping_resets_detail_box(temp_dir): # pylint: disable=redefined-outer-name
-    ''' clearing a mapping drops the cmip-tree selection, so the detail box goes back to its
-    placeholder text rather than showing a stale definition '''
+async def test_map_app_clear_mapping_keeps_variable_selected(temp_dir): # pylint: disable=redefined-outer-name
+    ''' clearing a one-to-one mapping keeps its MIP variable selected (no longer as a source)
+    with its definition still shown, so 'm' can map a replacement pp file right away '''
     pp_dir, varlist_dir, tables_dir = _make_session_fixture(temp_dir)
     (Path(varlist_dir) / 'CMIP6_Amon_atmos.list').write_text(
         json.dumps({'t_ref': 'tas'}), encoding='utf-8'
     )
+    comp_ts_dir = Path(pp_dir) / 'atmos' / 'ts' / 'monthly' / '5yr'
+    comp_ts_dir.mkdir(parents=True)
+    _write_nc_file(comp_ts_dir / 'atmos.000101-000512.t_surf.nc', 't_surf', units='K')
     yamlfile = _amon_yaml(temp_dir, pp_dir, varlist_dir, tables_dir, component_names=['atmos'])
-    app = MapApp(MapSession(yamlfile))
+    session = MapSession(yamlfile)
+    app = MapApp(session)
 
     async with app.run_test() as pilot:
         cmip_tree = app.query_one('#cmip_tree')
@@ -1604,7 +1723,26 @@ async def test_map_app_clear_mapping_resets_detail_box(temp_dir): # pylint: disa
         await pilot.press('d')
         await pilot.pause()
 
-        assert detail_box.content == app.NO_CMIP_DETAIL
+        definition = detail_box.content
+        assert definition != app.NO_CMIP_DETAIL
+        assert app.selected_cmip == {'kind': 'var', 'table': 'Amon', 'var': 'tas'}
+        assert app.selected_cmip_node is source_node
+        assert app.query_one('#selected_cmip').content == 'selected: Amon / tas'
+
+        pp_tree = app.query_one('#pp_tree')
+        component_node = pp_tree.root.children[0]
+        app.on_tree_node_expanded(_FakeTreeEvent(component_node, 'pp_tree'))
+        freq_node = component_node.children[0]
+        app.on_tree_node_expanded(_FakeTreeEvent(freq_node, 'pp_tree'))
+        chunk_node = freq_node.children[0]
+        app.on_tree_node_expanded(_FakeTreeEvent(chunk_node, 'pp_tree'))
+        app.on_tree_node_selected(_FakeTreeEvent(chunk_node.children[0], 'pp_tree'))
+        await pilot.press('m')
+        await pilot.pause()
+
+        assert session.mapped_variables('atmos', 't_surf') == [('Amon', 'tas')]
+        assert session.mapped_variables('atmos', 't_ref') == []
+        assert str(source_node.label).endswith('<- atmos:t_surf')
 
 
 
@@ -2601,3 +2739,415 @@ async def test_map_app_set_reduce_needs_a_mapping(temp_dir): # pylint: disable=r
         await pilot.pause()
         assert not isinstance(app.screen, ReduceScreen)
         assert any(sev == 'warning' for _msg, sev in notifications)
+
+        unmapped_node = app.query_one('#cmip_tree').root.children[0].children[0]
+        ta_node = next(node for node in unmapped_node.children if node.data['var'] == 'ta')
+        app.on_tree_node_selected(_FakeTreeEvent(ta_node, 'cmip_tree'))
+        await pilot.press('z')
+        await pilot.pause()
+        assert not isinstance(app.screen, ReduceScreen)
+        assert any(sev == 'warning' for _msg, sev in notifications)
+
+
+# ---------------------------------------------------------------------------
+# CMIP7: sources of one variable CMORizing to different brands
+# ---------------------------------------------------------------------------
+
+def _write_nc_over_dims(nc_path, var_name, dims):
+    ''' write a minimal real netCDF file with var_name over `dims` (each a 2-long dim) '''
+    with Dataset(nc_path, 'w') as ds:
+        for dim in dims:
+            ds.createDimension(dim, 2)
+        ds.createVariable(var_name, 'f4', tuple(dims))
+
+
+def _cmip7_brand_fixture(root_dir, monkeypatch, aer_mapped=True):
+    ''' CMIP7 atmos table with a lat-lon and a zonal-mean brand of ta; temp is mapped to ta
+    from a lat-lon atmos pp file and (if aer_mapped) a zonal-mean atmos_aer one. The pp files
+    count as staged: a just-written file can briefly have fewer allocated blocks than its
+    size, which the stat-based staging heuristic reads as offline. '''
+    monkeypatch.setattr('fremor.cmor_check._file_is_offline', lambda path, dmls_bin=None: False)
+    pp_dir, varlist_dir, tables_dir = _make_session_fixture(root_dir)
+    (Path(tables_dir) / 'CMIP7_atmos.json').write_text(json.dumps({'variable_entry': {
+        'ta_tavg-p19-hxy-air': {'dimensions': ['longitude', 'latitude', 'plev19', 'time']},
+        'ta_tavg-p39-hy-air': {'dimensions': ['latitude', 'plev39', 'time']},
+    }}), encoding='utf-8')
+    components = []
+    for name, mapped in (('atmos', True), ('atmos_aer', aer_mapped)):
+        varlist = Path(varlist_dir) / f'CMIP7_atmos_{name}.list'
+        varlist.write_text(json.dumps({'temp': 'ta' if mapped else ''}), encoding='utf-8')
+        components.append(_component_entry(name, varlist))
+    yamlfile = _write_map_yaml(root_dir, pp_dir, tables_dir,
+                               [_table_target('atmos', components)], mip_era='cmip7')
+    for name, dims in (('atmos', ('time', 'plev', 'lat', 'lon')),
+                       ('atmos_aer', ('time', 'plev', 'lat'))):
+        comp_dir = Path(pp_dir) / name / 'ts' / 'monthly' / '5yr'
+        comp_dir.mkdir(parents=True)
+        _write_nc_over_dims(comp_dir / f'{name}.000101-000512.temp.nc', 'temp', dims)
+    return yamlfile
+
+
+@pytest.mark.asyncio
+async def test_map_app_cmip7_sources_with_different_brands_listed_as_mapped(temp_dir, monkeypatch): # pylint: disable=redefined-outer-name
+    ''' a variable whose sources CMORize to different CMIP7 brands shows under Mapped, one
+    entry per source with its brand, rather than under Multiply-mapped '''
+    session = MapSession(_cmip7_brand_fixture(temp_dir, monkeypatch))
+    app = MapApp(session)
+
+    async with app.run_test():
+        table_node = app.query_one('#cmip_tree').root.children[0]
+        mapped_node, multi_node = table_node.children[1], table_node.children[2]
+        assert str(mapped_node.label) == 'Mapped (1)'
+        assert [str(node.label) for node in mapped_node.children] == [
+            'ta <- atmos:temp  (brand=tavg-p19-hxy-air)',
+            'ta <- atmos_aer:temp  (brand=tavg-p39-hy-air)',
+        ]
+        assert [node.data['component'] for node in mapped_node.children] == ['atmos', 'atmos_aer']
+        assert str(multi_node.label) == 'Multiply-mapped (0)'
+
+
+@pytest.mark.asyncio
+async def test_map_app_add_mapping_keeps_existing_source(temp_dir, monkeypatch): # pylint: disable=redefined-outer-name
+    ''' 'a' stages the selected pp file as an extra source of a mapped variable, keeping its
+    existing source; once saved, the two different-brand sources both show under Mapped '''
+    session = MapSession(_cmip7_brand_fixture(temp_dir, monkeypatch, aer_mapped=False))
+    app = MapApp(session)
+
+    async with app.run_test() as pilot:
+        cmip_tree = app.query_one('#cmip_tree')
+        source_node = cmip_tree.root.children[0].children[1].children[0]
+        app.on_tree_node_selected(_FakeTreeEvent(source_node, 'cmip_tree'))
+        await pilot.pause()  # let its auto-navigation to atmos:temp land first
+
+        pp_tree = app.query_one('#pp_tree')
+        aer_node = next(n for n in pp_tree.root.children if n.data['component'] == 'atmos_aer')
+        app.on_tree_node_expanded(_FakeTreeEvent(aer_node, 'pp_tree'))
+        freq_node = aer_node.children[0]
+        app.on_tree_node_expanded(_FakeTreeEvent(freq_node, 'pp_tree'))
+        chunk_node = freq_node.children[0]
+        app.on_tree_node_expanded(_FakeTreeEvent(chunk_node, 'pp_tree'))
+        app.on_tree_node_selected(_FakeTreeEvent(chunk_node.children[0], 'pp_tree'))
+        await pilot.press('a')
+        await pilot.pause()
+
+        assert session.mapped_variables('atmos', 'temp') == [('atmos', 'ta')]
+        assert session.mapped_variables('atmos_aer', 'temp') == [('atmos', 'ta')]
+        assert str(source_node.label).endswith('<- atmos_aer:temp')
+
+        await pilot.press('s')
+        await pilot.pause()
+
+        mapped_node = cmip_tree.root.children[0].children[1]
+        assert [n.data['component'] for n in mapped_node.children] == ['atmos', 'atmos_aer']
+
+
+@pytest.mark.asyncio
+async def test_map_app_shows_brand_notes_on_multiply_mapped_sources(temp_dir, monkeypatch):
+    ''' sources resolving to the same CMIP7 brand remain in Multiply-mapped with brand labels '''
+    yamlfile = _cmip7_brand_fixture(temp_dir, monkeypatch)
+    second_source = (Path(temp_dir) / 'pp' / 'atmos_aer' / 'ts' / 'monthly' / '5yr' /
+                     'atmos_aer.000101-000512.temp.nc')
+    _write_nc_over_dims(second_source, 'temp', ('time', 'plev', 'lat', 'lon'))
+    session = MapSession(yamlfile)
+    app = MapApp(session)
+
+    async with app.run_test():
+        table_node = app.query_one('#cmip_tree').root.children[0]
+        multi_node = table_node.children[2]
+        assert str(multi_node.label) == 'Multiply-mapped (1)'
+        source_labels = [str(source.label) for source in multi_node.children[0].children]
+        assert source_labels == [
+            'atmos:temp  (brand=tavg-p19-hxy-air)',
+            'atmos_aer:temp  (brand=tavg-p19-hxy-air)',
+        ]
+
+
+def test_cmor_map_subtool_builds_session_before_launching_tui(temp_dir, monkeypatch):
+    ''' the public entry point loads its configuration and hands a real session to the TUI '''
+    pp_dir, varlist_dir, tables_dir = _make_session_fixture(temp_dir)
+    yamlfile = _amon_yaml(temp_dir, pp_dir, varlist_dir, tables_dir)
+    launched_sessions = []
+
+    def record_run(app):
+        launched_sessions.append(app.session)
+
+    monkeypatch.setattr(MapApp, 'run', record_run)
+    cmor_map_subtool(yamlfile)
+
+    assert len(launched_sessions) == 1
+    assert isinstance(launched_sessions[0], MapSession)
+    assert launched_sessions[0].table_names == ['Amon']
+
+
+def test_mapsession_reduce_malformed_value_and_chunk_without_configuration(temp_dir):
+    ''' reduce lookup tolerates an invalid persisted value, and missing component chunks stay
+    unset rather than being guessed '''
+    yamlfile, _ = _zonal_fixture(temp_dir, {'ta': {'name': 'ta', 'reduce': 'zonal_mean'}})
+    session = MapSession(yamlfile)
+
+    assert session.set_reduce('AmonZ', 'atmos', 'ta', 'zonal_mean') is False
+    session.varlists_by_table['AmonZ'][0][2]['ta'] = ['not', 'a', 'varlist value']
+    assert session.mapping_reduce('AmonZ', 'atmos', 'ta') is None
+    assert session.mapping_reduce('AmonZ', 'missing_component', 'ta') is None
+    with pytest.raises(ValueError, match='is not mapped'):
+        session.set_reduce('AmonZ', 'missing_component', 'ta', 'zonal_mean')
+
+    chunk_root = Path(temp_dir) / 'chunk_case'
+    chunk_root.mkdir()
+    pp_dir, varlist_dir, tables_dir = _make_session_fixture(chunk_root)
+    varlist = Path(varlist_dir) / 'CMIP6_Amon_atmos.list'
+    varlist.write_text('{}', encoding='utf-8')
+    no_chunk_yaml = _write_map_yaml(
+        chunk_root, pp_dir, tables_dir,
+        [_table_target('Amon', [_component_entry('atmos', varlist, chunk=None)])])
+    assert MapSession(no_chunk_yaml).component_chunk('Amon', 'atmos') is None
+
+
+def test_mapsession_undo_new_component_restores_missing_baseline_entry(temp_dir):
+    ''' undo removes a mapping for a component that was absent from the saved table target '''
+    pp_dir, varlist_dir, tables_dir = _make_session_fixture(temp_dir)
+    land_varlist = Path(varlist_dir) / 'CMIP6_Amon_land.list'
+    land_varlist.write_text('{}', encoding='utf-8')
+    yamlfile = _write_map_yaml(
+        temp_dir, pp_dir, tables_dir,
+        [_table_target('Amon', [_component_entry('land', land_varlist)])])
+    session = MapSession(yamlfile)
+
+    session.set_mapping('Amon', 'atmos', 'precip', 'pr', chunk='5yr')
+    session.undo()
+
+    assert session.mapped_variables('atmos', 'precip') == []
+    assert ('Amon', 'atmos', 'precip') not in session.dirty_keys
+
+
+@pytest.mark.asyncio
+async def test_map_app_lists_unknown_mappings_in_unknown_branch(temp_dir):
+    ''' a varlist target absent from the MIP table remains visible under Unknown with its source '''
+    pp_dir, varlist_dir, tables_dir = _make_session_fixture(temp_dir)
+    (Path(varlist_dir) / 'CMIP6_Amon_atmos.list').write_text(
+        json.dumps({'legacy_key': 'not_in_table'}), encoding='utf-8')
+    yamlfile = _amon_yaml(temp_dir, pp_dir, varlist_dir, tables_dir, component_names=['atmos'])
+    app = MapApp(MapSession(yamlfile))
+
+    async with app.run_test():
+        table_node = app.query_one('#cmip_tree').root.children[0]
+        unknown_node = table_node.children[3]
+        assert str(unknown_node.label) == 'Unknown (1)'
+        assert unknown_node.children[0].data['var'] == 'not_in_table'
+        assert unknown_node.children[0].children[0].data['local_key'] == 'legacy_key'
+
+
+@pytest.mark.asyncio
+async def test_map_app_populates_static_file_and_blocks_mapping_to_time_varying_table(temp_dir):
+    ''' real static NetCDF data appears as a pp-tree leaf but cannot be mapped to a monthly table '''
+    pp_dir, varlist_dir, tables_dir = _make_session_fixture(temp_dir)
+    component_dir = Path(pp_dir) / 'atmos'
+    component_dir.mkdir()
+    static_path = component_dir / 'atmos.static.nc'
+    with Dataset(static_path, 'w') as ds:
+        ds.createDimension('lat', 2)
+        ds.createVariable('ps_local', 'f4', ('lat',))
+    (Path(varlist_dir) / 'CMIP6_Amon_atmos.list').write_text('{}', encoding='utf-8')
+    yamlfile = _amon_yaml(temp_dir, pp_dir, varlist_dir, tables_dir, component_names=['atmos'])
+    session = MapSession(yamlfile)
+    app = MapApp(session)
+
+    async with app.run_test() as pilot:
+        notifications = []
+        app.notify = lambda message, **kwargs: notifications.append(
+            (message, kwargs.get('severity')))
+
+        component_node = app.query_one('#pp_tree').root.children[0]
+        app.on_tree_node_expanded(_FakeTreeEvent(component_node, 'pp_tree'))
+        static_node = component_node.children[0]
+        assert static_node.data['kind'] == 'static'
+        app.on_tree_node_expanded(_FakeTreeEvent(static_node, 'pp_tree'))
+        pp_var_node = static_node.children[0]
+        assert pp_var_node.data['local_key'] == 'ps_local'
+
+        unmapped_node = app.query_one('#cmip_tree').root.children[0].children[0]
+        pr_node = next(node for node in unmapped_node.children if node.data['var'] == 'pr')
+        app.on_tree_node_selected(_FakeTreeEvent(pr_node, 'cmip_tree'))
+        app.on_tree_node_selected(_FakeTreeEvent(pp_var_node, 'pp_tree'))
+        await app.workers.wait_for_complete()
+        await pilot.press('m')
+        await pilot.pause()
+
+        assert not session.has_pending_changes
+        assert any(severity == 'error' and 'static file' in message
+                   for message, severity in notifications)
+        app.on_tree_node_selected(_FakeTreeEvent(component_node, 'pp_tree'))
+        assert app._navigate_pp_tree_to('atmos', 'ps_local') is True
+        await app.workers.wait_for_complete()
+
+
+@pytest.mark.asyncio
+async def test_map_app_static_file_read_error_is_shown_in_tree(temp_dir, caplog):
+    ''' an on-disk but malformed static file gets an explanatory tree entry instead of crashing '''
+    pp_dir, varlist_dir, tables_dir = _make_session_fixture(temp_dir)
+    component_dir = Path(pp_dir) / 'atmos'
+    component_dir.mkdir()
+    (component_dir / 'atmos.static.nc').write_bytes(b'not a netcdf file')
+    yamlfile = _amon_yaml(temp_dir, pp_dir, varlist_dir, tables_dir, component_names=['atmos'])
+    app = MapApp(MapSession(yamlfile))
+
+    with caplog.at_level(logging.WARNING, logger='fremor.cmor_map'):
+        async with app.run_test():
+            component_node = app.query_one('#pp_tree').root.children[0]
+            app.on_tree_node_expanded(_FakeTreeEvent(component_node, 'pp_tree'))
+            static_node = component_node.children[0]
+            app.on_tree_node_expanded(_FakeTreeEvent(static_node, 'pp_tree'))
+
+            assert static_node.children[0].data['kind'] == 'info'
+            assert 'could not read' in str(static_node.children[0].label)
+
+    assert 'could not read static file' in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_map_app_static_file_with_sparse_offline_stub_is_not_read(temp_dir):
+    ''' a large sparse archive stub remains a tree hint; expanding it does not try to open it '''
+    pp_dir, varlist_dir, tables_dir = _make_session_fixture(temp_dir)
+    component_dir = Path(pp_dir) / 'atmos'
+    component_dir.mkdir()
+    static_path = component_dir / 'atmos.static.nc'
+    with static_path.open('wb') as static_file:
+        static_file.truncate(4 * 1024 * 1024)
+    stat_result = static_path.stat()
+    assert stat_result.st_blocks * 512 < stat_result.st_size
+
+    yamlfile = _amon_yaml(temp_dir, pp_dir, varlist_dir, tables_dir, component_names=['atmos'])
+    app = MapApp(MapSession(yamlfile))
+    async with app.run_test():
+        component_node = app.query_one('#pp_tree').root.children[0]
+        app.on_tree_node_expanded(_FakeTreeEvent(component_node, 'pp_tree'))
+        static_node = component_node.children[0]
+        app.on_tree_node_expanded(_FakeTreeEvent(static_node, 'pp_tree'))
+
+        assert static_node.children[0].data['kind'] == 'info'
+        assert 'still on tape' in str(static_node.children[0].label)
+
+
+@pytest.mark.asyncio
+async def test_map_app_navigation_returns_false_for_missing_component_or_variable(temp_dir):
+    ''' auto-navigation safely reports both absent pp components and absent local variables '''
+    pp_dir, varlist_dir, tables_dir = _make_session_fixture(temp_dir)
+    (Path(pp_dir) / 'atmos').mkdir()
+    yamlfile = _amon_yaml(temp_dir, pp_dir, varlist_dir, tables_dir, component_names=['atmos'])
+    app = MapApp(MapSession(yamlfile))
+
+    async with app.run_test():
+        assert app._navigate_pp_tree_to('missing_component', 'tas') is False
+        assert app._navigate_pp_tree_to('atmos', 'missing_variable') is False
+
+
+@pytest.mark.asyncio
+async def test_map_app_assign_mapping_reports_invalid_new_component(temp_dir):
+    ''' the mapping action reports a missing chunk instead of staging an orphan component '''
+    pp_dir, varlist_dir, tables_dir = _make_session_fixture(temp_dir)
+    yamlfile = _amon_yaml(temp_dir, pp_dir, varlist_dir, tables_dir, component_names=['atmos'])
+    session = MapSession(yamlfile)
+    app = MapApp(session)
+
+    async with app.run_test():
+        notifications = []
+        app.notify = lambda message, **kwargs: notifications.append(
+            (message, kwargs.get('severity')))
+        app.selected_cmip = {'kind': 'var', 'table': 'Amon', 'var': 'pr'}
+        app.selected_pp = {
+            'component': 'new_component', 'local_key': 'pr',
+            'freq': 'monthly', 'chunk': None,
+        }
+
+        app.action_assign_mapping()
+
+        assert not session.has_pending_changes
+        assert any(severity == 'error' and 'no chunk was given' in message
+                   for message, severity in notifications)
+
+
+@pytest.mark.asyncio
+async def test_map_app_empty_actions_and_settings_cancel_are_reported(temp_dir):
+    ''' empty mapping/save/undo actions notify without changing state, and the dialog Cancel
+    button dismisses without staging settings '''
+    _, session = _settings_session(temp_dir)
+    app = MapApp(session)
+
+    async with app.run_test(size=(120, 40)) as pilot:
+        notifications = []
+        app.notify = lambda message, **kwargs: notifications.append(
+            (message, kwargs.get('severity')))
+
+        await pilot.press('m', 'u', 's')
+        await pilot.pause()
+        assert not session.has_pending_changes
+        assert len(notifications) == 3
+        app.action_clear_mapping()
+        app._stage_table_settings('Amon', {'grid_label': 'partial'})
+        app._stage_table_settings('Amon', session.table_settings('Amon'))
+
+        table_node = app.query_one('#cmip_tree').root.children[0]
+        app.on_tree_node_selected(_FakeTreeEvent(table_node, 'cmip_tree'))
+        await pilot.press('e')
+        await pilot.pause()
+        assert isinstance(app.screen, TableSettingsScreen)
+        await pilot.click('#settings_cancel')
+        await pilot.pause()
+
+        assert not isinstance(app.screen, TableSettingsScreen)
+        assert not session.has_pending_changes
+
+        await pilot.press('e')
+        await pilot.pause()
+        await pilot.click('#settings_ok')
+        await pilot.pause()
+        assert not isinstance(app.screen, TableSettingsScreen)
+        assert not session.has_pending_changes
+
+
+@pytest.mark.asyncio
+async def test_map_app_reduce_picker_supports_recent_mapping_and_rejects_invalid_edits(temp_dir):
+    ''' z can target a just-mapped variable, while reduce staging handles no-op and invalid choices '''
+    yamlfile, _ = _zonal_fixture(temp_dir, {'ta': {'name': 'ta', 'reduce': 'zonal_mean'}})
+    session = MapSession(yamlfile)
+    app = MapApp(session)
+
+    async with app.run_test(size=(120, 40)) as pilot:
+        notifications = []
+        app.notify = lambda message, **kwargs: notifications.append(
+            (message, kwargs.get('severity')))
+        source_node = app.query_one('#cmip_tree').root.children[0].children[1].children[0]
+        app._stage_reduce('AmonZ', 'atmos', 'ta', source_node,
+                          {'reduce': 'zonal_mean'})
+        app._stage_reduce('AmonZ', 'atmos', 'missing', source_node,
+                          {'reduce': 'zonal_mean'})
+
+        assert not session.has_pending_changes
+        assert any(severity == 'error' and 'is not mapped' in message
+                   for message, severity in notifications)
+        assert app._with_reduce_label(
+            'tas  (reduce=zonal_mean)  (unsaved)', None) == 'tas  (unsaved)'
+
+    new_mapping_root = Path(temp_dir) / 'new_mapping'
+    new_mapping_root.mkdir()
+    new_yamlfile, _ = _zonal_fixture(new_mapping_root)
+    new_app = MapApp(MapSession(new_yamlfile))
+    async with new_app.run_test(size=(120, 40)) as pilot:
+        unmapped_node = new_app.query_one('#cmip_tree').root.children[0].children[0]
+        ta_node = next(node for node in unmapped_node.children if node.data['var'] == 'ta')
+        new_app.on_tree_node_selected(_FakeTreeEvent(ta_node, 'cmip_tree'))
+        pp_tree = new_app.query_one('#pp_tree')
+        node = pp_tree.root.children[0]
+        for _ in range(3):
+            new_app.on_tree_node_expanded(_FakeTreeEvent(node, 'pp_tree'))
+            node = node.children[0]
+        new_app.on_tree_node_selected(_FakeTreeEvent(node, 'pp_tree'))
+        await pilot.pause()
+        await pilot.press('m')
+        await pilot.pause()
+        assert isinstance(new_app.screen, ReduceScreen)
+        await pilot.press('escape')
+        await pilot.pause()
+        await pilot.press('z')
+        await pilot.pause()
+        assert isinstance(new_app.screen, ReduceScreen)

@@ -7,10 +7,12 @@ import tempfile
 import logging
 from pathlib import Path
 
+import numpy as np
 import pytest
 import yaml
 from netCDF4 import Dataset
 
+from fremor import cmor_check as check_module
 from fremor.cmor_check import cmor_check_subtool
 
 
@@ -77,6 +79,179 @@ def _write_yaml(temp_dir, table_targets, mip_era='cmip6', pp_dir=None, table_dir
     yamlfile = temp_root / 'cmor.yaml'
     yamlfile.write_text(yaml.safe_dump(doc), encoding='utf-8')
     return str(yamlfile)
+
+
+def test_check_filename_and_input_directory_helpers(tmp_path):
+    ''' malformed time-series names are tolerated, and a missing frequency has no input dir '''
+    component = _component_entry('atmos', tmp_path / 'varlist.json')
+    assert check_module._component_input_dir(str(tmp_path), {'freq': None}, component) is None
+
+    malformed = Path('atmos.not-a-range.tas.nc')
+    no_range = Path('no-date.nc')
+    assert check_module._in_run_bounds(malformed, 2000, 2010)
+    assert check_module._date_range_from_filename(no_range) is None
+    assert check_module._date_range_from_filename(malformed) is None
+    assert check_module._time_coverage([no_range])['status'] == 'unknown'
+    assert check_module._output_date_range_from_filename(no_range) is None
+
+
+def test_dmls_helpers_fall_back_when_binary_is_unavailable(tmp_path, monkeypatch):
+    ''' empty batches and missing dmls executables use the documented fallback '''
+    path = tmp_path / 'input.nc'
+    missing_dmls = str(tmp_path / 'missing-dmls')
+
+    assert check_module._dmls_offline_files([], dmls_bin=missing_dmls) is None
+    assert check_module._dmls_offline_files([path], dmls_bin=missing_dmls) is None
+    assert check_module._dmls_state_for_file(path, dmls_bin=missing_dmls) is None
+    monkeypatch.setattr(check_module.shutil, 'which', lambda _binary: None)
+    assert check_module._dmls_state_for_file(path) is None
+    assert not check_module._is_file_staged(path)
+    path.touch()
+    assert check_module._is_file_staged(path)
+
+
+def test_staging_status_reports_partially_staged_files(tmp_path, monkeypatch):
+    ''' an offline result for only one of two files is reported as partially staged '''
+    files = [tmp_path / 'atmos.199001-199412.tas.nc',
+             tmp_path / 'atmos.199501-199912.tas.nc']
+    for path in files:
+        path.touch()
+    monkeypatch.setattr(check_module, '_dmls_offline_files',
+                        lambda paths, dmls_bin=None: {str(files[0])})
+
+    result = check_module._staging_status(files, dmls_bin='unused')
+
+    assert result['status'] == 'partially_staged'
+    assert result['unstaged_files'] == [str(files[0])]
+
+
+def test_scalar_vertical_token_recognizes_only_scalar_z_coordinates(tmp_path):
+    ''' a scalar Z coordinate maps through MIP tokens, while absent matches return None '''
+    nc_path = tmp_path / 'scalar_z.nc'
+    with Dataset(nc_path, 'w') as ds:
+        ds.createDimension('time', 1)
+        time = ds.createVariable('time', 'f8', ('time',))
+        time.axis = 'T'
+        scalar_z = ds.createVariable('height', 'f4', ())
+        scalar_z.axis = 'Z'
+        variable = ds.createVariable('tas', 'f4', ('time',))
+        variable.coordinates = 'height'
+        without_scalar_z = ds.createVariable('tas_timecoord', 'f4', ('time',))
+        without_scalar_z.coordinates = 'time'
+
+    with Dataset(nc_path) as ds:
+        assert check_module._scalar_vertical_token(ds, 'tas', ['height2m']) == 'height2m'
+        assert check_module._scalar_vertical_token(ds, 'tas', ['unknown']) is None
+        assert check_module._scalar_vertical_token(ds, 'tas_timecoord', ['height2m']) is None
+
+
+def test_inspection_helpers_report_corrupt_input(tmp_path):
+    ''' corrupt NetCDF inputs yield unknown vertical, attribute, and range results '''
+    corrupt = tmp_path / 'atmos.199001-199412.tas.nc'
+    corrupt.write_bytes(b'not a NetCDF file' * 1000)
+    bounds = {'valid_min': 0.0, 'valid_max': None,
+              'ok_min_mean_abs': None, 'ok_max_mean_abs': None}
+
+    assert check_module._input_vertical_token(str(corrupt), 'tas') is check_module._INSPECTION_ERROR
+    assert check_module._attrs_finding([], [], [corrupt])['status'] == 'unknown'
+    assert check_module._range_finding(bounds, [corrupt])['status'] == 'unknown'
+
+
+def test_range_helpers_handle_invalid_bounds_and_missing_data(tmp_path):
+    ''' invalid table bounds are ignored and all-masked input has unknown range '''
+    table_data = {'variable_entry': {'tas': {'valid_min': 'not-a-number'}}}
+    bounds = check_module._mip_variable_range_bounds(table_data, 'tas', 'CMIP6')
+    assert bounds['valid_min'] is None
+
+    nc_path = tmp_path / 'atmos.199001-199412.tas.nc'
+    with Dataset(nc_path, 'w') as ds:
+        ds.createDimension('x', 2)
+        variable = ds.createVariable('tas', 'f4', ('x',), fill_value=-999.0)
+        variable[:] = np.ma.masked_all(2)
+
+    finding = check_module._range_finding(
+        {'valid_min': 0.0, 'valid_max': None, 'ok_min_mean_abs': None, 'ok_max_mean_abs': None},
+        [nc_path],
+    )
+    assert finding['status'] == 'unknown'
+    assert 'all values' in finding['reason']
+
+
+def test_range_finding_reports_all_out_of_range_bounds(tmp_path):
+    ''' every declared min/max and mean-absolute bound is checked '''
+    nc_path = tmp_path / 'atmos.199001-199412.tas.nc'
+    with Dataset(nc_path, 'w') as ds:
+        ds.createDimension('x', 2)
+        variable = ds.createVariable('tas', 'f4', ('x',))
+        variable[:] = [-2.0, 4.0]
+
+    finding = check_module._range_finding(
+        {'valid_min': 0.0, 'valid_max': 3.0, 'ok_min_mean_abs': 3.5, 'ok_max_mean_abs': 2.5},
+        [nc_path],
+    )
+
+    assert finding['status'] == 'out_of_range'
+    assert len(finding['problems']) == 4
+
+
+def test_cmip7_brand_helpers_handle_unique_missing_and_unreadable_sources(tmp_path):
+    ''' unique brands need no input, absent components resolve to None, corrupt input is skipped '''
+    single_brand_table = {'variable_entry': {'tas_tavg-u-hxy-u': {}}}
+    assert check_module._source_brand(
+        single_brand_table, 'tas', ('atmos', 'tas'), None, str(tmp_path),
+        {'target_components': []}, None, None, None, {},
+    ) == 'tavg-u-hxy-u'
+
+    multi_brand_table = {'variable_entry': {
+        'tas_tavg-u-hxy-u': {},
+        'tas_tavg-u-hxy-air': {},
+    }}
+    assert check_module._source_brand(
+        multi_brand_table, 'tas', ('missing', 'tas'), None, str(tmp_path),
+        {'target_components': []}, None, None, None, {},
+    ) is None
+
+    input_dir = tmp_path / 'atmos' / 'ts' / 'monthly' / '5yr'
+    input_dir.mkdir(parents=True)
+    corrupt = input_dir / 'atmos.199001-199412.tas.nc'
+    corrupt.write_bytes(b'not a NetCDF file' * 1000)
+    assert check_module._input_dir_brand(
+        input_dir, 'tas', 'tas', multi_brand_table, None, None, None,
+        str(tmp_path / 'missing-dmls'),
+    ) is None
+
+
+def test_check_report_prints_exp_config_unmapped_and_invalid_sections(capsys):
+    ''' human-readable output includes experiment findings and requested detail lists '''
+    report = {
+        '_exp_config': {
+            'status': 'warning',
+            'file': 'exp.json',
+            'cv': 'CMIP6_CV.json',
+            'findings': [{'level': 'warning', 'attribute': 'calendar', 'message': 'review calendar'}],
+        },
+        'Amon': {
+            'reference_var_count': 1,
+            'unmapped': ['tas'],
+            'multiply_mapped': {},
+            'unknown_mapped': [],
+            'invalid_entries': [{
+                'component': 'atmos', 'local_key': 'bad', 'error': 'malformed mapping',
+            }],
+            'files': {},
+        },
+    }
+
+    check_module._print_report(report, show_unmapped=True)
+
+    output = capsys.readouterr().out
+    assert '[EXPERIMENT CONFIG]' in output
+    assert '- tas' in output
+    assert 'atmos:bad: malformed mapping' in output
+    assert 'no one-to-one-mapped or multi-brand variables to check' in output
+    assert check_module._coverage_finding({'status': 'unknown'}, None) == (
+        'coverage=unknown (no parseable date range in filenames)'
+    )
 
 
 def test_cmor_check_subtool_yamlfile_dne_err(temp_dir): # pylint: disable=redefined-outer-name
@@ -212,12 +387,14 @@ def test_cmor_check_subtool_reports_fully_unmapped_table(temp_dir): # pylint: di
     yamlfile = _write_yaml(temp_dir, [
         _table_target('Amon', [_component_entry('atmos', missing_list)])
     ], table_dir=tables_dir)
+    output_report = temp_root / 'check-report.json'
 
-    report = cmor_check_subtool(yamlfile=yamlfile)
+    report = cmor_check_subtool(yamlfile=yamlfile, output_report=str(output_report))
 
     assert report['Amon']['unmapped'] == ['pr', 'tas']
     assert report['Amon']['multiply_mapped'] == {}
     assert report['Amon']['unknown_mapped'] == []
+    assert json.loads(output_report.read_text(encoding='utf-8')) == report
 
 
 def test_cmor_check_subtool_show_mapped(temp_dir): # pylint: disable=redefined-outer-name
@@ -1358,3 +1535,134 @@ def test_cmor_check_subtool_range_unknown_when_no_files(temp_dir): # pylint: dis
 
     report = cmor_check_subtool(yamlfile=yamlfile, check_range=True)
     assert report['Amon']['files']['tas']['range']['status'] == 'unknown'
+
+
+# ---------------------------------------------------------------------------
+# CMIP7: several sources mapped to one variable, each resolving to its own brand
+# ---------------------------------------------------------------------------
+
+def _write_nc_over_dims(nc_path, local_var, dims):
+    ''' write a minimal real netCDF file with local_var over `dims` (each a 2-long dim with a
+    coordinate variable, plev's marked axis='Z') '''
+    with Dataset(str(nc_path), 'w') as ds:
+        for dim in dims:
+            ds.createDimension(dim, 2)
+            coord = ds.createVariable(dim, 'f4', (dim,))
+            if dim == 'plev':
+                coord.axis = 'Z'
+        ds.createVariable(local_var, 'f4', tuple(dims))
+
+
+def _multi_brand_setup(temp_dir, aer_dims, monkeypatch): # pylint: disable=redefined-outer-name
+    ''' CMIP7 atmos table with a lat-lon and a zonal-mean brand of ta, mapped from both a
+    lat-lon atmos pp file and an atmos_aer pp file over `aer_dims` (None: no file at all).
+    The pp files count as staged: a just-written file can briefly have fewer allocated blocks
+    than its size, which the stat-based staging heuristic reads as offline. '''
+    monkeypatch.setattr('fremor.cmor_check._file_is_offline', lambda path, dmls_bin=None: False)
+    temp_root = Path(temp_dir)
+    tables_dir = temp_root / 'tables'
+    tables_dir.mkdir()
+    _write_cmip7_table_with_dims(tables_dir, 'atmos', {
+        'ta_tavg-p19-hxy-air': ['longitude', 'latitude', 'plev19', 'time'],
+        'ta_tavg-p39-hy-air': ['latitude', 'plev39', 'time'],
+    })
+    varlist_dir = temp_root / 'varlists'
+    varlist_dir.mkdir()
+    atmos_list = varlist_dir / 'CMIP7_atmos_atmos.list'
+    atmos_list.write_text(json.dumps({'temp': 'ta'}), encoding='utf-8')
+    aer_list = varlist_dir / 'CMIP7_atmos_atmos_aer.list'
+    aer_list.write_text(json.dumps({'temp': 'ta'}), encoding='utf-8')
+
+    pp_dir = temp_root / 'pp'
+    yamlfile = _write_yaml(temp_dir, [
+        _table_target('atmos', [_component_entry('atmos', atmos_list),
+                                _component_entry('atmos_aer', aer_list)])
+    ], mip_era='cmip7', table_dir=tables_dir, pp_dir=pp_dir)
+
+    _write_nc_over_dims(_input_dir(pp_dir, 'atmos') / 'atmos.197901-198312.temp.nc', 'temp',
+                        ['time', 'plev', 'lat', 'lon'])
+    if aer_dims is not None:
+        _write_nc_over_dims(_input_dir(pp_dir, 'atmos_aer') / 'atmos_aer.197901-198312.temp.nc',
+                            'temp', aer_dims)
+    return yamlfile
+
+
+def test_cmor_check_subtool_cmip7_sources_with_different_brands_not_multiply_mapped(temp_dir, capsys, monkeypatch): # pylint: disable=redefined-outer-name
+    ''' a lat-lon and a zonal-mean source of ta resolve to different brands, so ta is reported
+    as multi-brand rather than multiply-mapped '''
+    yamlfile = _multi_brand_setup(temp_dir, ['time', 'plev', 'lat'], monkeypatch)
+
+    report = cmor_check_subtool(yamlfile=yamlfile, show_multi_mapped=True)
+
+    assert report['atmos']['multiply_mapped'] == {}
+    assert report['atmos']['multi_brand_mapped'] == {'ta': [
+        ('atmos', 'temp', 'tavg-p19-hxy-air'), ('atmos_aer', 'temp', 'tavg-p39-hy-air')]}
+    assert 'multiply_mapped_brands' not in report['atmos']
+    out = capsys.readouterr().out
+    assert 'MULTI-BRAND' in out
+    assert 'atmos_aer:temp (ta_tavg-p39-hy-air)' in out
+
+
+def test_cmor_check_subtool_cmip7_sources_with_same_brand_stay_multiply_mapped(temp_dir, capsys, monkeypatch): # pylint: disable=redefined-outer-name
+    ''' two lat-lon sources of ta resolve to the same brand -- a real conflict, reported as
+    multiply-mapped along with each source's brand '''
+    yamlfile = _multi_brand_setup(temp_dir, ['time', 'plev', 'lat', 'lon'], monkeypatch)
+
+    report = cmor_check_subtool(yamlfile=yamlfile, show_multi_mapped=True)
+
+    assert list(report['atmos']['multiply_mapped']) == ['ta']
+    assert 'multi_brand_mapped' not in report['atmos']
+    assert report['atmos']['multiply_mapped_brands'] == {
+        'ta': ['tavg-p19-hxy-air', 'tavg-p19-hxy-air']}
+    out = capsys.readouterr().out
+    assert 'atmos:temp (tavg-p19-hxy-air), atmos_aer:temp (tavg-p19-hxy-air)' in out
+
+
+def test_cmor_check_subtool_cmip7_unresolved_brand_stays_multiply_mapped(temp_dir, capsys, monkeypatch): # pylint: disable=redefined-outer-name
+    ''' a source with no pp file has no resolvable brand, so the variable stays multiply-mapped '''
+    yamlfile = _multi_brand_setup(temp_dir, None, monkeypatch)
+
+    report = cmor_check_subtool(yamlfile=yamlfile, show_multi_mapped=True)
+
+    assert list(report['atmos']['multiply_mapped']) == ['ta']
+    assert report['atmos']['multiply_mapped_brands'] == {'ta': ['tavg-p19-hxy-air', None]}
+    assert 'atmos_aer:temp (brand unresolved)' in capsys.readouterr().out
+
+
+def test_cmor_check_subtool_cmip7_offline_source_not_opened(temp_dir, monkeypatch): # pylint: disable=redefined-outer-name
+    ''' a source whose pp file is still offline is never opened, leaving its brand unresolved '''
+    yamlfile = _multi_brand_setup(temp_dir, ['time', 'plev', 'lat'], monkeypatch)
+    monkeypatch.setattr('fremor.cmor_check._file_is_offline',
+                        lambda path, dmls_bin=None: 'atmos_aer' in path.name)
+    opened = []
+    monkeypatch.setattr('fremor.cmor_check.resolve_input_file_brand',
+                        lambda path, *args: opened.append(path.name) or 'tavg-p19-hxy-air')
+
+    report = cmor_check_subtool(yamlfile=yamlfile)
+
+    assert opened == ['atmos.197901-198312.temp.nc']
+    assert report['atmos']['multiply_mapped_brands'] == {'ta': ['tavg-p19-hxy-air', None]}
+
+
+def test_cmor_check_subtool_cmip7_multi_brand_sources_get_file_checks(temp_dir, monkeypatch): # pylint: disable=redefined-outer-name
+    ''' the optional file checks run on each source of a multi-brand variable, keyed by its
+    branded name and checked against that brand's MIP table entry alone '''
+    yamlfile = _multi_brand_setup(temp_dir, ['time', 'plev', 'lat'], monkeypatch)
+    outdir = Path(temp_dir) / 'out'
+    outdir.mkdir()
+    (outdir / 'ta_tavg-p39-hy-air_mon_glb_g999_ESM_hist_r1i1p1f1_197901-198312.nc').write_bytes(b'x')
+
+    report = cmor_check_subtool(yamlfile=yamlfile, check_staging=True, check_dims=True,
+                                check_output=True)
+
+    files = report['atmos']['files']
+    assert set(files) == {'ta_tavg-p19-hxy-air', 'ta_tavg-p39-hy-air'}
+    assert files['ta_tavg-p19-hxy-air']['staging']['status'] == 'staged'
+    assert files['ta_tavg-p39-hy-air']['staging']['status'] == 'staged'
+    assert files['ta_tavg-p19-hxy-air']['dims']['mip_table_vertical_dims'] == ['plev19']
+    assert files['ta_tavg-p39-hy-air']['dims']['mip_table_vertical_dims'] == ['plev39']
+    assert files['ta_tavg-p19-hxy-air']['output']['status'] == 'missing'
+    assert files['ta_tavg-p39-hy-air']['output']['status'] == 'produced'
+    # only the lat-lon brand gets the grid-label check
+    assert 'grid' in files['ta_tavg-p19-hxy-air']
+    assert 'grid' not in files['ta_tavg-p39-hy-air']
