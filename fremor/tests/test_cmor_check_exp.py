@@ -56,6 +56,11 @@ def test_posix_bre_to_python():
     assert re.fullmatch(_posix_bre_to_python(r'^CF-1.7\( UGRID-1.0\)\{0,\}$'), 'CF-1.7 UGRID-1.0')
 
 
+def test_cv_regex_collections_are_not_literal_membership_lists():
+    ''' a regex-valued CV collection is excluded from literal term membership checks '''
+    assert cmor_check_exp._cv_terms(['^source_[0-9]+$', '.*']) is None
+
+
 # ---------------------------------------------------------------------------
 # check_exp_config: CMIP6
 # ---------------------------------------------------------------------------
@@ -102,6 +107,33 @@ def test_check_exp_config_experiment_consistency(tmp_path):
     assert any('is not an activity of experiment amip' in msg for _lvl, msg in _messages(report, 'activity_id'))
 
 
+def test_check_consistency_parentless_experiment_and_sub_experiment():
+    ''' a configured parent and disallowed sub-experiment are both reported '''
+    findings = cmor_check_exp._check_consistency(
+        {'experiment_id': 'control', 'parent_experiment_id': 'piControl',
+         'sub_experiment_id': 'unexpected'},
+        {'experiment_id': {'control': {'parent_experiment_id': [],
+                                       'sub_experiment_id': ['none']}}},
+    )
+
+    assert any(f['attribute'] == 'parent_experiment_id' and
+               'has no parent in the CV' in f['message'] for f in findings)
+    assert any(f['attribute'] == 'sub_experiment_id' and
+               'is not a sub-experiment' in f['message'] for f in findings)
+
+
+def test_check_consistency_flags_parent_fields_for_parentless_experiment():
+    ''' parent metadata is warned about when the experiment has no parent '''
+    findings = cmor_check_exp._check_consistency(
+        {'experiment_id': 'control', 'parent_experiment_id': 'no parent',
+         'parent_variant_label': 'r1'},
+        {'experiment_id': {'control': {'parent_experiment_id': []}}},
+    )
+
+    assert any(f['level'] == 'warning' and f['attribute'] == 'parent_experiment_id' and
+               'parent_variant_label describe one' in f['message'] for f in findings)
+
+
 def test_check_exp_config_source_institution(tmp_path):
     ''' institution_id must be one of the source's institutions '''
     path = _exp_config(tmp_path, CMIP6_EXP_CONFIG, source_id='GFDL-CM4', institution_id='NCAR')
@@ -120,6 +152,20 @@ def test_check_exp_config_calendar(tmp_path):
     assert not _messages(report, 'calendar')
 
 
+def test_check_exp_config_missing_calendar(tmp_path):
+    ''' a missing calendar is reported as an error '''
+    path = _exp_config(tmp_path, CMIP6_EXP_CONFIG, calendar=None)
+
+    assert _messages(check_exp_config(path, str(CMIP6_TABLES), 'CMIP6'), 'calendar') == [
+        ('error', "calendar is not set; fremor run needs it to check the input data's calendar")
+    ]
+
+
+def test_check_license_without_text_returns_no_finding():
+    ''' an absent license text does not produce a pattern mismatch '''
+    assert cmor_check_exp._check_license({}, {'license': ['^valid license$']}) == []
+
+
 def test_check_exp_config_file_problems(tmp_path):
     ''' missing file, invalid JSON, mip_era mismatch, and a missing auxiliary table '''
     assert check_exp_config(None, str(CMIP6_TABLES), 'CMIP6')['status'] == 'error'
@@ -134,6 +180,40 @@ def test_check_exp_config_file_problems(tmp_path):
                               str(CMIP6_TABLES), 'CMIP7')
     assert _messages(report, 'mip_era')
     assert 'missing.json not found' in _messages(report, '_AXIS_ENTRY_FILE')[0][1]
+
+
+def test_check_exp_config_warns_when_default_cv_is_unavailable(tmp_path):
+    ''' no configured CV and no default CV produces a warning and skips CV validation '''
+    tables = tmp_path / 'tables'
+    tables.mkdir()
+    exp_config = tmp_path / 'exp.json'
+    exp_config.write_text(json.dumps({'mip_era': 'CMIP6', 'calendar': 'noleap'}),
+                          encoding='utf-8')
+
+    report = check_exp_config(str(exp_config), str(tables), 'CMIP6')
+
+    assert _messages(report, '_controlled_vocabulary_file') == [
+        ('warning', f'could not read the CV at {tables / "CMIP6_CV.json"}, skipping the CV checks')
+    ]
+
+
+def test_check_exp_config_does_not_duplicate_missing_configured_cv(tmp_path):
+    ''' a missing configured CV is reported once by auxiliary-table validation '''
+    tables = tmp_path / 'tables'
+    tables.mkdir()
+    exp_config = tmp_path / 'exp.json'
+    exp_config.write_text(json.dumps({
+        'mip_era': 'CMIP6',
+        'calendar': 'noleap',
+        '_controlled_vocabulary_file': 'missing-cv.json',
+    }), encoding='utf-8')
+
+    findings = _messages(check_exp_config(str(exp_config), str(tables), 'CMIP6'),
+                         '_controlled_vocabulary_file')
+
+    assert len(findings) == 1
+    assert findings[0][0] == 'error'
+    assert 'missing-cv.json not found' in findings[0][1]
 
 
 # ---------------------------------------------------------------------------
@@ -253,9 +333,23 @@ def test_find_emd_grid_cells_dir(tmp_path):
     ''' found in the tables directory or up to two levels above it '''
     tables = tmp_path / 'init' / 'repo' / 'tables'
     tables.mkdir(parents=True)
+    assert find_emd_grid_cells_dir(None) is None
     assert find_emd_grid_cells_dir(str(tables)) is None
     (tmp_path / 'init' / 'emd_horizontal_grid_cell').mkdir()
     assert find_emd_grid_cells_dir(str(tables)) == (tmp_path / 'init' / 'emd_horizontal_grid_cell').resolve()
+
+
+def test_load_emd_grid_cell_warns_for_invalid_local_json(tmp_path, caplog):
+    ''' an invalid local EMD definition warns and returns None when downloads are disabled '''
+    grid_cells = tmp_path / 'emd_horizontal_grid_cell'
+    grid_cells.mkdir()
+    local = grid_cells / 'g225.json'
+    local.write_text('{invalid json', encoding='utf-8')
+
+    with caplog.at_level('WARNING', logger='fremor.cmor_check_exp'):
+        assert load_emd_grid_cell('g225', grid_cells, download=False) is None
+
+    assert f'could not parse {local}' in caplog.text
 
 
 def _write_lat_lon_nc(nc_path, lon, lat, local_var='tas', lon_units='degrees_east', lat_units='degrees_north'):
@@ -287,12 +381,15 @@ def test_grid_finding_g225_ok(tmp_path, lat):
 
 
 @pytest.mark.parametrize('lon, lat, expected_problem', [
+    (G225_LON[:1], G225_LAT, 'longitude spacing is uneven'),
+    (np.array([0.625, 1.875, 3.5, 4.75]), G225_LAT, 'longitude spacing is uneven'),
     (np.arange(288) * 1.25, G225_LAT, 'first longitude 0, expected 0.625'),
     (np.arange(288) * 1.25 - 179.375, G225_LAT, 'first longitude 180.625, expected 0.625'),
     (G225_LON, np.arange(181) * 1.0 - 90.0, 'southernmost latitude -90, expected -89.5'),
     (np.arange(360) * 1.0 + 0.5, G225_LAT, 'longitude spacing 1, expected 1.25'),
     (G225_LON[:144], G225_LAT, '144 x 180 = 25920 cells, expected 51840'),
-], ids=['lon-edge-origin', 'lon-minus-180', 'lat-edge-origin', 'wrong-resolution', 'not-global'])
+], ids=['single-longitude', 'uneven-longitude', 'lon-edge-origin', 'lon-minus-180',
+        'lat-edge-origin', 'wrong-resolution', 'not-global'])
 def test_grid_finding_g225_mismatch(tmp_path, lon, lat, expected_problem):
     ''' spacing, origin, and global extent are each checked '''
     nc_path = tmp_path / 'atmos.197901-198312.tas.nc'
@@ -311,6 +408,45 @@ def test_grid_finding_not_checkable(tmp_path):
     assert grid_finding(str(nc_path), 'tos', 'g102',
                         grid_label_spec('g102', cv, EMD_GRID_CELLS))['status'] == 'not_checked'
     assert grid_finding(str(nc_path), 'tos', 'g-nope', None)['status'] == 'unknown'
+
+
+def test_grid_finding_missing_variable_and_unreadable_file(tmp_path):
+    ''' missing variables and files are reported as unknown grid findings '''
+    nc_path = tmp_path / 'atmos.197901-198312.tas.nc'
+    _write_lat_lon_nc(nc_path, G225_LON, G225_LAT)
+    missing_var = grid_finding(str(nc_path), 'not_present', 'g225', _g225_spec())
+    assert missing_var['status'] == 'unknown'
+    assert 'not_present not found' in missing_var['reason']
+
+    unreadable = tmp_path / 'unreadable.nc'
+    unreadable.write_text('not a NetCDF file', encoding='utf-8')
+    unreadable_finding = grid_finding(str(unreadable), 'tas', 'g225', _g225_spec())
+    assert unreadable_finding['status'] == 'unknown'
+    assert f'could not read {unreadable}' in unreadable_finding['reason']
+
+
+def test_grid_finding_skips_dimensions_without_coordinate_variables(tmp_path):
+    ''' a data dimension with no coordinate variable is ignored when lat/lon are present '''
+    nc_path = tmp_path / 'missing_coordinate.nc'
+    with Dataset(nc_path, 'w') as ds:
+        ds.createDimension('unlabelled', 2)
+        ds.createDimension('lat', 2)
+        ds.createDimension('lon', 2)
+        lat = ds.createVariable('lat', 'f8', ('lat',))
+        lat.units = 'degrees_north'
+        lat[:] = [-0.5, 0.5]
+        lon = ds.createVariable('lon', 'f8', ('lon',))
+        lon.units = 'degrees_east'
+        lon[:] = [0.5, 1.5]
+        ds.createVariable('tas', 'f4', ('unlabelled', 'lat', 'lon'))
+
+    finding = grid_finding(str(nc_path), 'tas', 'test', {
+        'grid_type': 'regular-latitude-longitude', 'checkable': True, 'source': 'test',
+        'dlon': 1.0, 'dlat': 1.0,
+    })
+
+    assert finding['status'] == 'ok'
+    assert finding['input']['n_cells'] == 4
 
 
 def test_grid_finding_cv_fallback_checks_spacing_only(tmp_path):
