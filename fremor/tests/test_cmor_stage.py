@@ -369,6 +369,66 @@ def test_collect_stage_files_rejects_missing_component_input_dir(tmp_path):
         collect_stage_files(str(yamlfile))
 
 
+def test_collect_stage_files_uses_static_frequency_for_static_components(tmp_path, caplog):
+    """A static-only table target without a frequency uses its static component file."""
+    yamlfile, _ = _stage_case(tmp_path)
+    static_file = tmp_path / 'pp' / 'atmos' / 'atmos.static.nc'
+    static_file.parent.mkdir(parents=True, exist_ok=True)
+    static_file.touch()
+
+    def make_component_static(cmor):
+        target = cmor['table_targets'][0]
+        target.pop('freq')
+        target['ps_component'] = 'unused_ps'
+        target['target_components'][0]['data_series_type'] = 'static'
+
+    _rewrite_yaml(yamlfile, make_component_static)
+
+    assert collect_stage_files(str(yamlfile)) == [str(static_file.resolve())]
+    assert any(
+        record.getMessage() == (
+            'ignoring ps_component unused_ps of static table target Amon: '
+            'static fields have no surface-pressure companion'
+        )
+        for record in caplog.records
+    )
+
+
+def test_collect_stage_files_skips_static_file_when_no_variables_are_mapped(tmp_path):
+    """An unmapped static component contributes no file and needs no static file on disk."""
+    yamlfile, _ = _stage_case(tmp_path)
+
+    def make_component_unmapped_static(cmor):
+        component = cmor['table_targets'][0]['target_components'][0]
+        component['data_series_type'] = 'static'
+        Path(component['variable_list']).write_text(
+            json.dumps({'unused': 'not_in_table'}), encoding='utf-8'
+        )
+
+    _rewrite_yaml(yamlfile, make_component_unmapped_static)
+
+    assert collect_stage_files(str(yamlfile)) == []
+
+
+def test_collect_stage_files_warns_when_ps_component_directory_is_missing(tmp_path, caplog):
+    """A configured ps_component with no input directory produces a warning."""
+    yamlfile, _ = _stage_case(tmp_path)
+    _rewrite_yaml(yamlfile, lambda cmor: cmor['table_targets'][0].update(
+        ps_component='missing_ps'
+    ))
+
+    assert len(collect_stage_files(str(yamlfile))) == 2
+
+    assert any(
+        record.levelname == 'WARNING'
+        and record.getMessage() == (
+            f"ps_component directory {tmp_path / 'pp' / 'missing_ps' / 'ts' / 'monthly' / '5yr'} "
+            "for table Amon does not exist"
+        )
+        for record in caplog.records
+    )
+
+
 def test_stage_reports_missing_dmget_binary(tmp_path):
     """A dmget_bin that can't be executed is reported with its configured path."""
     yamlfile, _ = _stage_case(tmp_path)
