@@ -12,6 +12,7 @@ import pytest
 import netCDF4
 import cmor
 
+import fremor.cmor_helpers as cmor_helpers
 from fremor.cmor_constants import CMOR_EXIT_CTL, CMOR_EXIT_CTL_BY_ERA
 from fremor.cmor_helpers import ( find_statics_file, print_data_minmax, variable_grid_label,
                                   find_gold_ocean_statics_file,
@@ -72,63 +73,99 @@ def test_print_data_minmax_no_exception_case3():
 
 # ---- find_gold_ocean_statics_file tests ----
 
-def test_find_gold_ocean_statics_file_none_arg():
+_GOLD_OCEAN_FILE_STUB = 'OM5_025/ocean_mosaic/ocean_static.nc'
+
+
+def _patch_gold_archive(monkeypatch, archive_root):
+    ''' redirect only the archive location and gold-file path constants '''
+    monkeypatch.setattr(cmor_helpers, 'ARCHIVE_GOLD_DATA_DIR', str(archive_root))
+    monkeypatch.setattr(cmor_helpers, 'CMIP7_GOLD_OCEAN_FILE_STUB', _GOLD_OCEAN_FILE_STUB)
+
+
+def test_find_gold_ocean_statics_file_none_arg(tmp_path, monkeypatch, caplog):
     """ put_copy_here=None should return None immediately """
-    result = find_gold_ocean_statics_file(put_copy_here=None)
+    archive_root = tmp_path / 'archive'
+    archive_file = archive_root / _GOLD_OCEAN_FILE_STUB
+    archive_file.parent.mkdir(parents=True)
+    archive_file.touch()
+    _patch_gold_archive(monkeypatch, archive_root)
+
+    with caplog.at_level('WARNING', logger='fremor.cmor_helpers'):
+        result = find_gold_ocean_statics_file(put_copy_here=None)
+
     assert result is None
+    assert 'put_copy_here is None, cannot stage gold ocean statics file' in caplog.text
 
 
-def test_find_gold_ocean_statics_file_archive_missing(tmp_path):
-    """
-    when the archive gold file does not exist on disk (i.e. not at PPAN),
-    the function should create the local directory tree but return None
-    because there's nothing to copy.
-    """
-    from fremor.cmor_constants import ARCHIVE_GOLD_DATA_DIR, CMIP7_GOLD_OCEAN_FILE_STUB # pylint: disable=import-outside-toplevel
-    gold_file = f'{ARCHIVE_GOLD_DATA_DIR}/{CMIP7_GOLD_OCEAN_FILE_STUB}'
-
-    result = find_gold_ocean_statics_file(put_copy_here=str(tmp_path))
-    # on dev boxes the archive path won't exist, so we get None
-    if result is None:
-        if Path(gold_file).is_file():
-            assert False, (
-                f'gold file exists at {gold_file} but function returned None. error!'
-            )
-    else:
-        # if we happen to be at PPAN and it succeeded, just check it's a real file
-        assert Path(result).is_file()
-    assert True
-
-
-def test_find_gold_ocean_statics_file_mock_copy(tmp_path):
-    """
-    exercise the full copy path by creating a fake archive gold file in tmp_path
-    and monkeypatching ARCHIVE_GOLD_DATA_DIR so the function finds it.
-    """
-    import fremor.cmor_helpers as _helpers_mod # pylint: disable=import-outside-toplevel
-    import fremor.cmor_constants as _const_mod # pylint: disable=import-outside-toplevel
-
-    # build a fake archive layout:  <tmp>/gold/datasets/OM5_025/.../ocean_static.nc
-    fake_archive_root = tmp_path / 'fake_archive' / 'gold' / 'datasets'
-    fake_gold_file = fake_archive_root / 'OM5_025' / 'ocean_mosaic_v20250916_unpacked' / 'ocean_static_no_basin.nc'
-    fake_gold_file.parent.mkdir(parents=True, exist_ok=True)
-    fake_gold_file.write_text('placeholder')
-
+def test_find_gold_ocean_statics_file_archive_missing(tmp_path, monkeypatch, caplog):
+    """a missing archive file warns and returns None without creating a local copy"""
+    archive_root = tmp_path / 'archive'
+    archive_root.mkdir()
+    _patch_gold_archive(monkeypatch, archive_root)
     staging_dir = tmp_path / 'staging'
 
-    # monkeypatch the constant in both cmor_constants and cmor_helpers (where it's already imported)
-    original_val = _const_mod.ARCHIVE_GOLD_DATA_DIR
-    try:
-        _const_mod.ARCHIVE_GOLD_DATA_DIR = str(fake_archive_root)
-        _helpers_mod.ARCHIVE_GOLD_DATA_DIR = str(fake_archive_root)
+    with caplog.at_level('WARNING', logger='fremor.cmor_helpers'):
         result = find_gold_ocean_statics_file(put_copy_here=str(staging_dir))
-    finally:
-        _const_mod.ARCHIVE_GOLD_DATA_DIR = original_val
-        _helpers_mod.ARCHIVE_GOLD_DATA_DIR = original_val
 
-    assert result is not None
-    assert Path(result).is_file()
-    assert 'ocean_static_no_basin.nc' in result
+    assert result is None
+    assert not staging_dir.exists()
+    assert 'gold archive file does not exist' in caplog.text
+
+
+def test_find_gold_ocean_statics_file_copies_and_reuses_archive_file(tmp_path, monkeypatch, caplog):
+    """the archive file is copied under its mirrored path, then reused on a later call"""
+    archive_root = tmp_path / 'archive'
+    archive_file = archive_root / _GOLD_OCEAN_FILE_STUB
+    archive_file.parent.mkdir(parents=True)
+    archive_file.write_bytes(b'gold ocean statics')
+    _patch_gold_archive(monkeypatch, archive_root)
+    staging_dir = tmp_path / 'staging'
+
+    copied_file = find_gold_ocean_statics_file(put_copy_here=str(staging_dir))
+    expected_file = staging_dir / Path(_GOLD_OCEAN_FILE_STUB)
+
+    assert copied_file == str(expected_file)
+    assert expected_file.read_bytes() == b'gold ocean statics'
+
+    with caplog.at_level('WARNING', logger='fremor.cmor_helpers'):
+        reused_file = find_gold_ocean_statics_file(put_copy_here=str(staging_dir))
+
+    assert reused_file == copied_file
+    assert 'a previous copy of the ocean statics file exists' in caplog.text
+
+
+def test_find_gold_ocean_statics_file_replaces_stale_directory(tmp_path, monkeypatch, caplog):
+    """a directory left at the destination path is removed before copying the file"""
+    archive_root = tmp_path / 'archive'
+    archive_file = archive_root / _GOLD_OCEAN_FILE_STUB
+    archive_file.parent.mkdir(parents=True)
+    archive_file.write_bytes(b'gold ocean statics')
+    _patch_gold_archive(monkeypatch, archive_root)
+    staging_dir = tmp_path / 'staging'
+    destination = staging_dir / Path(_GOLD_OCEAN_FILE_STUB)
+    destination.mkdir(parents=True)
+    (destination / 'stale').touch()
+
+    with caplog.at_level('WARNING', logger='fremor.cmor_helpers'):
+        copied_file = find_gold_ocean_statics_file(put_copy_here=str(staging_dir))
+
+    assert copied_file == str(destination)
+    assert destination.is_file()
+    assert destination.read_bytes() == b'gold ocean statics'
+    assert 'prior buggy mkdir suspected' in caplog.text
+
+
+def test_find_gold_ocean_statics_file_reports_copy_failure(tmp_path, monkeypatch, caplog):
+    """a directory at the archive-file path makes cp fail and returns None"""
+    archive_root = tmp_path / 'archive'
+    (archive_root / _GOLD_OCEAN_FILE_STUB).mkdir(parents=True)
+    _patch_gold_archive(monkeypatch, archive_root)
+
+    with caplog.at_level('WARNING', logger='fremor.cmor_helpers'):
+        result = find_gold_ocean_statics_file(put_copy_here=str(tmp_path / 'staging'))
+
+    assert result is None
+    assert 'cp of gold statics file failed' in caplog.text
 
 
 # ---- get_iso_datetime_ranges with stop_yr ----
