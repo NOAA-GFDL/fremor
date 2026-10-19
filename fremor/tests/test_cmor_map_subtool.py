@@ -35,7 +35,8 @@ from fremor.cmor_map import (
     _merge_year_ranges,
     _ncinfo_preview,
     _preview_nc_file,
-    _read_exp_grid
+    _read_exp_grid,
+    cmor_map_subtool,
 )
 
 
@@ -2859,6 +2860,23 @@ async def test_map_app_shows_brand_notes_on_multiply_mapped_sources(temp_dir, mo
             'atmos:temp  (brand=tavg-p19-hxy-air)',
             'atmos_aer:temp  (brand=tavg-p19-hxy-air)',
         ]
+
+
+def test_cmor_map_subtool_builds_session_before_launching_tui(temp_dir, monkeypatch):
+    ''' the public entry point loads its configuration and hands a real session to the TUI '''
+    pp_dir, varlist_dir, tables_dir = _make_session_fixture(temp_dir)
+    yamlfile = _amon_yaml(temp_dir, pp_dir, varlist_dir, tables_dir)
+    launched_sessions = []
+
+    def record_run(app):
+        launched_sessions.append(app.session)
+
+    monkeypatch.setattr(MapApp, 'run', record_run)
+    cmor_map_subtool(yamlfile)
+
+    assert len(launched_sessions) == 1
+    assert isinstance(launched_sessions[0], MapSession)
+    assert launched_sessions[0].table_names == ['Amon']
 
 
 def test_mapsession_reduce_malformed_value_and_chunk_without_configuration(temp_dir):

@@ -20,7 +20,8 @@ from fremor.cmor_helpers import ( find_statics_file, print_data_minmax, variable
                                   create_tmp_dir, get_json_file_data,
                                   update_grid_and_label, get_bronx_freq_from_mip_table,
                                   filter_brands, get_vertical_dimension,
-                                  from_ds_get_this, resolve_mip_era_table_resource )
+                                  from_ds_get_this, resolve_mip_era_table_resource,
+                                  find_ps_companion, resolve_cmip7_brand )
 
 def test_iso_to_bronx_chunk():
     """ tests value error raising by iso_to_bronx_chunk """
@@ -767,3 +768,113 @@ def test_variable_grid_label_cmip6(table, var, table_label, expected):
 def test_variable_grid_label_cmip7(realm, key, region, expected):
     ''' CMIP7 hm brands get the EMD single-cell grid for the region '''
     assert variable_grid_label('CMIP7', key, _cmip7_entry(realm, key), 'g100', region) == expected
+
+
+def test_find_ps_companion_warns_and_uses_first_duplicate_source(tmp_path, caplog):
+    ''' duplicate table-mapped ps files are reported and the sorted first match is selected '''
+    input_file = tmp_path / 'component.20000101.tas.nc'
+    ps_dir = tmp_path / 'ps_source'
+    ps_dir.mkdir()
+    first = ps_dir / 'a.20000101.ps_local.nc'
+    second = ps_dir / 'b.20000101.ps_local.nc'
+    first.touch()
+    second.touch()
+
+    with caplog.at_level('WARNING', logger='fremor.cmor_helpers'):
+        ps_file, ps_var, searched = find_ps_companion(
+            input_file, 'tas', ps_source={'indir': str(ps_dir), 'local_var': 'ps_local'})
+
+    assert ps_file == str(first)
+    assert ps_var == 'ps_local'
+    assert len(searched) == 1
+    assert 'multiple ps files match' in caplog.text
+
+
+@pytest.mark.parametrize('cell_methods, expected', [
+    ('time: maximum', 'tmax-2d'),
+    ('time: minimum', 'tmin-2d'),
+    ('time: point', 'tpt-2d'),
+])
+def test_filter_brands_cell_method_temporal_prefixes(cell_methods, expected):
+    ''' maximum, minimum, and point cell methods select the matching CMIP7 temporal brand '''
+    brands = ['tmax-2d', 'tmin-2d', 'tpt-2d']
+    mip = _make_mip_var_cfgs({
+        f'tas_{brand}': 'longitude latitude time' for brand in brands
+    })
+
+    assert filter_brands(
+        brands=brands,
+        target_var='tas',
+        mip_var_cfgs=mip,
+        has_time_bnds=True,
+        input_vert_dim=0,
+        cell_methods=cell_methods,
+    ) == expected
+
+
+def test_resolve_cmip7_brand_rejects_no_dimension_match(tmp_path):
+    ''' a target with no table entry of the input variable's dimensionality cannot resolve '''
+    input_file = tmp_path / 'input.nc'
+    with netCDF4.Dataset(input_file, 'w') as ds:
+        ds.createDimension('time', 2)
+        ds.createVariable('sos', 'f4', ('time',))
+        mip = {'variable_entry': {
+            'sos_tavg-u-hxy-sea': {'dimensions': ['longitude', 'latitude', 'time']},
+        }}
+        with pytest.raises(ValueError, match='no variable brand'):
+            resolve_cmip7_brand(ds, 'sos', 'sos', mip, var_dim_with_scalars=1)
+
+
+def test_resolve_mip_era_table_resource_generic_missing_message(tmp_path):
+    ''' missing non-CMIP6Plus resources explain the incomplete table set '''
+    table_dir = tmp_path / 'Tables'
+    table_dir.mkdir()
+    table = table_dir / 'CMIP6_Omon.json'
+    table.write_text('{}', encoding='utf-8')
+
+    with pytest.raises(FileNotFoundError, match='complete CMIP6 table set'):
+        resolve_mip_era_table_resource(str(table), 'CMIP6', 'grids')
+
+
+def test_resolve_mip_era_table_resource_skips_unreadable_candidate(tmp_path, caplog):
+    ''' an invalid JSON auxiliary file is logged and treated as unusable '''
+    table_dir = tmp_path / 'Tables'
+    table_dir.mkdir()
+    table = table_dir / 'CMIP6_Omon.json'
+    table.write_text('{}', encoding='utf-8')
+    (table_dir / 'CMIP6_grids.json').write_text('{invalid json', encoding='utf-8')
+
+    with caplog.at_level('WARNING', logger='fremor.cmor_helpers'):
+        with pytest.raises(FileNotFoundError, match='found but unusable'):
+            resolve_mip_era_table_resource(str(table), 'CMIP6', 'grids')
+
+    assert 'could not read' in caplog.text
+
+
+def test_create_tmp_dir_logs_missing_exp_outpath(tmp_path, caplog):
+    ''' an experiment config without outpath produces the warning and still creates CMOR_tmp '''
+    exp_config = tmp_path / 'exp.json'
+    exp_config.write_text('{}', encoding='utf-8')
+
+    with caplog.at_level('WARNING', logger='fremor.cmor_helpers'):
+        result = create_tmp_dir(str(tmp_path), str(exp_config))
+
+    assert Path(result).is_dir()
+    assert 'could not read outdir from json_exp_config' in caplog.text
+
+
+def test_create_tmp_dir_continues_when_exp_subdirectory_cannot_be_created(tmp_path, caplog):
+    ''' an outpath below a regular file cannot be made, but CMOR_tmp remains usable '''
+    exp_config = tmp_path / 'exp.json'
+    exp_config.write_text(json.dumps({'outpath': 'blocker/child'}), encoding='utf-8')
+    tmp_dir = tmp_path / 'CMOR_tmp'
+    tmp_dir.mkdir()
+    (tmp_dir / 'blocker').touch()
+
+    with caplog.at_level('INFO', logger='fremor.cmor_helpers'):
+        result = create_tmp_dir(str(tmp_path), str(exp_config))
+
+    assert result == str(tmp_dir.resolve())
+    assert Path(result).is_dir()
+    assert 'attempting to create blocker/child dir' in caplog.text
+    assert 'moving on' in caplog.text
