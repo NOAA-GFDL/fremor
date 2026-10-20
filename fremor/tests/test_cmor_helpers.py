@@ -795,7 +795,7 @@ def test_resolve_cmip7_brand_rejects_no_dimension_match(tmp_path):
         mip = {'variable_entry': {
             'sos_tavg-u-hxy-sea': {'dimensions': ['longitude', 'latitude', 'time']},
         }}
-        with pytest.raises(ValueError, match='no variable brand'):
+        with pytest.raises(ValueError, match='no sos brand in the table'):
             resolve_cmip7_brand(ds, 'sos', 'sos', mip, var_dim_with_scalars=1)
 
 
