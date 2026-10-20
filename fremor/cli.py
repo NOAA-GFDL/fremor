@@ -285,8 +285,9 @@ def find(varlist, table_config_dir, opt_var_name):
                    '<pp_dir>/<component>/<component>.static.nc holding all of them',
               required=True)
 @click.option('--varlist', type = str,
-              help=VARLIST_HELP,
-              required=True)
+              help=VARLIST_HELP + ' Required unless --opt-var-name is provided; if omitted, '
+                                  '--opt-var-name is used as both the input and MIP variable name.',
+              required=False)
 @click.option('-r', '--table-config', '--table_config', type = str,
               help='json file containing CMIP-compliant per-variable/metadata for specific ' + \
                    'MIP table. The MIP table can generally be identified by the specific ' + \
@@ -304,7 +305,8 @@ def find(varlist, table_config_dir, opt_var_name):
               help=RUN_ONE_HELP,
               required = False)
 @click.option('--opt-var-name', '--opt_var_name', type = str, default = None,
-              help=OPT_VAR_NAME_HELP,
+              help='Variable to process. Without --varlist, the name is used for both the input '
+                   'and MIP table variable.',
               required=False)
 @click.option('-g', '--grid-label', '--grid_label', type = str, default = None,
               help = 'label representing grid type of input data, e.g. gn for native or gr for regridded, ' + \
@@ -339,6 +341,9 @@ def run(indir, varlist, table_config, exp_config, outdir, run_one, opt_var_name,
     """
     Rewrite climate model output files with CMIP-compliant metadata for down-stream publishing
     """
+    if varlist is None and not opt_var_name:
+        raise click.UsageError('either --varlist or --opt-var-name must be provided')
+
     cmor_run_subtool(
         indir = indir,
         json_var_list = varlist,
@@ -612,8 +617,8 @@ def map_(tables, yamlfile, ncinfo_bin, dmls_bin):
                    'When omitted and --tables_dir is also omitted, a default '
                    'filename is used.')
 @click.option('-t', '--tables-dir', '--tables_dir', type=str, default=None,
-              help='Directory into which MIP tables will be fetched from '
-                   'trusted sources. Omit to skip table retrieval.')
+              help='Parent directory under which the MIP table repository will be fetched '
+                   'from trusted sources. Omit to skip table retrieval.')
 @click.option('--tag', type=str, default=None,
               help='Specific git tag or release for the MIP tables repository.')
 @click.option('--fast', is_flag=True, default=False,

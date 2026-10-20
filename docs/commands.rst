@@ -30,7 +30,7 @@ workflows are supported. Available subcommands:
    - ``-m, --mip_era TEXT`` — MIP era: ``cmip6``, ``cmip6plus``, or ``cmip7``
 * Optional:
    - ``-e, --exp_config TEXT`` — Output path for experiment config JSON template
-   - ``-t, --tables_dir TEXT`` — Directory to fetch MIP tables into
+   - ``-t, --tables_dir TEXT`` — Parent directory under which the ``<repo>-<ref>`` MIP table repository is fetched
    - ``--tag TEXT`` — Specific git tag or release for MIP tables (e.g., ``6.9.33``)
    - ``--fast`` — Use curl to download tarball instead of git clone (faster)
 * Examples:
@@ -44,15 +44,15 @@ workflows are supported. Available subcommands:
 
 * Rewrites netCDF files in a directory to be CMIP-compliant
 * Requires MIP tables and controlled vocabulary configuration
-* Minimal Syntax: ``fremor run -d [indir] --varlist [varlist] -r [table_config] -p [exp_config] -o [outdir] [options]``
+* Minimal Syntax: ``fremor run -d [indir] [--varlist varlist | --opt-var-name variable] -r [table_config] -p [exp_config] -o [outdir] [options]``
 * Required Options:
    - ``-d, --indir TEXT`` — Input directory with netCDF files, or a FRE static file ``<pp_dir>/<component>/<component>.static.nc``, whose time-invariant variables are then CMORized into fixed (fx) MIP entries without a time axis (``--start``/``--stop`` do not apply)
-   - ``--varlist TEXT`` — Variable list dictionary mapping modeler variable names to MIP table variable names
    - ``-r, --table_config TEXT`` — MIP table JSON configuration
    - ``-p, --exp_config TEXT`` — Experiment/model metadata JSON
    - ``-o, --outdir TEXT`` — Output directory prefix
 * Optional:
-   - ``-v, --opt_var_name TEXT`` — Target specific variable
+   - ``--varlist TEXT`` — Variable list dictionary mapping modeler variable names to MIP table variable names; required unless ``--opt-var-name`` is provided
+   - ``--opt-var-name, --opt_var_name TEXT`` — Process one variable; without ``--varlist``, its name is used for both the input and MIP table variable
    - ``--run_one`` — Process one file for testing
    - ``-g, --grid_label TEXT`` — Grid type (e.g. ``gn``, ``gr``). Global and zonal means are relabeled per variable to the controlled vocabulary's own label, since CMOR only checks that a label is in the CV: CMIP6/CMIP6Plus global means get ``gm`` and zonal means get this label with a ``z`` appended (``gnz``, ``grz``, ``gr1z``, ...); CMIP7 ``hm`` (horizontal-mean) brands get the single-cell grid for the experiment config's ``region`` (``g010`` glb, ``g011`` nh, ``g012`` sh). Hemispheric CMIP6 totals (e.g. ``siarean``), ice-sheet totals and CMIP7 zonal (``hy``/``hyb``) brands keep this label, as the CV has none of their own
    - ``--grid_desc TEXT`` — Grid description

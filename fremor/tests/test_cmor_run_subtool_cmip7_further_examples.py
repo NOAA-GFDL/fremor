@@ -16,6 +16,7 @@ configuration and CMIP7-format CMOR tables.
 
 from datetime import date
 import glob
+import json
 from pathlib import Path
 
 import pytest
@@ -155,27 +156,35 @@ def test_case_cmip7(  # pylint: disable=too-many-arguments,too-many-positional-a
     """
     Run cmor_run_subtool for a single CMIP7 variable and assert output exists.
     """
-    # ── conditional skips for cases that cannot yet pass ────────────────────
-    if opt_var_name == 'ch4global':
-        pytest.skip( # this could be solved with variable name mapping #TODO
-            'ch4global does not exist in any CMIP7 table '
-            '(CMIP7 uses ch4 variants instead); '
-            'needs new mock data or a different variable mapping'
+    local_var_name = opt_var_name
+    target_var_name = local_var_name
+    varlist = CMORBITE_VARLIST
+    selected_var_name = local_var_name
+    if local_var_name == 'ch4global':
+        # CMIP7 names the global-mean methane target `ch4`; use the local
+        # variable name as the varlist key and let the table select its brand.
+        target_var_name = 'ch4'
+        varlist_path = tmp_path / 'ch4global_varlist.json'
+        varlist_path.write_text(
+            json.dumps({local_var_name: target_var_name}),
+            encoding='utf-8',
         )
+        varlist = str(varlist_path)
+        selected_var_name = None
 
-    input_nc = _ncgen_for_case(testfile_dir, opt_var_name)
+    input_nc = _ncgen_for_case(testfile_dir, local_var_name)
 
     table_file = f'{CMIP7_TABLE_REPO_PATH}/tables/{table}.json'
     outdir = str(tmp_path / 'outdir')
 
     cmor_run_subtool(
         indir=testfile_dir,
-        json_var_list=CMORBITE_VARLIST,
+        json_var_list=varlist,
         json_table_config=table_file,
         json_exp_config=EXP_CONFIG_CMIP7,
         outdir=outdir,
         run_one_mode=True,
-        opt_var_name=opt_var_name,
+        opt_var_name=selected_var_name,
         grid='FOO_PLACEHOLDER',
         grid_label=grid_label,
         nom_res='100 km',
@@ -186,7 +195,7 @@ def test_case_cmip7(  # pylint: disable=too-many-arguments,too-many-positional-a
     # Use recursive glob to find output regardless of branding suffix via output_path_template
     cmor_output_glob = (
         f'{outdir}/{CMOR_CREATES_DIR_BASE_CMIP7}'
-        f'/{opt_var_name}/**/*{opt_var_name}*{grid_label}*.nc'
+        f'/{target_var_name}/**/*{target_var_name}*{grid_label}*.nc'
     )
     cmor_output_files = glob.glob(cmor_output_glob, recursive=True)
     assert len(cmor_output_files) >= 1, (
@@ -196,8 +205,16 @@ def test_case_cmip7(  # pylint: disable=too-many-arguments,too-many-positional-a
 
     # dtype must be preserved between input and CMOR output
     with Dataset(input_nc) as ds_in, Dataset(cmor_output_files[0]) as ds_out:
-        in_dtype = ds_in.variables[opt_var_name][:].dtype
-        out_dtype = ds_out.variables[opt_var_name][:].dtype
-        assert in_dtype == out_dtype, (
-            f'{opt_var_name} input dtype {in_dtype} differs from CMOR output dtype {out_dtype}'
+        assert target_var_name in ds_out.variables, (
+            f'CMOR output does not contain mapped variable {target_var_name}'
         )
+        in_dtype = ds_in.variables[local_var_name][:].dtype
+        out_dtype = ds_out.variables[target_var_name][:].dtype
+        assert in_dtype == out_dtype, (
+            f'{local_var_name} input dtype {in_dtype} differs from '
+            f'{target_var_name} CMOR output dtype {out_dtype}'
+        )
+        if local_var_name == 'ch4global':
+            assert ds_out.variables[target_var_name].standard_name == (
+                'mole_fraction_of_methane_in_air'
+            )

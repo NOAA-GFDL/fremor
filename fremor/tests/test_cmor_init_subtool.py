@@ -100,9 +100,10 @@ def test_cmor_init_tables_dir_with_git(tmp_path):
     # Verify the tables directory was created
     assert tables_dir.exists()
 
-    # git clone creates the directory and populates it directly
+    # git clone creates a named repository directory under tables_dir
     # Check for .git directory (shallow clone still has this)
-    git_dir = tables_dir / '.git'
+    repo_dir = tables_dir / 'cmip7-cmor-tables-main'
+    git_dir = repo_dir / '.git'
     assert git_dir.exists(), 'Git directory not found, git clone may have failed'
 
     # Look for CMIP7 table files
@@ -124,8 +125,8 @@ def test_fetch_tables_git_directly(tmp_path):
     """
     Test _fetch_tables_git function directly.
 
-    This test exercises the git clone functionality without mocking,
-    using a small repository to keep the test fast.
+    This test exercises the git clone functionality against the CMIP6
+    repository without mocking.
     """
     tables_dir = tmp_path / 'direct_git_test'
     repo_url = MIP_TABLE_REPOS['cmip6']
@@ -135,10 +136,11 @@ def test_fetch_tables_git_directly(tmp_path):
 
     # Verify directory exists and has content
     assert tables_dir.exists()
-    assert (tables_dir / '.git').exists()
+    repo_dir = tables_dir / 'cmip6-cmor-tables-main'
+    assert (repo_dir / '.git').exists()
 
     # Check that some JSON files exist
-    json_files = list(tables_dir.rglob('*.json'))
+    json_files = list(repo_dir.rglob('*.json'))
     assert len(json_files) > 0, 'No JSON files found in cloned repository'
 
 
@@ -337,10 +339,11 @@ def test_fetch_tables_git_with_tag(tmp_path):
 
     # Verify directory exists and has .git
     assert tables_dir.exists()
-    assert (tables_dir / '.git').exists(), 'Git directory not found'
+    repo_dir = tables_dir / 'cmip6-cmor-tables-6.9.33'
+    assert (repo_dir / '.git').exists(), 'Git directory not found'
 
     # Verify content was cloned
-    json_files = list(tables_dir.rglob('*.json'))
+    json_files = list(repo_dir.rglob('*.json'))
     assert len(json_files) > 0, 'No JSON files found in cloned repository'
 
 def test_fetch_cmip6plus_cv_no_tables_dir(tmp_path, caplog):

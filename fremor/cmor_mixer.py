@@ -1086,7 +1086,9 @@ def cmor_run_subtool(indir: str = None,
                   a time axis; ``start``/``stop`` do not apply to it.
     :type indir: str
     :param json_var_list: Path to JSON file with variable mapping (modeler names to MIP table names).
-    :type json_var_list: str
+                          Optional when ``opt_var_name`` is provided; without a mapping, that name is
+                          used as both the input and MIP variable name.
+    :type json_var_list: str, optional
     :param json_table_config: Path to MIP table JSON file (per-variable metadata).
     :type json_table_config: str
     :param json_exp_config: Path to experiment configuration JSON file (for header metadata).
@@ -1132,10 +1134,12 @@ def cmor_run_subtool(indir: str = None,
     .. note:: Loads variable mapping and MIP table, filters variables, and orchestrates file processing.
     """
     # CHECK req'd inputs
-    if None in [indir, json_var_list, json_table_config, json_exp_config, outdir]:
+    if None in [indir, json_table_config, json_exp_config, outdir]:
         raise ValueError('the following input arguments are required:\n'
-                         '[indir, json_var_list, json_table_config, json_exp_config, outdir] = \n'
-                        f'[{indir}, {json_var_list}, {json_table_config}, {json_exp_config}, {outdir}]')
+                         '[indir, json_table_config, json_exp_config, outdir] = \n'
+                        f'[{indir}, {json_table_config}, {json_exp_config}, {outdir}]')
+    if json_var_list is None and not opt_var_name:
+        raise ValueError('json_var_list is required unless opt_var_name is provided')
 
     # CHECK existence of the exp-specific metadata file
     if Path(json_exp_config).exists():
@@ -1215,11 +1219,14 @@ def cmor_run_subtool(indir: str = None,
 
     # open USER input variable list, no brands required regardless of CMIP6/7
     # these are largely for targeting GFDL's input files and reading them
-    json_var_list = str(Path(json_var_list).resolve())
-    fre_logger.debug('loading json_var_list = \n%s', json_var_list)
-
-    raw_var_list = get_json_file_data(json_var_list)
-    fre_logger.debug('var_list is = \n %s', raw_var_list)
+    if json_var_list is None:
+        raw_var_list = {}
+        fre_logger.debug('no json_var_list provided; using opt_var_name as the variable mapping')
+    else:
+        json_var_list = str(Path(json_var_list).resolve())
+        fre_logger.debug('loading json_var_list = \n%s', json_var_list)
+        raw_var_list = get_json_file_data(json_var_list)
+        fre_logger.debug('var_list is = \n %s', raw_var_list)
 
     # a value is either the MIP variable name, or {"name": ..., "reduce": ...} (see cmor_reduce)
     var_list, var_reduce = {}, {}
@@ -1235,18 +1242,22 @@ def cmor_run_subtool(indir: str = None,
     # if the check(s) pass, the final list of variables to run is stored in vars_to_run
     # if opt_var_name is specified, the routine is short-circuited to care only about opt_var_name
     vars_to_run = {}
-    for local_var in var_list:
-        if all( [ opt_var_name is not None, opt_var_name != '', opt_var_name in mip_var_list ] ):
-            vars_to_run[opt_var_name] = opt_var_name
-            break
-        if var_list[local_var] not in mip_var_list: #mip_var_cfgs['variable_entry']:
-            fre_logger.warning('skipping local_var = %s /\n'
-                               'target_var = %s\n'
-                               'target_var not found in CMOR variable group', local_var, var_list[local_var])
-            continue
+    if opt_var_name:
+        if opt_var_name not in mip_var_list:
+            raise ValueError(f'opt_var_name is not None! (== {opt_var_name})'
+                             '... but the variable is not contained in the target mip table'
+                             '... there\'s nothing to process, exit')
+        vars_to_run[opt_var_name] = opt_var_name
+    else:
+        for local_var in var_list:
+            if var_list[local_var] not in mip_var_list: #mip_var_cfgs['variable_entry']:
+                fre_logger.warning('skipping local_var = %s /\n'
+                                   'target_var = %s\n'
+                                   'target_var not found in CMOR variable group', local_var, var_list[local_var])
+                continue
 
-        fre_logger.info('%s found in %s', var_list[local_var], Path(json_table_config).name)
-        vars_to_run[local_var] = var_list[local_var]
+            fre_logger.info('%s found in %s', var_list[local_var], Path(json_table_config).name)
+            vars_to_run[local_var] = var_list[local_var]
 
     if var_reduce:
         fre_logger.info('reduce methods: %s', var_reduce)
@@ -1257,11 +1268,6 @@ def cmor_run_subtool(indir: str = None,
         raise ValueError('runnable variable list is of length 0 '
                          'this means no variables in input variable list are in '
                          'the mip table configuration, so there\'s nothing to process!')
-    if all([opt_var_name is not None, opt_var_name != '', opt_var_name not in list(vars_to_run)]):
-        raise ValueError(f'opt_var_name is not None! (== {opt_var_name})'
-                          '... but the variable is not contained in the target mip table'
-                          '... there\'s nothing to process, exit')
-
     # a FRE static file instead of a directory: all variables are read from it, and are time-invariant
     static_file = None
     if Path(indir).is_file():

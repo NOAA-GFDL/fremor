@@ -12,8 +12,9 @@ This module powers the ``fremor init`` command, providing two key capabilities:
 2. **MIP table retrieval** – fetches the official MIP tables from trusted
    GitHub repositories. By default tables are fetched via ``git clone``
    (shallow, depth 1); with ``--fast`` they are fetched as a tarball via
-   ``curl`` and extracted in-place. CMIP6Plus additionally gets its controlled
-   vocabulary, which lives in a different repository than its tables.
+   ``curl``. Both methods place the repository tree under a ``<repo>-<ref>``
+   directory in the requested output directory. CMIP6Plus additionally gets
+   its controlled vocabulary, which lives in a different repository than its tables.
 
 Trusted sources
 ---------------
@@ -275,18 +276,23 @@ def _fetch_tables_git(repo_url, tables_dir, tag=None):
     repo_url : str
         HTTPS URL of the MIP table repository.
     tables_dir : str
-        Local directory to clone into.
+        Parent directory under which the repository checkout is created.
     tag : str or None
         Optional git tag / branch to check out.
     """
+    ref = tag if tag else 'main'
+    repo_name = repo_url.rstrip('/').rsplit('/', maxsplit=1)[-1]
+    repo_path = Path(tables_dir) / f'{repo_name}-{ref}'
+    repo_path.parent.mkdir(parents=True, exist_ok=True)
+
     cmd = ['git', 'clone', '--depth', '1']
     if tag:
         cmd += ['--branch', tag]
-    cmd += [repo_url, tables_dir]
+    cmd += [repo_url, str(repo_path)]
 
     fre_logger.info('fetching MIP tables via git: %s', ' '.join(cmd))
     subprocess.run(cmd, check=True)
-    fre_logger.info('MIP tables cloned to %s', tables_dir)
+    fre_logger.info('MIP tables cloned to %s', repo_path)
 
 
 def _fetch_tables_curl(repo_url, tables_dir, tag=None):
@@ -349,7 +355,7 @@ def _fetch_cmip6plus_cv(tables_dir):
     """
     tables_path = Path(tables_dir)
 
-    # `git clone` puts Tables/ at the top; the --fast tarball nests it one level down
+    # Support both repository-root and legacy direct-table layouts.
     candidate_dirs = [tables_path / 'Tables'] + sorted(tables_path.glob('*/Tables'))
     target_dirs = [candidate for candidate in candidate_dirs if candidate.is_dir()]
     if not target_dirs:
@@ -458,7 +464,7 @@ def cmor_init_subtool(
         When *None* and *tables_dir* is also *None*, a default path
         ``CMOR_<MIP_ERA>_template.json`` in the current directory is used.
     tables_dir : str or None
-        Directory into which MIP tables will be fetched.
+        Parent directory under which the MIP table repository will be fetched.
     tag : str or None
         Optional git tag / release for the MIP tables repository.
     fast : bool

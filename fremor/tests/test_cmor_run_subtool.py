@@ -567,6 +567,18 @@ def test_fre_cmor_run_subtool_opt_var_name_not_in_table():
         )
 
 
+def test_fre_cmor_run_subtool_requires_varlist_or_opt_var_name():
+    """The direct run API requires a mapping unless one variable is selected."""
+    with pytest.raises(ValueError, match='json_var_list is required unless opt_var_name is provided'):
+        cmor_run_subtool(
+            indir=INDIR,
+            json_var_list=None,
+            json_table_config=TABLE_CONFIG,
+            json_exp_config=EXP_CONFIG,
+            outdir=OUTDIR,
+        )
+
+
 def test_fre_cmor_run_subtool_missing_mip_era(tmp_path):
     """
     KeyError when the exp config JSON has no mip_era entry.
