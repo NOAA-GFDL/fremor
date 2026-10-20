@@ -65,6 +65,9 @@ module load fremor/X.Y.Z
 
 ### via `conda` and/or `conda-forge`
 
+For the official, auto-updated installation instructions, see the
+[fremor conda-forge feedstock](https://github.com/conda-forge/fremor-feedstock/tree/main#installing-fremor).
+
 If you have a path to a `fremor` environment you can activate it like so:
 ```bash
 conda activate some/path/to/fremor_env
@@ -260,7 +263,6 @@ To view compliance results from a workflow/CI run:
 1. Navigate to the Actions tab in GitHub
 2. Select the `wcrp_compliance_check` workflow run
 3. Download the `wcrp-compliance-reports` artifact
-
 
 
 
