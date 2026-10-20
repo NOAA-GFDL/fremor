@@ -104,6 +104,13 @@ External configuration
 * MIP tables (for example the `cmip6-cmor-tables <https://github.com/pcmdi/cmip6-cmor-tables>`_)
 * Controlled vocabularies (for example `CMIP6_CVs <https://github.com/WCRP-CMIP/CMIP6_CVs>`_)
 
+Keep the complete table-repository file tree in its standard directory layout.
+CMOR locates associated coordinate, formula-term, grid, and other auxiliary
+files relative to each MIP table, so copying only the table JSON files is not
+sufficient. ``fremor init`` fetches the full repository tree; its default
+shallow clone includes all files without requiring the repository's full
+history.
+
 Required user inputs
 ~~~~~~~~~~~~~~~~~~~~
 
