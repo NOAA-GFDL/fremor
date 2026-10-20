@@ -46,13 +46,13 @@ import netCDF4 as nc
 
 from .cmor_helpers import ( from_ds_get_this, create_lev_bnds,
                             get_iso_datetime_ranges, check_dataset_for_ocean_grid, get_vertical_dimension,
-                            create_tmp_dir, get_json_file_data, update_grid_and_label,
-                            update_calendar_type,
+                            create_tmp_dir, get_json_file_data, exp_config_overrides, warn_overridden_exp_config,
                             normalize_calendar, get_time_calendar_ds, get_time_calendar_value,
                             calendars_are_equivalent,
                             resolve_mip_era_table_resource, find_ps_companion, table_declares_ps,
                             resolve_cmip7_brand, resolve_input_file_brand, scalar_z_coords,
-                            variable_grid_label, is_static_file )
+                            variable_grid_label, is_static_file,
+                            conv_bronx_to_cmip7_freq )
 from .cmor_reduce import apply_reduce, parse_varlist_value
 from .cmor_tripolar import load_tripolar_grid
 from .cmor_validate import check_exp_config_required_attributes
@@ -192,7 +192,8 @@ def rewrite_netcdf_file_var( mip_var_cfgs: dict = None,
                              prev_path: Optional[str] = None,
                              ps_file: Optional[str] = None,
                              ps_var: str = 'ps',
-                             ps_searched: Optional[List[str]] = None ) -> str:
+                             ps_searched: Optional[List[str]] = None,
+                             exp_overrides: Optional[Dict[str, str]] = None ) -> str:
     """
     Rewrite the input NetCDF file for a target variable in a CMIP-compliant manner and write output using CMOR.
 
@@ -217,6 +218,9 @@ def rewrite_netcdf_file_var( mip_var_cfgs: dict = None,
     :type ps_var: str
     :param ps_searched: Places already searched for ``ps_file``, reported if it is required but missing.
     :type ps_searched: list of str, optional
+    :param exp_overrides: Attributes set on CMOR's dataset over the experiment config's, e.g. the
+                          cmor yaml's gridding, calendar and (CMIP7) frequency. See ``cmor_run_subtool``.
+    :type exp_overrides: dict, optional
     :raises ValueError: If unsupported vertical dimensions or inconsistent grid dimensions are found.
     :raises FileNotFoundError: If required statics file for tripolar ocean grid is missing, or if
                                hybrid-sigma data has no surface-pressure file.
@@ -273,7 +277,12 @@ def rewrite_netcdf_file_var( mip_var_cfgs: dict = None,
     var_brand = None
     exp_cfg_mip_era = get_json_file_data(json_exp_config)['mip_era'].upper()
     if exp_cfg_mip_era == 'CMIP7':
-        var_brand = resolve_cmip7_brand(ds, local_var, target_var, mip_var_cfgs, var_dim_with_scalars)
+        try:
+            var_brand = resolve_cmip7_brand(ds, local_var, target_var, mip_var_cfgs,
+                                            var_dim_with_scalars)
+        except ValueError as exc:
+            fre_logger.error('could not resolve the CMIP7 brand of %s: %s', local_var, exc)
+            raise
     else:
         fre_logger.debug('non-cmip7 case detected, skipping variable brands')
 
@@ -327,13 +336,13 @@ def rewrite_netcdf_file_var( mip_var_cfgs: dict = None,
             fre_logger.warning('WARNING input file\'s time coordinates missing calendar and/or calendar_type field'
                                'this output could have the wrong calendar!')
         else:
-            with open(json_exp_config, 'r', encoding='utf-8') as file:
-                exp_cfg_calendar = json.load(file)['calendar']
-                if not calendars_are_equivalent(time_coords_calendar, exp_cfg_calendar):
-                    norm_time = normalize_calendar(time_coords_calendar)
-                    norm_cfg = normalize_calendar(exp_cfg_calendar)
-                    raise ValueError(f'data calendar type {norm_time} '
-                                     f'does not match input config calendar type: {norm_cfg}')
+            exp_cfg_calendar = (exp_overrides or {}).get('calendar') or \
+                get_json_file_data(json_exp_config)['calendar']
+            if not calendars_are_equivalent(time_coords_calendar, exp_cfg_calendar):
+                norm_time = normalize_calendar(time_coords_calendar)
+                norm_cfg = normalize_calendar(exp_cfg_calendar)
+                raise ValueError(f'data calendar type {norm_time} '
+                                 f'does not match input config calendar type: {norm_cfg}')
 
         # read in time_bnds, if present
         fre_logger.info('attempting to read coordinate BNDS, time_bnds')
@@ -404,6 +413,9 @@ def rewrite_netcdf_file_var( mip_var_cfgs: dict = None,
     # read experiment configuration file
     fre_logger.info('cmor is opening: json_exp_config = %s', json_exp_config)
     cmor.dataset_json(json_exp_config)
+    for attribute, value in (exp_overrides or {}).items():
+        fre_logger.info('setting %s = %s over the exp config\'s', attribute, value)
+        cmor.set_cur_dataset_attribute(attribute, value)
 
     # the table target's grid label suits its gridded variables; a global or zonal mean gets the
     # label the CV reserves for it instead (CMOR itself only checks the label is in the CV)
@@ -750,7 +762,8 @@ def cmorize_target_var_files(indir: str = None,
                              ps_fallback: Optional[Dict[str, str]] = None,
                              existing_outputs: Optional[List[Path]] = None,
                              reduce: Optional[str] = None,
-                             static_file: Optional[str] = None):
+                             static_file: Optional[str] = None,
+                             exp_overrides: Optional[Dict[str, str]] = None):
     """
     CMORize a target variable across all NetCDF files in a directory.
 
@@ -789,6 +802,9 @@ def cmorize_target_var_files(indir: str = None,
     :param static_file: A FRE static file to read ``local_var`` from, instead of per-variable time-series
                         files in ``indir``. ``iso_datetime_range_arr`` is then ``[STATIC_ISO_DATETIME]``.
     :type static_file: str, optional
+    :param exp_overrides: Attributes set on CMOR's dataset over the experiment config's, see
+                          ``rewrite_netcdf_file_var``.
+    :type exp_overrides: dict, optional
     :raises ValueError: See function body for details.
     :raises OSError: See function body for details.
     :raises Exception: See function body for details.
@@ -878,7 +894,8 @@ def cmorize_target_var_files(indir: str = None,
                                                       prev_path=nc_fls[i],
                                                       ps_file=nc_ps_file_work,
                                                       ps_var=ps_var,
-                                                      ps_searched=ps_searched )
+                                                      ps_searched=ps_searched,
+                                                      exp_overrides=exp_overrides )
         except Exception as exc:
             cmor_logfile = CMOR_LOG if CMOR_LOG is not None else nc_file_work.replace('.nc','.log')
             _pprint_cmor_logfile(cmor_logfile, None)
@@ -949,7 +966,8 @@ def cmorize_all_variables_in_dir(vars_to_run: Dict[str, Any],
                                  ps_fallback: Optional[Dict[str, str]] = None,
                                  existing_outputs: Optional[List[Path]] = None,
                                  var_reduce: Optional[Dict[str, str]] = None,
-                                 static_file: Optional[str] = None) -> int:
+                                 static_file: Optional[str] = None,
+                                 exp_overrides: Optional[Dict[str, str]] = None) -> int:
     """
     CMORize all variables in a directory according to a variable mapping.
 
@@ -981,6 +999,9 @@ def cmorize_all_variables_in_dir(vars_to_run: Dict[str, Any],
     :type var_reduce: dict, optional
     :param static_file: A FRE static file to read every variable from, see ``cmorize_target_var_files``.
     :type static_file: str, optional
+    :param exp_overrides: Attributes set on CMOR's dataset over the experiment config's, see
+                          ``rewrite_netcdf_file_var``.
+    :type exp_overrides: dict, optional
     :return: 0 if last file processed was successful, 1 if last file processed failed, -1 if no files were processed.
     :rtype: int
 
@@ -1007,7 +1028,7 @@ def cmorize_all_variables_in_dir(vars_to_run: Dict[str, Any],
                                      ps_source=ps_source, ps_fallback=ps_fallback,
                                      existing_outputs=existing_outputs,
                                      reduce=(var_reduce or {}).get(local_var),
-                                     static_file=static_file)
+                                     static_file=static_file, exp_overrides=exp_overrides)
             return_status = 0
         except Exception as exc:
             return_status = 1
@@ -1055,7 +1076,8 @@ def cmor_run_subtool(indir: str = None,
                      calendar_type: Optional[str] = None,
                      ps_source: Optional[Dict[str, str]] = None,
                      ps_fallback: Optional[Dict[str, str]] = None,
-                     skip_existing: bool = False) -> int:
+                     skip_existing: bool = False,
+                     freq: Optional[str] = None) -> int:
     """
     Main entry point for CMORization workflow, steering all routines in this file.
 
@@ -1097,12 +1119,16 @@ def cmor_run_subtool(indir: str = None,
     :param skip_existing: If True, skip input files whose CMOR output already exists under ``outdir``,
                           and only CMORize the missing ones.
     :type skip_existing: bool
+    :param freq: FRE-bronx frequency of the input data, e.g. 'monthly'. For CMIP7 it sets the dataset's
+                 ``frequency``, see ``rewrite_netcdf_file_var``. If None, the exp config's is used.
+    :type freq: str, optional
     :raises ValueError: If required parameters are missing or inconsistent.
     :raises FileNotFoundError: If required files do not exist.
     :return: 0 if successful.
     :rtype: int
 
-    .. note:: Updates grid, label, and calendar fields in experiment config if needed.
+    .. note:: grid, grid_label, nom_res, calendar_type and (CMIP7) freq are set on CMOR's dataset for
+              each variable, over the experiment config's. The experiment config file is not modified.
     .. note:: Loads variable mapping and MIP table, filters variables, and orchestrates file processing.
     """
     # CHECK req'd inputs
@@ -1134,17 +1160,14 @@ def cmor_run_subtool(indir: str = None,
     if exp_cfg_mip_era == 'CMIP6PLUS':
         fre_logger.warning('CMIP6Plus config detected, will use mip-cmor-tables fork at github.com/ilaflott')
 
-    # CHECK optional grid/grid_label/nom_res inputs from exp config, the function raises the potential error conditions
-    if any( [ grid_label is not None,
-              grid is not None,
-              nom_res is not None ] ):
-        update_grid_and_label(json_exp_config,
-                              grid_label, grid, nom_res,
-                              output_file_path = None)
-
-    # CHECK optional grid/grid_label inputs, the function checks the potential error conditions RE CF compliance.
-    if calendar_type is not None:
-        update_calendar_type(json_exp_config, calendar_type, output_file_path = None)
+    # the run's gridding, calendar and frequency are set on CMOR's dataset for each variable, over the
+    # exp config's, rather than written into the exp config file, which other runs may be reading.
+    # CMIP7 tables carry no frequency, so it comes from freq; CMIP6 tables carry their own.
+    exp_overrides = exp_config_overrides(grid_label, grid, nom_res, calendar_type)
+    if exp_cfg_mip_era == 'CMIP7' and freq is not None:
+        exp_overrides['frequency'] = conv_bronx_to_cmip7_freq(freq)
+    fre_logger.info('overriding the exp config with %s', exp_overrides)
+    warn_overridden_exp_config(get_json_file_data(json_exp_config), exp_overrides, json_exp_config)
 
 
     # open CMOR table config file - need it here for checking the TABLE's variable list
@@ -1168,10 +1191,10 @@ def cmor_run_subtool(indir: str = None,
             f'  table format detected in {json_table_config}: {table_mip_era}\n'
             '  supply a MIP table that matches the experiment mip_era.')
 
-    # CHECK the exp config against the CV before any CMORization work happens. this runs after the
-    # grid/calendar updates above so it sees what CMOR will actually see -- the cmor yaml's gridding
-    # block is written into the exp config there, and can blank out fields the user filled in.
-    check_exp_config_required_attributes(json_exp_config, json_table_config)
+    # CHECK the exp config against the CV before any CMORization work happens, with the overrides
+    # above applied so it sees what CMOR will actually see -- the cmor yaml's gridding block can
+    # blank out fields the user filled in.
+    check_exp_config_required_attributes(json_exp_config, json_table_config, exp_overrides)
     mip_fullvar_list = mip_var_cfgs['variable_entry'].keys()
     fre_logger.ddebug('the following variables were read from the table: %s', mip_fullvar_list)
 
@@ -1306,4 +1329,4 @@ def cmor_run_subtool(indir: str = None,
                                          outdir, mip_var_cfgs, json_table_config, run_one_mode,
                                          ps_source=ps_source, ps_fallback=ps_fallback,
                                          existing_outputs=existing_outputs, var_reduce=var_reduce,
-                                         static_file=static_file )
+                                         static_file=static_file, exp_overrides=exp_overrides )

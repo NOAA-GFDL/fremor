@@ -53,6 +53,18 @@ def test_check_exp_config_required_attributes_blank_raises(tmp_path):
     assert 'gridding block' in message
 
 
+def test_check_exp_config_required_attributes_with_overrides(tmp_path):
+    """ the check sees the run's overrides over the exp config, as CMOR will: an override can fill
+        in a blank attribute, or blank out a filled one """
+    exp_config = _exp_config_with(tmp_path, grid='', nominal_resolution='   ')
+    check_exp_config_required_attributes(exp_config, str(CMIP6_TABLE),
+                                         {'grid': 'native', 'nominal_resolution': '100 km'})
+
+    filled_config = _exp_config_with(tmp_path)
+    with pytest.raises(ValueError, match='grid_label'):
+        check_exp_config_required_attributes(filled_config, str(CMIP6_TABLE), {'grid_label': ''})
+
+
 def test_check_exp_config_required_attributes_missing_raises(tmp_path):
     """ an attribute absent from the config entirely is reported separately from a blank one """
     exp_config = _exp_config_with(tmp_path, source=None)

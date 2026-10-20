@@ -5,8 +5,10 @@ Calendar-type integration tests for cmor_run_subtool
 These tests verify that cmor_run_subtool correctly handles the
 ``calendar_type`` parameter:
 
-- When a calendar_type is provided  → ``update_calendar_type`` is called.
-- When calendar_type is None        → ``update_calendar_type`` is NOT called.
+- When a calendar_type is provided  → it is passed on, normalized, as a dataset override.
+- When calendar_type is None        → no calendar override is passed on.
+
+Either way the experiment config file itself is left untouched.
 
 Heavy internal work (file globbing, CMORization, outpath updating) is
 mocked so the tests focus exclusively on the calendar-type routing logic.
@@ -77,7 +79,6 @@ def fake_nc_filenames(tmp_path):
 
 # Shared set of mocks – everything that would touch the filesystem or CMOR
 _MOCKS = [
-    "fremor.cmor_mixer.update_calendar_type",
     "fremor.cmor_mixer.cmorize_all_variables_in_dir",
     "fremor.cmor_mixer.glob.glob",
 ]
@@ -85,18 +86,16 @@ _MOCKS = [
 
 @patch(_MOCKS[0])
 @patch(_MOCKS[1])
-@patch(_MOCKS[2])
 def test_cmor_run_w_cal_type(
     mock_glob,
     mock_cmorize,
-    mock_update_cal,
     exp_config_file, # pylint: disable=redefined-outer-name
     var_list_file, # pylint: disable=redefined-outer-name
     table_config_file, # pylint: disable=redefined-outer-name
     fake_nc_filenames, # pylint: disable=redefined-outer-name
     tmp_path
 ):
-    """When calendar_type is provided, update_calendar_type must be called."""
+    """When calendar_type is provided, it is passed on as a dataset override."""
 
     mock_glob.return_value = fake_nc_filenames
     mock_cmorize.return_value = 0
@@ -111,25 +110,23 @@ def test_cmor_run_w_cal_type(
         calendar_type    = calendar_type
     )
 
-    mock_update_cal.assert_called_once_with(
-        exp_config_file, calendar_type, output_file_path=None
-    )
+    assert mock_cmorize.call_args.kwargs["exp_overrides"] == {"calendar": "365_day"}
+    with open(exp_config_file, encoding="utf-8") as handle:
+        assert json.load(handle)["calendar"] == "360_day"
 
 
 @patch(_MOCKS[0])
 @patch(_MOCKS[1])
-@patch(_MOCKS[2])
 def test_cmor_run_no_cal_type(
     mock_glob,
     mock_cmorize,
-    mock_update_cal,
     exp_config_file, # pylint: disable=redefined-outer-name
     var_list_file, # pylint: disable=redefined-outer-name
     table_config_file, # pylint: disable=redefined-outer-name
     fake_nc_filenames, # pylint: disable=redefined-outer-name
     tmp_path
 ):
-    """When calendar_type is None (default), update_calendar_type must NOT be called."""
+    """When calendar_type is None (default), no calendar override is passed on."""
 
     mock_glob.return_value = fake_nc_filenames
     mock_cmorize.return_value = 0
@@ -143,4 +140,4 @@ def test_cmor_run_no_cal_type(
         calendar_type    = None
     )
 
-    mock_update_cal.assert_not_called()
+    assert "calendar" not in mock_cmorize.call_args.kwargs["exp_overrides"]

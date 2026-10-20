@@ -351,6 +351,7 @@ def cmor_yaml_subtool( yamlfile: str = None,
                                           f'    --start {start} \\'+'\n' + \
                                           f'    --stop {stop} \\'+'\n' + \
                                           f'    --calendar {calendar_type} \\'+'\n' + \
+                                          f'    --freq {freq} \\'+'\n' + \
                                           f'    --opt_var_name {opt_var_name} \\' + \
                                            '\n' )
                     if (ps_source is not None and component != ps_component) or ps_fallback is not None:
@@ -375,7 +376,8 @@ def cmor_yaml_subtool( yamlfile: str = None,
                                           f'    opt_var_name = {opt_var_name} ,\n' + \
                                           f'    ps_source = {ps_source} ,\n' + \
                                           f'    ps_fallback = {ps_fallback} ,\n' + \
-                                          f'    skip_existing = {skip_existing}' + \
+                                          f'    skip_existing = {skip_existing} ,\n' + \
+                                          f'    freq = {freq}' + \
                                            ')\n' )
                 continue
             try:
@@ -395,7 +397,8 @@ def cmor_yaml_subtool( yamlfile: str = None,
                     calendar_type = calendar_type ,
                     ps_source = ps_source ,
                     ps_fallback = ps_fallback ,
-                    skip_existing = skip_existing
+                    skip_existing = skip_existing ,
+                    freq = freq
                 )
             except Exception as exc: #uncovered
                 fre_logger.warning(

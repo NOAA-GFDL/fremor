@@ -10,7 +10,7 @@ Functions
 ---------
 - ``resolve_cv_path(json_exp_config, json_table_config)``
 - ``find_unset_required_attributes(exp_config_data, required)``
-- ``check_exp_config_required_attributes(json_exp_config, json_table_config)``
+- ``check_exp_config_required_attributes(json_exp_config, json_table_config, overrides)``
 """
 
 import json
@@ -78,7 +78,8 @@ def find_unset_required_attributes( exp_config_data: dict,
 
 
 def check_exp_config_required_attributes( json_exp_config: str,
-                                          json_table_config: str) -> None:
+                                          json_table_config: str,
+                                          overrides: Optional[dict] = None) -> None:
     """
     Verify, before CMOR runs, that the experiment config fills in every attribute the CV requires.
 
@@ -93,6 +94,9 @@ def check_exp_config_required_attributes( json_exp_config: str,
     :type json_exp_config: str
     :param json_table_config: Path to the MIP table CMOR will load, used to locate the CV.
     :type json_table_config: str
+    :param overrides: Attributes the run sets on CMOR's dataset over the experiment config's,
+        see ``cmor_helpers.exp_config_overrides``.
+    :type overrides: dict, optional
     :raises ValueError: If any required attribute is missing or left blank.
     :return: None
     :rtype: None
@@ -116,7 +120,7 @@ def check_exp_config_required_attributes( json_exp_config: str,
             'skipping the required-attribute check', cv_path, exc)
         return
 
-    exp_config_data = get_json_file_data(json_exp_config)
+    exp_config_data = {**get_json_file_data(json_exp_config), **(overrides or {})}
 
     missing, blank = find_unset_required_attributes(exp_config_data, required)
 
@@ -138,7 +142,7 @@ def check_exp_config_required_attributes( json_exp_config: str,
     if any(attribute in ['grid', 'grid_label', 'nominal_resolution']
            for attribute in blank + missing):
         message += (
-            '  note: grid, grid_label and nominal_resolution are overwritten from the gridding\n'
-            '        block in the cmor yaml on every run, so fix them there rather than in the\n'
-            '        config above (or drop the gridding block to leave the config alone).\n')
+            '  note: grid, grid_label and nominal_resolution are overridden by the\n'
+            '        gridding block in the cmor yaml, so fix them there if it has one,\n'
+            '        else in the config above.\n')
     raise ValueError(message)
