@@ -480,6 +480,40 @@ def test_cli_fremor_run_case1(cli_sos_nc_file, tmp_path):
     assert Path(cli_sos_nc_file).exists(), 'input file should still exist'
 
 
+def test_cli_fremor_run_opt_var_name_without_varlist(cli_sos_nc_file, tmp_path):
+    """A single variable can be run without a separate variable-list file."""
+    outdir = str(tmp_path / 'outdir')
+
+    result = runner.invoke(fremor, args=[
+        'run', '--run_one',
+        '--indir', str(INDIR),
+        '--table_config', str(CMIP6_TABLE_CONFIG),
+        '--exp_config', str(EXP_CONFIG),
+        '--outdir', outdir,
+        '--opt_var_name', 'sos',
+        '--calendar', 'julian',
+        '--grid_label', 'gr',
+        '--grid_desc', 'FOO_BAR_PLACEHOLD',
+        '--nom_res', '10000 km',
+    ])
+    assert result.exit_code == 0, f'run without varlist failed: {result.output}'
+    assert list(Path(outdir).rglob('sos_Omon_*.nc')), 'no output sos file found'
+    assert Path(cli_sos_nc_file).exists(), 'input file should still exist'
+
+
+def test_cli_fremor_run_requires_varlist_or_opt_var_name(tmp_path):
+    """At least one of --varlist and --opt-var-name must be provided."""
+    result = runner.invoke(fremor, args=[
+        'run',
+        '--indir', str(INDIR),
+        '--table_config', str(CMIP6_TABLE_CONFIG),
+        '--exp_config', str(EXP_CONFIG),
+        '--outdir', str(tmp_path / 'outdir'),
+    ])
+    assert result.exit_code == 2
+    assert 'either --varlist or --opt-var-name must be provided' in result.output
+
+
 def test_cli_fremor_run_case2(tmp_path):
     """
     fremor run, test error case: filename variable != file variable (CMIP6).
