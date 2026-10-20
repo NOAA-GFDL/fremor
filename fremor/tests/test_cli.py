@@ -1023,51 +1023,42 @@ def test_cli_fremor_init_cmip7_default_name(tmp_path):
         assert config['mip_era'] == 'CMIP7'
 
 
-@patch('fremor.cli.cmor_init_subtool')
-def test_cli_fremor_init_exp_config_and_tables_dir_fast(mock_subtool, tmp_path):
-    """The init CLI forwards both --exp_config and --tables_dir for curl-based retrieval."""
-    exp_config = tmp_path / 'experiment.json'
-    tables_dir = tmp_path / 'tables'
+def test_cli_fremor_init_exp_config_and_tables_dir_have_consistent_layout(tmp_path):
+    """Real init runs create the same table layout with tarball and git retrieval."""
+    relative_table_paths = []
 
-    result = runner.invoke(fremor, args=[
-        'init',
-        '--mip_era', 'cmip6',
-        '--exp_config', str(exp_config),
-        '--tables_dir', str(tables_dir),
-        '--fast',
-    ])
+    for mode, fast in [('tarball', True), ('git', False)]:
+        run_dir = tmp_path / mode
+        exp_config = run_dir / 'experiment.json'
+        tables_dir = run_dir / 'tables'
+        args = [
+            'init',
+            '--mip_era', 'cmip6',
+            '--exp_config', str(exp_config),
+            '--tables_dir', str(tables_dir),
+        ]
+        if fast:
+            args.append('--fast')
 
-    assert result.exit_code == 0
-    mock_subtool.assert_called_once_with(
-        mip_era='cmip6',
-        exp_config=str(exp_config),
-        tables_dir=str(tables_dir),
-        tag=None,
-        fast=True,
-    )
+        result = runner.invoke(fremor, args=args)
+        assert result.exit_code == 0, f'{mode} init failed: {result.output}'
 
+        assert exp_config.is_file(), f'{mode} init did not write the experiment config'
+        with open(exp_config, encoding='utf-8') as config_file:
+            config = json.load(config_file)
+        assert config['mip_era'] == 'CMIP6'
 
-@patch('fremor.cli.cmor_init_subtool')
-def test_cli_fremor_init_exp_config_and_tables_dir_git(mock_subtool, tmp_path):
-    """The init CLI forwards both --exp_config and --tables_dir for git-based retrieval."""
-    exp_config = tmp_path / 'experiment.json'
-    tables_dir = tmp_path / 'tables'
+        repo_dir = tables_dir / 'cmip6-cmor-tables-main'
+        assert repo_dir.is_dir(), f'{mode} init did not create the repository directory'
+        assert (repo_dir / '.git').is_dir() == (not fast)
 
-    result = runner.invoke(fremor, args=[
-        'init',
-        '--mip_era', 'cmip7',
-        '--exp_config', str(exp_config),
-        '--tables_dir', str(tables_dir),
-    ])
+        table_file = repo_dir / 'Tables' / 'CMIP6_Omon.json'
+        assert table_file.is_file(), f'{mode} init did not fetch the Omon table'
+        with open(table_file, encoding='utf-8') as table_stream:
+            assert 'variable_entry' in json.load(table_stream)
+        relative_table_paths.append(table_file.relative_to(tables_dir))
 
-    assert result.exit_code == 0
-    mock_subtool.assert_called_once_with(
-        mip_era='cmip7',
-        exp_config=str(exp_config),
-        tables_dir=str(tables_dir),
-        tag=None,
-        fast=False,
-    )
+    assert relative_table_paths[0] == relative_table_paths[1]
 
 
 

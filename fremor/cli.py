@@ -617,8 +617,8 @@ def map_(tables, yamlfile, ncinfo_bin, dmls_bin):
                    'When omitted and --tables_dir is also omitted, a default '
                    'filename is used.')
 @click.option('-t', '--tables-dir', '--tables_dir', type=str, default=None,
-              help='Directory into which MIP tables will be fetched from '
-                   'trusted sources. Omit to skip table retrieval.')
+              help='Parent directory under which the MIP table repository will be fetched '
+                   'from trusted sources. Omit to skip table retrieval.')
 @click.option('--tag', type=str, default=None,
               help='Specific git tag or release for the MIP tables repository.')
 @click.option('--fast', is_flag=True, default=False,

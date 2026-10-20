@@ -57,6 +57,10 @@ The ``init`` command:
    - CMIP7: `WCRP-CMIP/cmip7-cmor-tables <https://github.com/WCRP-CMIP/cmip7-cmor-tables>`_
 * Supports both git clone (default) and tarball download (``--fast``) methods
 
+Both methods place the repository tree under a ``<repo>-<ref>`` directory inside
+the requested tables directory. The tarball does not include ``.git``, but the
+table and auxiliary-file layout is the same.
+
 MIP Era Differences
 ~~~~~~~~~~~~~~~~~~~
 

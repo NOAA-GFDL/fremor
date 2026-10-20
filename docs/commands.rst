@@ -30,7 +30,7 @@ workflows are supported. Available subcommands:
    - ``-m, --mip_era TEXT`` — MIP era: ``cmip6``, ``cmip6plus``, or ``cmip7``
 * Optional:
    - ``-e, --exp_config TEXT`` — Output path for experiment config JSON template
-   - ``-t, --tables_dir TEXT`` — Directory to fetch MIP tables into
+   - ``-t, --tables_dir TEXT`` — Parent directory under which the ``<repo>-<ref>`` MIP table repository is fetched
    - ``--tag TEXT`` — Specific git tag or release for MIP tables (e.g., ``6.9.33``)
    - ``--fast`` — Use curl to download tarball instead of git clone (faster)
 * Examples:
