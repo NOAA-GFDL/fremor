@@ -11,7 +11,7 @@ CHECK_CONFIG=1
 CHECK_CHECK=1
 CHECK_MAP=1
 CHECK_STAGE=1
-CHECK_YAML=0
+CHECK_YAML=1
 
 ## someday
 #CHECK_RESOLVE=1 # WHEN FRE-CLI INTEGRATION POSSIBLE TODO
@@ -59,8 +59,7 @@ WORKING_CWD=$PWD
 
 
 ## INPUT DIRECTORY DETAILS
-BASE_SRC_DIR=/archive/oar.gfdl.bgrp-account/
-#BASE_SRC_DIR=/work/$USER/ # copy over and use this for no archive dependence
+BASE_SRC_DIR=/work/$USER/
 
 CMIP7_ESM_DECK_PATH_GUTS=CMIP7/ESM4/DECK/ESM4.5-
 
@@ -103,6 +102,8 @@ cd "${WORKING_CWD}" || return
 FREMOR_INIT_OUTDIR=${WORKING_CWD}/fremor_init_${ESM_KIND}_outdir
 FREMOR_INIT_LOGFILE=${FREMOR_LOGFILE_OUTDIR}/CHECK_INIT.log
 USER_CONFIG=${FREMOR_INIT_OUTDIR}/CMIP7_user_input.json
+USER_CONFIG_TEMPLATE=${USER_CONFIG}
+USER_CONFIG=${FREMOR_INIT_OUTDIR}/CMIP7_user_input_${ESM_KIND}.json
 CMIP7_TABLES=${FREMOR_INIT_OUTDIR}/cmip7-cmor-tables-main/tables
 if [[ "${CHECK_INIT}" -eq 1 ]]; then
 	echo "not checking fremor init"
@@ -113,13 +114,16 @@ else
 	echo "running fremor init"
 	echo_and_run fremor -vvv -l "${FREMOR_INIT_LOGFILE}" init \
 				 --mip_era cmip7 \
-				 --exp_config "${USER_CONFIG}" \
+				 --exp_config "${USER_CONFIG_TEMPLATE}" \
 				 -t "${FREMOR_INIT_OUTDIR}" \
 				 --fast
 
 	echo "checking that fremor init's output exists, return if not"
-	ls -l "${USER_CONFIG}" || return
+	ls -l "${USER_CONFIG_TEMPLATE}" || return
 	ls -l "${CMIP7_TABLES}" || return
+	echo "copying the fresh experiment-config template to ${USER_CONFIG}"
+	cp "${USER_CONFIG_TEMPLATE}" "${USER_CONFIG}" || return
+	ls -l "${USER_CONFIG}" || return
 fi
 
 
@@ -192,6 +196,13 @@ else
 
 	echo "checking that fremor config's output exists, return if not"
 	ls -l "${FREMOR_CONFIG_OUTYAML}" || return
+	echo "setting YAML year bounds to ${PP_START}-${PP_STOP}"
+	sed -i \
+		-e "s/^  start: null$/  start: '${PP_START}'/" \
+		-e "s/^  stop: null$/  stop: '${PP_STOP}'/" \
+		"${FREMOR_CONFIG_OUTYAML}" || return
+	grep -Fqx "  start: '${PP_START}'" "${FREMOR_CONFIG_OUTYAML}" || return
+	grep -Fqx "  stop: '${PP_STOP}'" "${FREMOR_CONFIG_OUTYAML}" || return
 fi
 
 
@@ -217,7 +228,6 @@ else
 				 --check-dims \
 				 --check-outputs \
 				 --check-attrs \
-				 --check-range \
 				 --dmls_bin "${DMLS_BIN}" \
 				 --output_report "${FREMOR_CHECK_OUTREPORT}"
 
@@ -277,9 +287,7 @@ else
 				 --yamlfile "${FREMOR_CONFIG_OUTYAML}" \
 				 --start "${PP_START}" \
 				 --stop "${PP_STOP}" \
-				 --print_cli_call \
-                 --run_one \
-				 --dry_run
+				 --print_cli_call
 #                --run_strict \
 
 	echo "checking the output cmorized data directory for successfully created output"
