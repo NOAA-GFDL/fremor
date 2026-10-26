@@ -38,8 +38,8 @@ WARNING: *any problems or mistakes after the next step are irreversible due to p
 ## 4. wrap-up
 
 - [ ] back to the `fremor` PR we opened intially, edit the version number in `fremor/_version.py` to `X.Y.Z.post`, let the checks pass
-- [ ] squash-merge the PR branch you used for creating the release to `main`
 - [ ] if desired, create a module file and `conda` environment for GFDL resources, after the new version is available via `conda install`
+- [ ] squash-merge the PR branch you used for creating the release to `main`
 
 
 ### for reference
