@@ -183,6 +183,11 @@ def find_existing_output(prefix: Optional[str], iso_datetime: str,
     return None
 
 
+def _cmip7_cell_measures_key(table_id: str, target_var: str, var_brand: str,
+                             frequency: str, region: str) -> str:
+    return f'{table_id}.{target_var}.{var_brand}.{frequency}.{region}'
+
+
 def rewrite_netcdf_file_var( mip_var_cfgs: dict = None,
                              local_var: str = None,
                              netcdf_file: str = None,
@@ -711,7 +716,16 @@ def rewrite_netcdf_file_var( mip_var_cfgs: dict = None,
                 cmor_var,
                 'cell_measures',
                 'c',
-                cell_measures.get(f'{target_var}_{var_brand}', ''),
+                cell_measures.get(
+                    _cmip7_cell_measures_key(
+                        mip_var_cfgs['Header']['table_id'],
+                        target_var,
+                        var_brand,
+                        cmor.get_cur_dataset_attribute('frequency'),
+                        region,
+                    ),
+                    '',
+                ),
             )
 
 
