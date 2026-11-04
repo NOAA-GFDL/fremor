@@ -188,6 +188,28 @@ def _cmip7_cell_measures_key(table_id: str, target_var: str, var_brand: str,
     return f'{table_id}.{target_var}.{var_brand}.{frequency}.{region}'
 
 
+def _cmip7_long_name_override_key(table_id: str, target_var: str, var_brand: str,
+                                  frequency: str, region: str) -> str:
+    return f'{table_id}.{target_var}.{var_brand}.{frequency}.{region}'
+
+
+def _set_cmip7_seaice_long_name_override(cmor_var: int, table_id: str, target_var: str,
+                                         var_brand: str, frequency: str, region: str,
+                                         json_table_config: str) -> None:
+    if table_id != 'seaIce':
+        return
+
+    overrides_path = Path(json_table_config).parent / 'CMIP7_long_name_overrides.json'
+    with open(overrides_path, 'r', encoding='utf-8') as handle:
+        long_name_overrides = json.load(handle)['long_name_overrides']
+
+    long_name = long_name_overrides.get(
+        _cmip7_long_name_override_key(table_id, target_var, var_brand, frequency, region)
+    )
+    if long_name:
+        cmor.set_variable_attribute(cmor_var, 'long_name', 'c', long_name)
+
+
 def rewrite_netcdf_file_var( mip_var_cfgs: dict = None,
                              local_var: str = None,
                              netcdf_file: str = None,
@@ -727,6 +749,16 @@ def rewrite_netcdf_file_var( mip_var_cfgs: dict = None,
                     '',
                 ),
             )
+
+        _set_cmip7_seaice_long_name_override(
+            cmor_var,
+            mip_var_cfgs['Header']['table_id'],
+            target_var,
+            var_brand,
+            cmor.get_cur_dataset_attribute('frequency'),
+            region,
+            json_table_config,
+        )
 
 
     else:
