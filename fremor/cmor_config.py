@@ -30,6 +30,7 @@ from typing import Optional
 
 import yaml
 
+from ._version import __version__
 from .cmor_finder import make_simple_varlist, make_static_varlist
 from .cmor_constants import EXCLUDED_TABLE_SUFFIXES, STATIC_DATA_SERIES_TYPE, STATIC_FREQ
 from .cmor_helpers import static_file_path
@@ -319,6 +320,7 @@ def cmor_config_subtool(
     # ---- build YAML lines ----
     lines = [
         '',
+        f'fremor_version: {__version__}',
         'cmor:',
         '  start: null',
         '  stop: null',

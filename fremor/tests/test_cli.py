@@ -27,6 +27,7 @@ from click.testing import CliRunner
 import pytest
 import yaml
 
+from fremor import __version__
 from fremor.cli import fremor
 
 from .conftest import (
@@ -754,6 +755,7 @@ def test_cli_fremor_config_case1(cli_sos_nc_file): # pylint: disable=redefined-o
     assert 'cmor:' in yaml_text
     assert 'table_targets:' in yaml_text
     loaded_yaml = yaml.safe_load(yaml_text)
+    assert loaded_yaml['fremor_version'] == __version__
     assert loaded_yaml['cmor']['start'] is None
     assert loaded_yaml['cmor']['stop'] is None
     assert loaded_yaml['cmor']['table_targets'][0]['gridding']['grid_label'] == 'gn'
