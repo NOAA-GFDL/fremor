@@ -320,7 +320,7 @@ def cmor_config_subtool(
     # ---- build YAML lines ----
     lines = [
         '',
-        f'fremor_version: {json.dumps(__version__)}',
+        f'fremor_version: {__version__}',
         'cmor:',
         '  start: null',
         '  stop: null',
