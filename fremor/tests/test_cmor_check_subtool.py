@@ -1106,10 +1106,13 @@ def test_cmor_check_subtool_no_files_key_by_default(temp_dir): # pylint: disable
 
 # ── check_output ─────────────────────────────────────────────────────────
 
-def _write_cmor_output(outdir, var, table_name, date_range, source_id='PCMDI-test',
-                       experiment_id='piControl', variant_label='r1i1p1f1', grid_label='gn'):
+def _write_cmor_output(outdir, var, table_name, date_range):
     ''' touch a fake CMOR output file nested a few levels deep under outdir, named the way
     CMOR actually names CMIP6/CMIP6Plus output (variable_id first, table second) '''
+    source_id = 'PCMDI-test'
+    experiment_id = 'piControl'
+    variant_label = 'r1i1p1f1'
+    grid_label = 'gn'
     nested = Path(outdir) / table_name / var / grid_label / 'v20260101'
     nested.mkdir(parents=True, exist_ok=True)
     filename = f'{var}_{table_name}_{source_id}_{experiment_id}_{variant_label}_{grid_label}_{date_range}.nc'
