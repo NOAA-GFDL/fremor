@@ -699,7 +699,7 @@ class MapSession:
             anywhere in the yaml exists to infer a varlist directory from.
         """
         entries = self.varlists_by_table.setdefault(table_name, [])
-        for component, path, data in entries:
+        for component, _path, data in entries:
             if component == component_name:
                 old_value = data.get(local_key, _UNSET)
                 data[local_key] = _remapped_value(old_value, cmip_var)
