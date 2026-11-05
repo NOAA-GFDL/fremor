@@ -165,6 +165,13 @@ def _as_list(value) -> list:
 
 def _check_consistency(exp_config_data: dict, cv: dict) -> list:
     """Cross-check against the CV's entries for the chosen experiment_id and source_id."""
+    return (
+        _check_experiment_consistency(exp_config_data, cv)
+        + _check_source_consistency(exp_config_data, cv)
+    )
+
+
+def _check_experiment_consistency(exp_config_data: dict, cv: dict) -> list:
     findings = []
     experiment_id = exp_config_data.get('experiment_id')
     experiment = (cv.get('experiment_id') or {}).get(experiment_id)
@@ -208,6 +215,11 @@ def _check_consistency(exp_config_data: dict, cv: dict) -> list:
                 'error', 'sub_experiment_id',
                 f'{sub!r} is not a sub-experiment of {experiment_id} (CV allows {allowed_subs})'))
 
+    return findings
+
+
+def _check_source_consistency(exp_config_data: dict, cv: dict) -> list:
+    findings = []
     source_id = exp_config_data.get('source_id')
     source = (cv.get('source_id') or {}).get(source_id)
     if isinstance(source, dict):
