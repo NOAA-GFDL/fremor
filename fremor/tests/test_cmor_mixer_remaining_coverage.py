@@ -32,8 +32,8 @@ def _write_experiment(path, calendar='julian'):
     return str(path)
 
 
-def _write_rewrite_input(path, local_var='tas', vertical_dim=None, vertical_dtype='f4',
-                         time_length=2, calendar='julian', include_horizontal=False):
+def _write_rewrite_input(path, vertical_dim=None, vertical_dtype='f4', time_length=2,
+                         calendar='julian', include_horizontal=False):
     with netCDF4.Dataset(path, 'w') as ds:
         ds.createDimension('time', time_length)
         time = ds.createVariable('time', 'f8', ('time',))
@@ -66,7 +66,7 @@ def _write_rewrite_input(path, local_var='tas', vertical_dim=None, vertical_dtyp
                 level[:] = [10.0, 20.0]
             dimensions.append(vertical_dim)
 
-        variable = ds.createVariable(local_var, 'f4', tuple(dimensions))
+        variable = ds.createVariable('tas', 'f4', tuple(dimensions))
         variable.units = 'K'
         variable[:] = 1.0
 
