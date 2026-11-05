@@ -41,6 +41,7 @@ from fremor.cmor_map import (
 )
 from fremor.tests._cmor_test_helpers import (
     component_entry as _component_entry,
+    minimal_cmor_yaml_doc,
     table_target as _table_target,
     write_table as _write_table,
 )
@@ -279,21 +280,7 @@ def _make_session_fixture(root_dir):
 
 def _write_map_yaml(root_dir, pp_dir, tables_dir, table_targets, mip_era='cmip6'):
     ''' write a minimal but structurally-real cmor yaml (as fremor config would produce) '''
-    doc = {
-        'cmor': {
-            'start': None,
-            'stop': None,
-            'calendar_type': 'noleap',
-            'mip_era': mip_era,
-            'exp_json': str(Path(root_dir) / 'exp.json'),
-            'directories': {
-                'pp_dir': str(pp_dir),
-                'table_dir': str(tables_dir),
-                'outdir': str(Path(root_dir) / 'out'),
-            },
-            'table_targets': table_targets,
-        }
-    }
+    doc = minimal_cmor_yaml_doc(root_dir, pp_dir, tables_dir, table_targets, mip_era)
     yamlfile = Path(root_dir) / 'cmor.yaml'
     yamlfile.write_text(yaml.safe_dump(doc), encoding='utf-8')
     return str(yamlfile)

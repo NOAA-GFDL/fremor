@@ -16,6 +16,7 @@ from fremor import cmor_check as check_module
 from fremor.cmor_check import cmor_check_subtool
 from fremor.tests._cmor_test_helpers import (
     component_entry as _component_entry,
+    minimal_cmor_yaml_doc,
     table_target as _table_target,
     write_table as _write_table,
 )
@@ -32,22 +33,7 @@ def _write_yaml(temp_dir, table_targets, mip_era='cmip6', pp_dir=None, table_dir
     pp_dir.mkdir(parents=True, exist_ok=True)
     table_dir = Path(table_dir) if table_dir else temp_root / 'tables'
     table_dir.mkdir(parents=True, exist_ok=True)
-
-    doc = {
-        'cmor': {
-            'start': None,
-            'stop': None,
-            'calendar_type': 'noleap',
-            'mip_era': mip_era,
-            'exp_json': str(temp_root / 'exp.json'),
-            'directories': {
-                'pp_dir': str(pp_dir),
-                'table_dir': str(table_dir),
-                'outdir': str(temp_root / 'out'),
-            },
-            'table_targets': table_targets,
-        }
-    }
+    doc = minimal_cmor_yaml_doc(temp_root, pp_dir, table_dir, table_targets, mip_era)
     yamlfile = temp_root / 'cmor.yaml'
     yamlfile.write_text(yaml.safe_dump(doc), encoding='utf-8')
     return str(yamlfile)

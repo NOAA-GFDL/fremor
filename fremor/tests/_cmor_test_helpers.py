@@ -28,3 +28,22 @@ def table_target(table_name, components, freq='monthly'):
         'gridding': {'grid_label': 'gn', 'grid_desc': 'd', 'nom_res': '100 km'},
         'target_components': components,
     }
+
+
+def minimal_cmor_yaml_doc(root_dir, pp_dir, tables_dir, table_targets, mip_era):
+    root_dir = Path(root_dir)
+    return {
+        'cmor': {
+            'start': None,
+            'stop': None,
+            'calendar_type': 'noleap',
+            'mip_era': mip_era,
+            'exp_json': str(root_dir / 'exp.json'),
+            'directories': {
+                'pp_dir': str(pp_dir),
+                'table_dir': str(tables_dir),
+                'outdir': str(root_dir / 'out'),
+            },
+            'table_targets': table_targets,
+        }
+    }
