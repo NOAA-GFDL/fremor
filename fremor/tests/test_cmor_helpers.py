@@ -5,6 +5,8 @@ tests for fremor helper functions in cmor_helpers
 import json
 from pathlib import Path
 import re
+from types import SimpleNamespace
+from unittest.mock import MagicMock
 
 import numpy as np
 import pytest
@@ -513,40 +515,19 @@ def _make_mock_dataset(dims_info):
     Returns an object with a ``variables`` dict containing a single variable 'var'
     whose dimensions are the keys of ``dims_info``.
     """
-    class MockVar:
-        """Expose a minimal netCDF variable's attributes."""
+    dimensions = {}
+    for name, attrs in dims_info.items():
+        variable = MagicMock()
+        attrs = attrs or {}
+        variable.ncattrs.return_value = list(attrs)
+        for attr_name, value in attrs.items():
+            setattr(variable, attr_name, value)
+        dimensions[name] = variable
 
-        def __init__(self, attrs):
-            self._attrs = attrs or {}
-
-        def ncattrs(self):
-            """Return the names of this variable's attributes."""
-            return list(self._attrs.keys())
-
-        def __getattr__(self, name):
-            if name.startswith('_'):
-                raise AttributeError(name)
-            try:
-                return self._attrs[name]
-            except KeyError as exc:
-                raise AttributeError(name) from exc
-
-    class MockDataVar:
-        """Expose dimensions for the dataset's mock data variable."""
-
-        def __init__(self, dims):
-            self.dimensions = tuple(dims)
-
-    class MockDS:
-        """Provide variable lookup for the mock dataset."""
-
-        def __init__(self, dims_info):
-            self._dims = {k: MockVar(v) for k, v in dims_info.items()}
-            self.variables = {'var': MockDataVar(list(dims_info.keys()))}
-        def __getitem__(self, key):
-            return self._dims[key]
-
-    return MockDS(dims_info)
+    dataset = MagicMock()
+    dataset.variables = {'var': SimpleNamespace(dimensions=tuple(dims_info))}
+    dataset.__getitem__.side_effect = dimensions.__getitem__
+    return dataset
 
 
 def test_get_vertical_dimension_axis_z():

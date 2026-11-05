@@ -6,6 +6,7 @@ import json
 import tempfile
 import logging
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -785,12 +786,13 @@ def test_cmor_check_subtool_staging_dmls_offline(temp_dir, monkeypatch, capsys):
 
     import subprocess as subprocess_mod # pylint: disable=import-outside-toplevel
 
-    class _FakeResult:
-        stdout = f'-rw-r--r-- 1 user group 123 Jan 1 12:00 (OFL) {nc_path}\n'
+    fake_result = SimpleNamespace(
+        stdout=f'-rw-r--r-- 1 user group 123 Jan 1 12:00 (OFL) {nc_path}\n',
+    )
 
     def _fake_run(cmd, **kwargs): # pylint: disable=unused-argument
         assert cmd[0] == 'dmls'
-        return _FakeResult()
+        return fake_result
 
     monkeypatch.setattr(subprocess_mod, 'run', _fake_run)
 
@@ -1493,8 +1495,9 @@ def test_cmor_check_subtool_range_skips_offline_file(temp_dir, monkeypatch, caps
 
     import subprocess as subprocess_mod # pylint: disable=import-outside-toplevel
 
-    class _FakeResult:
-        stdout = f'-rw-r--r-- 1 user group 123 Jan 1 12:00 (OFL) {nc_path}\n'
+    fake_result = SimpleNamespace(
+        stdout=f'-rw-r--r-- 1 user group 123 Jan 1 12:00 (OFL) {nc_path}\n',
+    )
 
     read_attempts = []
     real_dataset_init = Dataset.__init__
@@ -1505,7 +1508,7 @@ def test_cmor_check_subtool_range_skips_offline_file(temp_dir, monkeypatch, caps
 
     def _fake_run(cmd, **kwargs): # pylint: disable=unused-argument
         assert cmd[0] == 'dmls'
-        return _FakeResult()
+        return fake_result
 
     monkeypatch.setattr(subprocess_mod, 'run', _fake_run)
     monkeypatch.setattr(Dataset, '__init__', _tracking_init)
