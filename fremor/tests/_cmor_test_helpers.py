@@ -6,6 +6,7 @@ from pathlib import Path
 
 
 def write_table(tables_dir, table_name, var_names):
+    """Write a minimal CMIP6 table containing the requested variables."""
     variable_entry = {name: {'standard_name': name} for name in var_names}
     (Path(tables_dir) / f'CMIP6_{table_name}.json').write_text(
         json.dumps({'Header': {'table_id': f'Table {table_name}'}, 'variable_entry': variable_entry}),
@@ -14,6 +15,7 @@ def write_table(tables_dir, table_name, var_names):
 
 
 def component_entry(component_name, variable_list_path, chunk='P5Y'):
+    """Build a CMOR component configuration entry for tests."""
     return {
         'component_name': component_name,
         'variable_list': str(variable_list_path),
@@ -23,6 +25,7 @@ def component_entry(component_name, variable_list_path, chunk='P5Y'):
 
 
 def table_target(table_name, components, freq='monthly'):
+    """Build a CMOR table target using the supplied components."""
     return {
         'table_name': table_name,
         'freq': freq,
@@ -32,6 +35,7 @@ def table_target(table_name, components, freq='monthly'):
 
 
 def minimal_cmor_yaml_doc(root_dir, pp_dir, tables_dir, table_targets, mip_era):
+    """Create the minimal CMOR YAML document used by tests."""
     root_dir = Path(root_dir)
     return {
         'cmor': {
