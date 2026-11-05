@@ -730,11 +730,16 @@ def test_mapsession_usage_count_reflects_staged_edits(temp_dir): # pylint: disab
 # ── selected-CMIP-variable box formatting ───────────────────────────────────
 def test_format_previewtext(temp_dir):
     ''' various returns of _format_preview_text '''
-    assert _format_preview_text(local_var_name = 'foo', source = 'none'  , data = {}) == 'no preview available for variable "foo"'
-    assert _format_preview_text(local_var_name = 'foo', source = 'ncinfo', data = {}) == '[ncinfo] foo\ntype=None dims=()'
-    assert _format_preview_text(local_var_name = 'foo', source = 'ncinfo',
-                         data = {'attributes':[ {'name':'some_attr'},
-                                                {'value':'some_value'} ] }
+    assert _format_preview_text(
+        local_var_name='foo', source='none', data={},
+    ) == 'no preview available for variable "foo"'
+    assert _format_preview_text(
+        local_var_name='foo', source='ncinfo', data={},
+    ) == '[ncinfo] foo\ntype=None dims=()'
+    assert _format_preview_text(
+        local_var_name='foo',
+        source='ncinfo',
+        data={'attributes': [{'name': 'some_attr'}, {'value': 'some_value'}]},
     ) == '[ncinfo] foo\ntype=None dims=()\n  some_attr: None\n  None: some_value'
 
 def test_read_exp_grid(temp_dir, caplog):
