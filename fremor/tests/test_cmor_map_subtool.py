@@ -2874,10 +2874,8 @@ async def test_map_app_lists_unknown_mappings_in_unknown_branch(temp_dir):
 async def test_map_app_populates_static_file_and_blocks_mapping_to_time_varying_table(temp_dir):
     ''' real static NetCDF data appears as a pp-tree leaf but cannot be mapped to a monthly table '''
     pp_dir, varlist_dir, tables_dir = _make_session_fixture(temp_dir)
-    component_dir = Path(pp_dir) / 'atmos'
-    component_dir.mkdir()
-    static_path = component_dir / 'atmos.static.nc'
-    with Dataset(static_path, 'w') as ds:
+    Path(pp_dir, 'atmos').mkdir()
+    with Dataset(Path(pp_dir, 'atmos', 'atmos.static.nc'), 'w') as ds:
         ds.createDimension('lat', 2)
         ds.createVariable('ps_local', 'f4', ('lat',))
     (Path(varlist_dir) / 'CMIP6_Amon_atmos.list').write_text('{}', encoding='utf-8')
