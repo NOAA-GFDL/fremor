@@ -331,34 +331,30 @@ def _assert_job_artifacts(shell_root, shell_name, job_out, job_err, case):
     assert 'aliased' in stdout_text
     assert expected_alias_target not in stderr_text
 
-    for expected_fragment in case.get('expect_stdout_contains', []):
-        assert expected_fragment in stdout_text
-    for rejected_fragment in case.get('expect_stdout_not_contains', []):
-        assert rejected_fragment not in stdout_text
+    _assert_fragments(
+        stdout_text,
+        case.get('expect_stdout_contains', []),
+        case.get('expect_stdout_not_contains', []),
+    )
 
     if case.get('expect_stderr_empty'):
         assert stderr_text == ''
     else:
-        for expected_fragment in case.get('expect_stderr_contains', []):
-            assert expected_fragment in stderr_text
-    for rejected_fragment in case.get('expect_stderr_not_contains', []):
-        assert rejected_fragment not in stderr_text
+        _assert_fragments(stderr_text, case.get('expect_stderr_contains', []), [])
+    _assert_fragments(stderr_text, [], case.get('expect_stderr_not_contains', []))
 
-    if case['expect_output']:
-        expected_output = shell_root / 'output' / EXPECTED_OUTPUT_RELATIVE
-        assert expected_output.exists()
-    else:
-        expected_output = shell_root / 'output' / EXPECTED_OUTPUT_RELATIVE
-        assert not expected_output.exists()
+    expected_output = shell_root / 'output' / EXPECTED_OUTPUT_RELATIVE
+    assert expected_output.exists() == case['expect_output']
 
     log_path = _log_path(shell_root)
     if case.get('expect_log_file'):
         assert log_path.exists()
         log_text = log_path.read_text(encoding='utf-8')
-        for expected_fragment in case.get('expect_log_contains', []):
-            assert expected_fragment in log_text
-        for rejected_fragment in case.get('expect_log_not_contains', []):
-            assert rejected_fragment not in log_text
+        _assert_fragments(
+            log_text,
+            case.get('expect_log_contains', []),
+            case.get('expect_log_not_contains', []),
+        )
     else:
         assert not log_path.exists()
 
@@ -366,6 +362,13 @@ def _assert_job_artifacts(shell_root, shell_name, job_out, job_err, case):
         assert 'fremor is aliased to' in stdout_text
     else:
         assert 'fremor:' in stdout_text
+
+
+def _assert_fragments(text, expected_fragments, rejected_fragments):
+    for expected_fragment in expected_fragments:
+        assert expected_fragment in text
+    for rejected_fragment in rejected_fragments:
+        assert rejected_fragment not in text
 
 
 def test_build_case_command_includes_required_run_args_for_success_case(tmp_path):
