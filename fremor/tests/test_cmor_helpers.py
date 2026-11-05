@@ -514,10 +514,15 @@ def _make_mock_dataset(dims_info):
     whose dimensions are the keys of ``dims_info``.
     """
     class MockVar:
+        """Expose a minimal netCDF variable's attributes."""
+
         def __init__(self, attrs):
             self._attrs = attrs or {}
+
         def ncattrs(self):
+            """Return the names of this variable's attributes."""
             return list(self._attrs.keys())
+
         def __getattr__(self, name):
             if name.startswith('_'):
                 raise AttributeError(name)
@@ -527,10 +532,14 @@ def _make_mock_dataset(dims_info):
                 raise AttributeError(name)
 
     class MockDataVar:
+        """Expose dimensions for the dataset's mock data variable."""
+
         def __init__(self, dims):
             self.dimensions = tuple(dims)
 
     class MockDS:
+        """Provide variable lookup for the mock dataset."""
+
         def __init__(self, dims_info):
             self._dims = {k: MockVar(v) for k, v in dims_info.items()}
             self.variables = {'var': MockDataVar(list(dims_info.keys()))}
