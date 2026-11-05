@@ -1,5 +1,6 @@
 """Shared configuration helpers for CMOR tests."""
 
+import glob
 import json
 from pathlib import Path
 
@@ -47,3 +48,27 @@ def minimal_cmor_yaml_doc(root_dir, pp_dir, tables_dir, table_targets, mip_era):
             'table_targets': table_targets,
         }
     }
+
+
+def ncgen_for_case(testfile_dir, opt_var_name, ncgen):
+    """Convert test CDL files to NetCDF, including variable-specific ancillary files."""
+    cdl_files = glob.glob(f'{testfile_dir}*.{opt_var_name}.cdl')
+    assert len(cdl_files) >= 1, (
+        f'no CDL file found for variable {opt_var_name} in {testfile_dir}'
+    )
+    cdl_file = cdl_files[0]
+    nc_file = cdl_file.replace('.cdl', '.nc')
+    ncgen(cdl_file, nc_file)
+
+    if opt_var_name in ('cl', 'mc'):
+        ps_cdl = cdl_file.replace(f'{opt_var_name}.cdl', 'ps.cdl')
+        assert Path(ps_cdl).exists(), f'ps CDL not found: {ps_cdl}'
+        ncgen(ps_cdl, ps_cdl.replace('.cdl', '.nc'))
+    elif opt_var_name == 'sos':
+        static_cdl = testfile_dir.replace(
+            'ts/monthly/5yr/', 'ocean_monthly.static.cdl'
+        )
+        if Path(static_cdl).exists():
+            ncgen(static_cdl, static_cdl.replace('.cdl', '.nc'))
+
+    return nc_file

@@ -23,6 +23,7 @@ import pytest
 from netCDF4 import Dataset
 
 from fremor import cmor_run_subtool
+from fremor.tests._cmor_test_helpers import ncgen_for_case as _ncgen_for_case
 from fremor.tests.conftest import ncgen
 
 
@@ -54,39 +55,6 @@ ESM4_DEV_PP_DIR = (
 CMOR_CREATES_DIR_BASE_CMIP7 = (
     'CMIP/GFDL-ESM4p5/historical/r3i1p1f3'
 )
-
-
-# ── helper: convert CDLs to NC in a test directory ─────────────────────────
-def _ncgen_for_case(testfile_dir, opt_var_name):
-    """
-    Convert the CDL file(s) for *opt_var_name* to NetCDF-4 inside *testfile_dir*.
-
-    Returns the path to the primary NC file. Also generates ancillary files
-    (e.g. ``ps.nc`` for ``cl`` / ``mc``, ``ocean_monthly.static.nc`` for native
-    ocean grid variables).
-    """
-    cdl_files = glob.glob(f'{testfile_dir}*.{opt_var_name}.cdl')
-    assert len(cdl_files) >= 1, (
-        f'no CDL file found for variable {opt_var_name} in {testfile_dir}'
-    )
-    cdl_file = cdl_files[0]
-    nc_file = cdl_file.replace('.cdl', '.nc')
-    ncgen(cdl_file, nc_file)
-
-    # ancillary files required by specific variables
-    if opt_var_name in ('cl', 'mc'):
-        ps_cdl = cdl_file.replace(f'{opt_var_name}.cdl', 'ps.cdl')
-        assert Path(ps_cdl).exists(), f'ps CDL not found: {ps_cdl}'
-        ncgen(ps_cdl, ps_cdl.replace('.cdl', '.nc'))
-
-    elif opt_var_name == 'sos':
-        static_cdl = testfile_dir.replace(
-            'ts/monthly/5yr/', 'ocean_monthly.static.cdl'
-        )
-        if Path(static_cdl).exists():
-            ncgen(static_cdl, static_cdl.replace('.cdl', '.nc'))
-
-    return nc_file
 
 
 # ── CMIP7 parametrized tests ──────────────────────────────────────────────
@@ -172,7 +140,7 @@ def test_case_cmip7(  # pylint: disable=too-many-arguments,too-many-positional-a
         varlist = str(varlist_path)
         selected_var_name = None
 
-    input_nc = _ncgen_for_case(testfile_dir, local_var_name)
+    input_nc = _ncgen_for_case(testfile_dir, local_var_name, ncgen)
 
     table_file = f'{CMIP7_TABLE_REPO_PATH}/tables/{table}.json'
     outdir = str(tmp_path / 'outdir')
