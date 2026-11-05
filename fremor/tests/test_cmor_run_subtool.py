@@ -672,8 +672,8 @@ def test_fre_cmor_run_subtool_missing_input_file(tmp_path, caplog):
     outdir = tmp_path / 'outdir'
     outdir.mkdir()
 
-    # Copy a valid NetCDF file into the input directory, but name it for a different 
-    # variable ('dummy_var'). This tricks glob.glob() into thinking the directory is valid 
+    # Copy a valid NetCDF file into the input directory, but name it for a different
+    # variable ('dummy_var'). This tricks glob.glob() into thinking the directory is valid
     # and ensures get_iso_datetime_ranges() doesn't crash on an empty or invalid file.
     dummy_file_path = indir / f'reduced_ocean_monthly_1x1deg.{DATETIMES_INPUTFILE}.dummy_var.nc'
     shutil.copy(FULL_INPUTFILE, dummy_file_path)
