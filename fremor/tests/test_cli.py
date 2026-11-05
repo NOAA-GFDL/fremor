@@ -127,7 +127,7 @@ def test_cli_fremor_ddebug_logfile(mock_subtool, tmp_path):
     dummy_yaml = tmp_path / 'cmor.yaml'
     dummy_yaml.write_text('placeholder', encoding='utf-8')
 
-    def _emit_ddebug(*args, **kwargs):
+    def _emit_ddebug(*_args, **_kwargs):
         logging.getLogger('fremor.cli').ddebug('deep debug enabled')
 
     mock_subtool.side_effect = _emit_ddebug

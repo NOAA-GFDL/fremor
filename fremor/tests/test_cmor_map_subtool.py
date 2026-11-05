@@ -728,7 +728,7 @@ def test_mapsession_usage_count_reflects_staged_edits(temp_dir): # pylint: disab
 
 
 # ── selected-CMIP-variable box formatting ───────────────────────────────────
-def test_format_previewtext(temp_dir):
+def test_format_previewtext():
     ''' various returns of _format_preview_text '''
     assert _format_preview_text(
         local_var_name='foo', source='none', data={},
