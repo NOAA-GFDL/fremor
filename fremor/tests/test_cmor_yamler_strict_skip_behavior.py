@@ -7,6 +7,7 @@ import logging
 import pytest
 
 from fremor import cmor_yamler
+from fremor.tests._cmor_test_helpers import write_minimal_cmip6_cmor_yaml
 
 
 
@@ -29,26 +30,25 @@ def mock_yaml_environment(tmp_path):
     exp_json.touch()
     table_json.touch()
 
-    # Create a minimal YAML configuration
-    yaml_content = f"""
-    cmor:
-      mip_era: CMIP6
-      directories:
-        pp_dir: {pp_dir}
-        table_dir: {table_dir}
-        outdir: {outdir}
-      exp_json: {exp_json}
-      table_targets:
-        - table_name: Amon
-          freq: monthly
-          gridding: null
-          target_components:
-            - component_name: atmos
-              chunk: "P5Y"
-              data_series_type: ts
-              variable_list: "varlist.json"
-    """
-    yaml_file.write_text(yaml_content)
+    write_minimal_cmip6_cmor_yaml(
+        yaml_file,
+        tmp_path,
+        [
+            {
+                'table_name': 'Amon',
+                'freq': 'monthly',
+                'gridding': None,
+                'target_components': [
+                    {
+                        'component_name': 'atmos',
+                        'chunk': 'P5Y',
+                        'data_series_type': 'ts',
+                        'variable_list': 'varlist.json',
+                    }
+                ],
+            }
+        ],
+    )
     return str(yaml_file)
 
 @pytest.fixture
@@ -70,25 +70,26 @@ def mock_badyaml_environment(tmp_path):
     exp_json.touch()
     table_json.touch()
 
-    # Create a minimal YAML configuration
-    yaml_content = f"""
-    mip_era: CMIP6
-    directories:
-      pp_dir: {pp_dir}
-      table_dir: {table_dir}
-      outdir: {outdir}
-    exp_json: {exp_json}
-    table_targets:
-      - table_name: Amon
-        freq: monthly
-        gridding: null
-        target_components:
-          - component_name: atmos
-            chunk: "P5Y"
-            data_series_type: ts
-            variable_list: "varlist.json"
-    """
-    yaml_file.write_text(yaml_content)
+    write_minimal_cmip6_cmor_yaml(
+        yaml_file,
+        tmp_path,
+        [
+            {
+                'table_name': 'Amon',
+                'freq': 'monthly',
+                'gridding': None,
+                'target_components': [
+                    {
+                        'component_name': 'atmos',
+                        'chunk': 'P5Y',
+                        'data_series_type': 'ts',
+                        'variable_list': 'varlist.json',
+                    }
+                ],
+            }
+        ],
+        include_cmor=False,
+    )
     return str(yaml_file)
 
 def test_cmor_yaml_subtool_exception_no_cmor_key(mock_badyaml_environment): # pylint: disable=redefined-outer-name

@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 
 from netCDF4 import Dataset
+import yaml
 
 
 def write_table(tables_dir, table_name, var_names):
@@ -54,6 +55,28 @@ def minimal_cmor_yaml_doc(root_dir, pp_dir, tables_dir, table_targets, mip_era):
             'table_targets': table_targets,
         }
     }
+
+
+def write_minimal_cmip6_cmor_yaml(
+    yaml_path, root_dir, table_targets, include_cmor=True
+):
+    """Write a minimal CMIP6 CMOR YAML file for tests."""
+    root_dir = Path(root_dir)
+    config = {
+        'mip_era': 'CMIP6',
+        'directories': {
+            'pp_dir': str(root_dir / 'pp'),
+            'table_dir': str(root_dir / 'tables'),
+            'outdir': str(root_dir / 'out'),
+        },
+        'exp_json': str(root_dir / 'exp.json'),
+        'table_targets': table_targets,
+    }
+    if include_cmor:
+        config = {'cmor': config}
+    Path(yaml_path).write_text(
+        yaml.safe_dump(config, sort_keys=False), encoding='utf-8'
+    )
 
 
 def ncgen_for_case(testfile_dir, opt_var_name, ncgen):
