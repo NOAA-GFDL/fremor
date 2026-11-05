@@ -502,7 +502,7 @@ def test_cmor_check_subtool_all_disabled_returns_empty_report(temp_dir): # pylin
     disabled_amon['disabled'] = True
     yamlfile = _write_yaml(temp_dir, [disabled_amon], table_dir=tables_dir)
 
-    assert cmor_check_subtool(yamlfile=yamlfile, table_patterns=['Amon']) == {}
+    assert not cmor_check_subtool(yamlfile=yamlfile, table_patterns=['Amon'])
 
 
 def test_cmor_check_subtool_reports_startup_progress(temp_dir, capsys, caplog): # pylint: disable=redefined-outer-name

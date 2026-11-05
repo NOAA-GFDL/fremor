@@ -41,7 +41,7 @@ def test_cmip7_seaice_long_name_override_skips_other_tables(tmp_path, monkeypatc
         1, 'ocean', 'siarea', 'tavg-u-hm-u', 'mon', 'nh', str(tmp_path / 'CMIP7_ocean.json')
     )
 
-    assert calls == []
+    assert not calls
 
 
 def test_cmip7_seaice_long_name_override_skips_empty_values(tmp_path, monkeypatch):
@@ -63,4 +63,4 @@ def test_cmip7_seaice_long_name_override_skips_empty_values(tmp_path, monkeypatc
         1, 'seaIce', 'siarea', 'tavg-u-hm-u', 'mon', 'nh', str(tmp_path / 'CMIP7_seaIce.json')
     )
 
-    assert calls == []
+    assert not calls
