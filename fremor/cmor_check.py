@@ -1052,7 +1052,7 @@ def _input_dir_brand(input_dir: Optional[Path], gfdl_key: str, var: str, table_d
         return None
 
 
-def _source_brand(table_data: dict, var: str, source: tuple, reduce: Optional[str], # pylint: disable=too-many-locals
+def _source_brand(table_data: dict, var: str, source: tuple, reduce: Optional[str],
                   pp_dir: str, table_target: dict, start: Optional[int], stop: Optional[int],
                   dmls_bin: Optional[str], brand_cache: dict) -> Optional[str]:
     """The CMIP7 brand of `var` that `source` -- a (component, GFDL diagnostic key) pair --
