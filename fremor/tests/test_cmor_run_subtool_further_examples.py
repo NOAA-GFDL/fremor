@@ -14,14 +14,15 @@ and grid labels drawn from a mock pp-archive.
 '''
 
 from datetime import date
-import glob
-from pathlib import Path
 
 import pytest
-from netCDF4 import Dataset
 
 from fremor import cmor_run_subtool
-from fremor.tests._cmor_test_helpers import ncgen_for_case as _ncgen_for_case
+from fremor.tests._cmor_test_helpers import (
+    assert_cmor_output_matches_input,
+    find_cmor_output,
+    ncgen_for_case as _ncgen_for_case,
+)
 from fremor.tests.conftest import ncgen
 
 
@@ -153,16 +154,7 @@ def test_case_cmip6(  # pylint: disable=too-many-arguments,too-many-positional-a
         f'{cmor_output_dir}/{opt_var_name}_{table}_PCMDI-test-1-0'
         f'_piControl-withism_r3i1p1f1_{output_grid_label}_??????-??????.nc'
     )
-    cmor_output_files = glob.glob(cmor_output_glob)
-    assert len(cmor_output_files) >= 1, (
-        f'no CMOR output found matching {cmor_output_glob}'
+    cmor_output_file = find_cmor_output(cmor_output_glob)
+    assert_cmor_output_matches_input(
+        input_nc, cmor_output_file, opt_var_name, opt_var_name
     )
-    assert Path(cmor_output_files[0]).exists()
-
-    # dtype must be preserved between input and CMOR output
-    with Dataset(input_nc) as ds_in, Dataset(cmor_output_files[0]) as ds_out:
-        in_dtype = ds_in.variables[opt_var_name][:].dtype
-        out_dtype = ds_out.variables[opt_var_name][:].dtype
-        assert in_dtype == out_dtype, (
-            f'{opt_var_name} input dtype {in_dtype} differs from CMOR output dtype {out_dtype}'
-        )
