@@ -1053,6 +1053,20 @@ def _brand_cell_method_mismatch_reason(brand: str, cell_methods: str) -> Optiona
     return None
 
 
+def _brand_has_expected_vertical_dimension(brand: str, mip_dims: Union[list, str],
+                                           input_vert_dim: Union[str, int]) -> bool:
+    """Whether a brand has the vertical dimension requested by the input data."""
+    if input_vert_dim == 0:
+        return True
+    expected_mip_vert = INPUT_TO_MIP_VERT_DIM.get(
+        input_vert_dim.lower(), input_vert_dim.lower())
+    if expected_mip_vert is None or expected_mip_vert in mip_dims:
+        return True
+    fre_logger.debug('filtering out brand %s: expected MIP vert dim %s '
+                     'not found in %s', brand, expected_mip_vert, mip_dims)
+    return False
+
+
 def filter_brands( brands: list,
                    target_var: str,
                    mip_var_cfgs: dict,
@@ -1095,12 +1109,6 @@ def filter_brands( brands: list,
     :return: The single brand string that survived disambiguation.
     :rtype: str
     """
-    # map input vertical dim to MIP equivalent
-    expected_mip_vert = None
-    if input_vert_dim != 0:
-        expected_mip_vert = INPUT_TO_MIP_VERT_DIM.get(
-            input_vert_dim.lower(), input_vert_dim.lower())
-
     filtered_brands = []
     for brand in brands:
 
@@ -1114,10 +1122,7 @@ def filter_brands( brands: list,
             fre_logger.debug('filtering out brand %s: %s', brand, time_mismatch)
             continue
 
-        # vertical filter
-        if expected_mip_vert is not None and expected_mip_vert not in mip_dims:
-            fre_logger.debug('filtering out brand %s: expected MIP vert dim %s '
-                             'not found in %s', brand, expected_mip_vert, mip_dims)
+        if not _brand_has_expected_vertical_dimension(brand, mip_dims, input_vert_dim):
             continue
 
         # cell_methods temporal filter: match brand temporal prefix to input cell_methods. static
