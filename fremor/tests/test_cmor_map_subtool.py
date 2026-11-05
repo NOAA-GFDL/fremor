@@ -774,9 +774,10 @@ class _FakeTreeEvent:
 def _select_pp_file(app, local_key):
     """Expand the PP tree to files and select the file with the requested key."""
     node = app.query_one('#pp_tree').root.children[0]
-    for _ in range(3):
+    for _ in range(2):
         app.on_tree_node_expanded(_FakeTreeEvent(node, 'pp_tree'))
         node = node.children[0]
+    app.on_tree_node_expanded(_FakeTreeEvent(node, 'pp_tree'))
     file_node = next(
         child for child in node.children if child.data['local_key'] == local_key
     )
