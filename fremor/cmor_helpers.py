@@ -115,9 +115,7 @@ def calendars_are_equivalent(cal1: Optional[str], cal2: Optional[str]) -> bool:
     return normalize_calendar(cal1) == normalize_calendar(cal2)
 
 def get_time_calendar_ds(ds = None):
-    """
-    
-    """
+    """Return the normalized calendar attached to a dataset's time coordinate."""
     try:
         return get_time_calendar_value(ds['time'])
     except KeyError as exc:
