@@ -528,8 +528,8 @@ def _make_mock_dataset(dims_info):
                 raise AttributeError(name)
             try:
                 return self._attrs[name]
-            except KeyError:
-                raise AttributeError(name)
+            except KeyError as exc:
+                raise AttributeError(name) from exc
 
     class MockDataVar:
         """Expose dimensions for the dataset's mock data variable."""
