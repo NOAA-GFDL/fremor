@@ -1020,6 +1020,39 @@ def get_bronx_freq_from_mip_table(json_table_config: str) -> str:
     return bronx_freq
 
 
+def _brand_time_mismatch_reason(mip_dims: Union[list, str], has_time_dim: bool,
+                                has_time_bnds: bool) -> Optional[str]:
+    """Return why a brand's MIP time dimensions conflict with the input."""
+    dimensions = mip_dims.split() if isinstance(mip_dims, str) else mip_dims
+    mip_has_time = any(dim.startswith('time') for dim in dimensions)
+    if not has_time_dim and mip_has_time:
+        return ('MIP dims contain a time dimension '
+                'but input data is time-invariant')
+    if has_time_dim and has_time_bnds and 'time1' in mip_dims:
+        return 'MIP dims contain time1 but input data has time_bnds'
+    if has_time_dim and not has_time_bnds and 'time' in mip_dims and 'time1' not in mip_dims:
+        return 'MIP dims contain time (mean) but input data lacks time_bnds'
+    return None
+
+
+def _brand_cell_method_mismatch_reason(brand: str, cell_methods: str) -> Optional[str]:
+    """Return why a brand's temporal prefix conflicts with input cell methods."""
+    method_prefixes = (
+        ('time: mean', 'tavg'),
+        ('time: maximum', 'tmax'),
+        ('time: minimum', 'tmin'),
+        ('time: point', 'tpt'),
+    )
+    brand_temporal = brand.split('-')[0]
+    for cell_method, method_prefix in method_prefixes:
+        if cell_method in cell_methods:
+            if brand_temporal != method_prefix:
+                return (f'temporal prefix {brand_temporal} does not match '
+                        f'cell_methods {cell_methods}')
+            return None
+    return None
+
+
 def filter_brands( brands: list,
                    target_var: str,
                    mip_var_cfgs: dict,
@@ -1075,20 +1108,10 @@ def filter_brands( brands: list,
         mip_dims = mip_var_cfgs['variable_entry'][mip_key]['dimensions']
         mip_standard_name = mip_var_cfgs['variable_entry'][mip_key]['standard_name']
 
-        # time filter
-        mip_has_time = any(dim.startswith('time') for dim in
-                           (mip_dims.split() if isinstance(mip_dims, str) else mip_dims))
-        if not has_time_dim and mip_has_time:
-            fre_logger.debug('filtering out brand %s: MIP dims contain a time dimension '
-                             'but input data is time-invariant', brand)
-            continue
-        if has_time_dim and has_time_bnds and 'time1' in mip_dims:
-            fre_logger.debug('filtering out brand %s: MIP dims contain time1 '
-                             'but input data has time_bnds', brand)
-            continue
-        if has_time_dim and not has_time_bnds and 'time' in mip_dims and 'time1' not in mip_dims:
-            fre_logger.debug('filtering out brand %s: MIP dims contain time (mean) '
-                             'but input data lacks time_bnds', brand)
+        time_mismatch = _brand_time_mismatch_reason(
+            mip_dims, has_time_dim, has_time_bnds)
+        if time_mismatch is not None:
+            fre_logger.debug('filtering out brand %s: %s', brand, time_mismatch)
             continue
 
         # vertical filter
@@ -1100,23 +1123,10 @@ def filter_brands( brands: list,
         # cell_methods temporal filter: match brand temporal prefix to input cell_methods. static
         # fields often still carry e.g. 'time: point' from the history file they were taken from
         if cell_methods is not None and has_time_dim:
-            time_method = None
-            if 'time: mean' in cell_methods:
-                time_method = 'tavg'
-            elif 'time: maximum' in cell_methods:
-                time_method = 'tmax'
-            elif 'time: minimum' in cell_methods:
-                time_method = 'tmin'
-            elif 'time: point' in cell_methods:
-                time_method = 'tpt'
-
-            if time_method is not None:
-                brand_temporal = brand.split('-')[0]
-                if brand_temporal != time_method:
-                    fre_logger.debug('filtering out brand %s: temporal prefix %s '
-                                     'does not match cell_methods %s',
-                                     brand, brand_temporal, cell_methods)
-                    continue
+            cell_method_mismatch = _brand_cell_method_mismatch_reason(brand, cell_methods)
+            if cell_method_mismatch is not None:
+                fre_logger.debug('filtering out brand %s: %s', brand, cell_method_mismatch)
+                continue
 
         if standard_name is not None and standard_name != mip_standard_name:
             fre_logger.debug("filtering out brand %s: input var standard_name does not match mip table's", brand )
