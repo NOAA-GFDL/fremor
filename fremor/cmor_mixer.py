@@ -1294,15 +1294,15 @@ def cmor_run_subtool(indir: str = None,
                              '... there\'s nothing to process, exit')
         vars_to_run[opt_var_name] = opt_var_name
     else:
-        for local_var in var_list:
-            if var_list[local_var] not in mip_var_list: #mip_var_cfgs['variable_entry']:
+        for local_var, target_var in var_list.items():
+            if target_var not in mip_var_list: #mip_var_cfgs['variable_entry']:
                 fre_logger.warning('skipping local_var = %s /\n'
                                    'target_var = %s\n'
-                                   'target_var not found in CMOR variable group', local_var, var_list[local_var])
+                                   'target_var not found in CMOR variable group', local_var, target_var)
                 continue
 
-            fre_logger.info('%s found in %s', var_list[local_var], Path(json_table_config).name)
-            vars_to_run[local_var] = var_list[local_var]
+            fre_logger.info('%s found in %s', target_var, Path(json_table_config).name)
+            vars_to_run[local_var] = target_var
 
     if var_reduce:
         fre_logger.info('reduce methods: %s', var_reduce)
