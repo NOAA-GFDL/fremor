@@ -196,6 +196,26 @@ def test_print_var_content_cmip7_branded_vars(tmp_path, caplog):
     assert 'pr_brandC' not in log_output
     assert 'precipitation_flux' not in log_output
 
+
+def test_print_var_content_cmip6_variable_entry(tmp_path, caplog):
+    """Log a regular CMIP6 entry while omitting fields excluded from display."""
+    table_path = tmp_path / 'CMIP6_Amon.json'
+    table_path.write_text(json.dumps({
+        'Header': {'mip_era': 'CMIP6', 'table_id': 'Table Amon'},
+        'variable_entry': {
+            'tas': {'standard_name': 'air_temperature', 'valid_min': 0}
+        }
+    }), encoding='utf-8')
+
+    with table_path.open(encoding='utf-8') as table_file:
+        with caplog.at_level(logging.INFO):
+            print_var_content(table_file, var_name='tas')
+
+    assert 'variable key: tas' in caplog.text
+    assert 'standard_name: air_temperature' in caplog.text
+    assert 'valid_min' not in caplog.text
+
+
 def test_print_var_content_cmip7_branded_vars_no_content(tmp_path):
     """
     Test print_var_content for the CMIP7 branch to cover branded variables.
