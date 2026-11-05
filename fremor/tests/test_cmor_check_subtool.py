@@ -521,7 +521,7 @@ def test_cmor_check_subtool_reports_startup_progress(temp_dir, capsys, caplog): 
     ], table_dir=tables_dir)
 
     with caplog.at_level( logging.INFO, logger='fremor.cmor_check'):
-         cmor_check_subtool(yamlfile=yamlfile, json_output=True)
+        cmor_check_subtool(yamlfile=yamlfile, json_output=True)
 
     captured = caplog.messages
     assert json.loads(capsys.readouterr().out)['Amon']['reference_var_count'] == 1
