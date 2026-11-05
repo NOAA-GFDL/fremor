@@ -1074,7 +1074,7 @@ def filter_brands( brands: list,
 
     filtered_brands = []
     for brand in brands:
-        
+
         mip_key = f'{target_var}_{brand}'
         mip_dims = mip_var_cfgs['variable_entry'][mip_key]['dimensions']
         mip_standard_name = mip_var_cfgs['variable_entry'][mip_key]['standard_name']
