@@ -49,7 +49,7 @@ class FremorCommand(click.Command):
                 click.secho(
                     f'Error: The "{e.option_name}" flag is in the wrong spot. '
                     f'Global flags must be placed before the command (e.g., `fremor {e.option_name} {info_name}`).',
-                    fg="red", err=True
+                    fg='red', err=True
                 )
                 sys.exit(2)
             raise # Re-raise if it's a genuinely unknown flag

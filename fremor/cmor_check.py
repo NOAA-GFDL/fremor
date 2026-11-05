@@ -931,15 +931,15 @@ def _range_finding(bounds: dict, files: list, dmls_bin: Optional[str] = None,
 
     problems = []
     if bounds['valid_min'] is not None and actual_min < bounds['valid_min']:
-        problems.append(f'min {actual_min:g} < valid_min {bounds["valid_min"]:g}')
+        problems.append(f"min {actual_min:g} < valid_min {bounds['valid_min']:g}")
     if bounds['valid_max'] is not None and actual_max > bounds['valid_max']:
-        problems.append(f'max {actual_max:g} > valid_max {bounds["valid_max"]:g}')
+        problems.append(f"max {actual_max:g} > valid_max {bounds['valid_max']:g}")
     if bounds['ok_min_mean_abs'] is not None and actual_mean_abs < bounds['ok_min_mean_abs']:
         problems.append(
-            f'mean_abs {actual_mean_abs:g} < ok_min_mean_abs {bounds["ok_min_mean_abs"]:g}')
+            f"mean_abs {actual_mean_abs:g} < ok_min_mean_abs {bounds['ok_min_mean_abs']:g}")
     if bounds['ok_max_mean_abs'] is not None and actual_mean_abs > bounds['ok_max_mean_abs']:
         problems.append(
-            f'mean_abs {actual_mean_abs:g} > ok_max_mean_abs {bounds["ok_max_mean_abs"]:g}')
+            f"mean_abs {actual_mean_abs:g} > ok_max_mean_abs {bounds['ok_max_mean_abs']:g}")
 
     return {
         'status': 'out_of_range' if problems else 'ok',
@@ -1212,14 +1212,14 @@ def _staging_findings(var_entry: dict) -> list:
         return []
 
     color = 'red' if staging['status'] in ('unstaged', 'missing') else 'yellow'
-    findings = [(color, f'staging={staging["status"]}')]
+    findings = [(color, f"staging={staging['status']}")]
     if staging['unstaged_files']:
         findings[0] = (
             color,
-            f'staging={staging["status"]} ({len(staging["unstaged_files"])} file(s) not yet staged)',
+            f"staging={staging['status']} ({len(staging['unstaged_files'])} file(s) not yet staged)",
         )
     if staging['gaps']:
-        findings.append((color, f'date-range gaps: {", ".join(staging["gaps"])}'))
+        findings.append((color, f"date-range gaps: {', '.join(staging['gaps'])}"))
     return findings
 
 
@@ -1230,21 +1230,21 @@ def _dims_findings(var_entry: dict) -> list:
         return []
 
     color = 'red' if dims['status'] not in ('ok', 'unknown') else 'yellow'
-    findings = [(color, f'dims={dims["status"]}')]
+    findings = [(color, f"dims={dims['status']}")]
     if dims['status'] not in ('ok', 'unknown'):
         findings[0] = (
             color,
-            (f'dims={dims["status"]} (table wants {dims.get("mip_table_vertical_dims")}, '
-             f'input has {dims.get("input_vertical_dim")})'),
+            (f"dims={dims['status']} (table wants {dims.get('mip_table_vertical_dims')}, "
+             f"input has {dims.get('input_vertical_dim')})"),
         )
     if dims.get('missing_ps_file'):
         locations = []
         if dims.get('missing_mapped_ps_in'):
-            locations.append(f'{dims["missing_mapped_ps_in"]} (mapped ps)')
+            locations.append(f"{dims['missing_mapped_ps_in']} (mapped ps)")
         locations.append(dims['missing_ps_file'])
         if dims.get('missing_ps_component_in'):
-            locations.append(f'{dims["missing_ps_component_in"]} (ps_component)')
-        findings.append((color, f'missing companion ps file: {" or ".join(locations)}'))
+            locations.append(f"{dims['missing_ps_component_in']} (ps_component)")
+        findings.append((color, f"missing companion ps file: {' or '.join(locations)}"))
     return findings
 
 
@@ -1254,9 +1254,9 @@ def _grid_findings(var_entry: dict) -> list:
     if grid is None:
         return []
     if grid['status'] == 'mismatch':
-        return [('red', f'grid={grid["grid_label"]} mismatch: ' + '; '.join(grid['problems']))]
+        return [('red', f"grid={grid['grid_label']} mismatch: " + '; '.join(grid['problems']))]
     if grid['status'] == 'unknown':
-        return [('yellow', f'grid=unknown ({grid.get("reason")})')]
+        return [('yellow', f"grid=unknown ({grid.get('reason')})")]
     return []
 
 
@@ -1266,12 +1266,12 @@ def _output_findings(var_entry: dict) -> list:
     if output is None:
         return []
     if output['status'] == 'produced' and not output['gaps']:
-        return [('green', f'output=produced ({output["file_count"]} file(s))')]
+        return [('green', f"output=produced ({output['file_count']} file(s))")]
 
     color = 'red' if output['status'] == 'missing' else 'yellow'
-    findings = [(color, f'output={output["status"]}')]
+    findings = [(color, f"output={output['status']}")]
     if output['gaps']:
-        findings.append((color, f'date-range gaps: {", ".join(output["gaps"])}'))
+        findings.append((color, f"date-range gaps: {', '.join(output['gaps'])}"))
     return findings
 
 
@@ -1281,7 +1281,7 @@ def _attrs_findings(var_entry: dict) -> list:
     if attrs is None or attrs['status'] == 'ok':
         return []
     if attrs['status'] == 'unknown':
-        return [('yellow', f'attrs=unknown ({attrs.get("reason")})')]
+        return [('yellow', f"attrs=unknown ({attrs.get('reason')})")]
 
     findings = []
     for field_name in ('units', 'cell_methods'):
@@ -1289,8 +1289,8 @@ def _attrs_findings(var_entry: dict) -> list:
         if field['status'] != 'ok':
             color = 'red' if field['status'] == 'mismatch' else 'yellow'
             findings.append((color, (
-                f'{field_name}={field["status"]} '
-                f'(table wants {field["mip_table"]}, input has {field["input"]!r})'
+                f"{field_name}={field['status']} "
+                f"(table wants {field['mip_table']}, input has {field['input']!r})"
             )))
     return findings
 
@@ -1303,8 +1303,8 @@ def _range_findings(var_entry: dict) -> list:
     if range_['status'] == 'out_of_range':
         return [('red', 'range=out_of_range: ' + '; '.join(range_['problems']))]
     if range_['status'] == 'skipped_offline':
-        return [('yellow', f'range=skipped_offline ({range_.get("reason")})')]
-    return [('yellow', f'range=unknown ({range_.get("reason")})')]
+        return [('yellow', f"range=skipped_offline ({range_.get('reason')})")]
+    return [('yellow', f"range=unknown ({range_.get('reason')})")]
 
 
 def _file_findings(var_entry: dict) -> list:
@@ -1326,13 +1326,13 @@ def _print_exp_config_report(exp_report: dict) -> None:
     color = {'ok': 'green', 'warning': 'yellow', 'error': 'red'}[exp_report['status']]
     click.echo()
     click.echo(click.style('[EXPERIMENT CONFIG]', bold=True, fg='cyan') +
-               click.style(f'  {exp_report["file"]}', dim=True))
+               click.style(f"  {exp_report['file']}", dim=True))
     if exp_report.get('cv'):
-        click.echo(click.style(f'  checked against {exp_report["cv"]}', dim=True))
-    click.echo('  ' + click.style(f'status={exp_report["status"]}', fg=color))
+        click.echo(click.style(f"  checked against {exp_report['cv']}", dim=True))
+    click.echo('  ' + click.style(f"status={exp_report['status']}", fg=color))
     for finding in exp_report['findings']:
         finding_color = 'red' if finding['level'] == 'error' else 'yellow'
-        click.echo('    ' + click.style(f'{finding["level"].upper()} {finding["attribute"]}: ',
+        click.echo('    ' + click.style(f"{finding['level'].upper()} {finding['attribute']}: ",
                                         fg=finding_color, bold=True) + finding['message'])
 
 
@@ -1360,7 +1360,7 @@ def _print_coverage_summary(files: dict) -> Optional[tuple]:
     note = f'{common_span[0]}-{common_span[1]} for {common_count}/{total} variables'
     if requested != [None, None]:
         bounds = ('-' if year is None else f'{year:04d}' for year in requested)
-        note += f'; run bounds {"..".join(bounds)}'
+        note += f"; run bounds {'..'.join(bounds)}"
     if outliers:
         note += f'; {outliers} incomplete or different'
     color = 'green' if outliers == 0 else 'yellow'
@@ -1379,9 +1379,9 @@ def _coverage_finding(coverage: Optional[dict], common_span: Optional[tuple]) ->
     span = (coverage['first_date'], coverage['last_date'])
     if coverage['status'] == 'complete' and span == common_span:
         return None
-    text = f'coverage={coverage["status"]} {span[0]}-{span[1]} ({coverage["years_covered"]} yr)'
+    text = f"coverage={coverage['status']} {span[0]}-{span[1]} ({coverage['years_covered']} yr)"
     if coverage['missing_years']:
-        text += f', missing years: {", ".join(coverage["missing_years"])}'
+        text += f", missing years: {', '.join(coverage['missing_years'])}"
     return text
 
 
@@ -1396,7 +1396,7 @@ def _print_report(report: dict, show_mapped: bool = False,
         if table_index:
             click.echo()
         click.echo(click.style(f'[{table_name}]', bold=True, fg='cyan') +
-                   click.style(f'  {entry["reference_var_count"]} variables required by table',
+                   click.style(f"  {entry['reference_var_count']} variables required by table",
                                dim=True))
 
         unmapped = entry['unmapped']
@@ -1420,7 +1420,7 @@ def _print_report(report: dict, show_mapped: bool = False,
                 for var in sorted(multiply_mapped):
                     brands = multiply_mapped_brands.get(var)
                     locs = ', '.join(
-                        f'{comp}:{key}' + (f' ({brands[i] or "brand unresolved"})' if brands else '')
+                        f"{comp}:{key}" + (f" ({brands[i] or 'brand unresolved'})" if brands else '')
                         for i, (comp, key) in enumerate(multiply_mapped[var]))
                     click.echo(f'      - {var}: {locs}')
             else:
@@ -1457,7 +1457,7 @@ def _print_report(report: dict, show_mapped: bool = False,
                 'varlist values that are neither a name nor a {name, reduce} object',
                 nonzero_fg='red'))
             for invalid in invalid_entries:
-                click.echo(f'      - {invalid["component"]}:{invalid["local_key"]}: {invalid["error"]}')
+                click.echo(f"      - {invalid['component']}:{invalid['local_key']}: {invalid['error']}")
 
         if show_mapped:
             one_to_one = entry.get('one_to_one_mapped', {})
@@ -1616,8 +1616,8 @@ def cmor_check_subtool(
 
     if check_output and not outdir:
         raise ValueError(
-            f"--check-outputs requested but {yamlfile} has no directories.outdir set; "
-            "nothing to check produced output against.")
+            f'--check-outputs requested but {yamlfile} has no directories.outdir set; '
+            'nothing to check produced output against.')
 
     all_table_names = sorted({table_target['table_name'] for table_target in table_targets})
     if not all_table_names:
@@ -1718,7 +1718,7 @@ def cmor_check_subtool(
                 enabled_checks.append('attrs')
             if check_range:
                 enabled_checks.append('range')
-            check_detail += f' and {"/".join(enabled_checks)} input-file checks'
+            check_detail += f" and {'/'.join(enabled_checks)} input-file checks"
         fre_logger.info(
             f'checking table {index}/{len(table_names)} '
             f'({table_name}): {check_detail}...',
