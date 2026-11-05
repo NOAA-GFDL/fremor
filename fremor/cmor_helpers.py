@@ -1124,7 +1124,7 @@ def filter_brands( brands: list,
             fre_logger.debug("filtering out brand %s: input var standard_name does not match mip table's", brand )
             continue
 
-        fre_logger.debug(f'appending %s to list of possible brands', brand)
+        fre_logger.debug('appending %s to list of possible brands', brand)
         filtered_brands.append(brand)
 
     if len(filtered_brands) == 1:
