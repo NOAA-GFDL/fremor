@@ -344,7 +344,7 @@ def test_rewrite_uses_no_bounds_axes_and_warns_for_missing_calendar(
     finally:
         cmor_mixer.cmor.close()
 
-    axis_calls = {name: kwargs for name, kwargs in axes}
+    axis_calls = dict(axes)
     assert {'latitude', 'longitude', 'time'} <= set(axis_calls)
     assert 'cell_bounds' not in axis_calls['latitude']
     assert 'cell_bounds' not in axis_calls['longitude']
