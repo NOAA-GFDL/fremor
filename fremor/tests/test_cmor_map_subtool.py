@@ -1344,15 +1344,7 @@ async def test_map_app_undo_key(temp_dir): # pylint: disable=redefined-outer-nam
         pr_node = next(n for n in unmapped_node.children if n.data['var'] == 'pr')
         app.on_tree_node_selected(_FakeTreeEvent(pr_node, 'cmip_tree'))
 
-        pp_tree = app.query_one('#pp_tree')
-        component_node = pp_tree.root.children[0]
-        app.on_tree_node_expanded(_FakeTreeEvent(component_node, 'pp_tree'))
-        freq_node = component_node.children[0]
-        app.on_tree_node_expanded(_FakeTreeEvent(freq_node, 'pp_tree'))
-        chunk_node = freq_node.children[0]
-        app.on_tree_node_expanded(_FakeTreeEvent(chunk_node, 'pp_tree'))
-        file_node = chunk_node.children[0]
-        app.on_tree_node_selected(_FakeTreeEvent(file_node, 'pp_tree'))
+        _select_pp_file(app, 'pr')
         await pilot.pause()
 
         await pilot.press('m')
@@ -1690,14 +1682,7 @@ async def test_map_app_clear_mapping_keeps_variable_selected(temp_dir): # pylint
         assert app.selected_cmip_node is source_node
         assert app.query_one('#selected_cmip').content == 'selected: Amon / tas'
 
-        pp_tree = app.query_one('#pp_tree')
-        component_node = pp_tree.root.children[0]
-        app.on_tree_node_expanded(_FakeTreeEvent(component_node, 'pp_tree'))
-        freq_node = component_node.children[0]
-        app.on_tree_node_expanded(_FakeTreeEvent(freq_node, 'pp_tree'))
-        chunk_node = freq_node.children[0]
-        app.on_tree_node_expanded(_FakeTreeEvent(chunk_node, 'pp_tree'))
-        app.on_tree_node_selected(_FakeTreeEvent(chunk_node.children[0], 'pp_tree'))
+        _select_pp_file(app, 't_surf')
         await pilot.press('m')
         await pilot.pause()
 
