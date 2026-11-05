@@ -1278,6 +1278,26 @@ def _write_input_nc_with_attrs(nc_path, local_var, units=None, cell_methods=None
             var[:] = values
 
 
+def _prepare_offline_range_check(root):
+    tables_dir = Path(root) / 'tables'
+    tables_dir.mkdir()
+    _write_table_with_attrs(tables_dir, 'Amon', {'tas': {'valid_min': '150', 'valid_max': '350'}})
+
+    varlist_dir = Path(root) / 'varlists'
+    varlist_dir.mkdir()
+    atmos_list = varlist_dir / 'CMIP6_Amon_atmos.list'
+    atmos_list.write_text(json.dumps({'tas': 'tas'}), encoding='utf-8')
+
+    pp_dir = Path(root) / 'pp'
+    yamlfile = _write_yaml(root, [
+        _table_target('Amon', [_component_entry('atmos', atmos_list)])
+    ], table_dir=tables_dir, pp_dir=pp_dir)
+
+    nc_path = _input_dir(pp_dir, 'atmos') / 'atmos.197901-198312.tas.nc'
+    _write_input_nc_with_attrs(nc_path, 'tas', values=[270.0, 271.0])
+    return yamlfile, nc_path
+
+
 def test_cmor_check_subtool_attrs_ok(temp_dir, capsys): # pylint: disable=redefined-outer-name
     ''' check_attrs: matching units/cell_methods remain in structured data but are hidden from
     the human-readable report '''
@@ -1476,24 +1496,7 @@ def test_cmor_check_subtool_range_no_bounds_declared(temp_dir): # pylint: disabl
 def test_cmor_check_subtool_range_skips_offline_file(temp_dir, monkeypatch, capsys): # pylint: disable=redefined-outer-name
     ''' check_range: a representative file reported offline by dmls is skipped rather than
     having its data read (which would trigger a tape retrieval) '''
-    temp_root = Path(temp_dir)
-    tables_dir = temp_root / 'tables'
-    tables_dir.mkdir()
-    _write_table_with_attrs(tables_dir, 'Amon', {'tas': {'valid_min': '150', 'valid_max': '350'}})
-
-    varlist_dir = temp_root / 'varlists'
-    varlist_dir.mkdir()
-    atmos_list = varlist_dir / 'CMIP6_Amon_atmos.list'
-    atmos_list.write_text(json.dumps({'tas': 'tas'}), encoding='utf-8')
-
-    pp_dir = temp_root / 'pp'
-    yamlfile = _write_yaml(temp_dir, [
-        _table_target('Amon', [_component_entry('atmos', atmos_list)])
-    ], table_dir=tables_dir, pp_dir=pp_dir)
-
-    comp_dir = _input_dir(pp_dir, 'atmos')
-    nc_path = comp_dir / 'atmos.197901-198312.tas.nc'
-    _write_input_nc_with_attrs(nc_path, 'tas', values=[270.0, 271.0])
+    yamlfile, nc_path = _prepare_offline_range_check(temp_dir)
 
     import subprocess as subprocess_mod # pylint: disable=import-outside-toplevel
 
