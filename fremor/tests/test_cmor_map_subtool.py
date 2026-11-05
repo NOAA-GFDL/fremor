@@ -2153,16 +2153,8 @@ async def test_map_app_assign_mapping_blocked_on_freq_mismatch(temp_dir): # pyli
         pr_node = next(n for n in unmapped_node.children if n.data['var'] == 'pr')
         app.on_tree_node_selected(_FakeTreeEvent(pr_node, 'cmip_tree'))
 
-        pp_tree = app.query_one('#pp_tree')
-        component_node = pp_tree.root.children[0]
-        app.on_tree_node_expanded(_FakeTreeEvent(component_node, 'pp_tree'))
-        freq_node = component_node.children[0]
-        assert freq_node.data['freq'] == 'daily'
-        app.on_tree_node_expanded(_FakeTreeEvent(freq_node, 'pp_tree'))
-        chunk_node = freq_node.children[0]
-        app.on_tree_node_expanded(_FakeTreeEvent(chunk_node, 'pp_tree'))
-        file_node = chunk_node.children[0]
-        app.on_tree_node_selected(_FakeTreeEvent(file_node, 'pp_tree'))
+        _select_pp_file(app, 'pr')
+        assert app.query_one('#pp_tree').root.children[0].children[0].data['freq'] == 'daily'
         await pilot.pause()
 
         notifications = []
@@ -2201,16 +2193,11 @@ async def test_map_app_assign_mapping_blocked_on_chunk_mismatch(temp_dir): # pyl
         pr_node = next(n for n in unmapped_node.children if n.data['var'] == 'pr')
         app.on_tree_node_selected(_FakeTreeEvent(pr_node, 'cmip_tree'))
 
-        pp_tree = app.query_one('#pp_tree')
-        component_node = pp_tree.root.children[0]
-        app.on_tree_node_expanded(_FakeTreeEvent(component_node, 'pp_tree'))
-        freq_node = component_node.children[0]
-        app.on_tree_node_expanded(_FakeTreeEvent(freq_node, 'pp_tree'))
-        chunk_node = freq_node.children[0]
-        assert chunk_node.data['chunk'] == '10yr'
-        app.on_tree_node_expanded(_FakeTreeEvent(chunk_node, 'pp_tree'))
-        file_node = chunk_node.children[0]
-        app.on_tree_node_selected(_FakeTreeEvent(file_node, 'pp_tree'))
+        _select_pp_file(app, 'pr')
+        assert (
+            app.query_one('#pp_tree').root.children[0].children[0].children[0].data['chunk']
+            == '10yr'
+        )
         await pilot.pause()
 
         notifications = []
