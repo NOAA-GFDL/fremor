@@ -1100,6 +1100,7 @@ class TableSettingsScreen(ModalScreen):
         return 'default: ps'
 
     def compose(self) -> ComposeResult:
+        """Build the table settings dialog controls."""
         with VerticalScroll(id='settings_dialog'):
             yield Static(f'{self.table_name}: grid and surface-pressure settings')
             for field in TABLE_SETTING_FIELDS:
@@ -1179,6 +1180,7 @@ class ReduceScreen(ModalScreen):
         self.current = current
 
     def compose(self) -> ComposeResult:
+        """Build the reduction-method picker."""
         methods = [None] + sorted(REDUCE_METHODS)
         options = [Option(_REDUCE_DESCRIPTIONS.get(method, method), id=method or _NO_REDUCE_ID)
                    for method in methods]
@@ -1325,6 +1327,7 @@ class MapApp(App):
         self._undo_labels = []
 
     def compose(self) -> ComposeResult:
+        """Build the mapping interface panes and their initial content."""
         with Horizontal():
             with Vertical(id='cmip_pane'):
                 yield Tree('MIP Tables', id='cmip_tree')
@@ -1591,6 +1594,7 @@ class MapApp(App):
                       'files': [(static_file, None)]})
 
     def on_tree_node_expanded(self, event: Tree.NodeExpanded) -> None:
+        """Populate a pp-tree node when the user expands it."""
         if event.control.id != 'pp_tree':
             return
         self._ensure_pp_node_populated(event.node)
@@ -1675,6 +1679,7 @@ class MapApp(App):
     # ---- selection tracking ----
 
     def on_tree_node_selected(self, event: Tree.NodeSelected) -> None:
+        """Update selected mapping details and preview the selected pp file."""
         data = event.node.data or {}
         kind = data.get('kind')
 
@@ -1927,6 +1932,7 @@ class MapApp(App):
         return label
 
     def action_clear_mapping(self) -> None:
+        """Stage removal of the selected component-to-variable mapping."""
         if self.selected_cmip is None or self.selected_cmip.get('kind') != 'source':
             self.notify('select an existing component:local_key mapping to clear',
                         severity='warning')
@@ -1954,6 +1960,7 @@ class MapApp(App):
         self._quit_confirmed = False
 
     def action_toggle_disabled(self) -> None:
+        """Stage enabling or disabling the selected MIP table."""
         table_name = self.selected_table_name
         if table_name is None:
             self.notify('select a MIP table (or one of its variables) first', severity='warning')
@@ -1998,6 +2005,7 @@ class MapApp(App):
         self._quit_confirmed = False
 
     def action_undo(self) -> None:
+        """Undo the most recently staged mapping edit."""
         edit = self.session.undo()
         if edit is None:
             self.notify('nothing to undo', severity='information')
@@ -2011,6 +2019,7 @@ class MapApp(App):
         self._quit_confirmed = False
 
     def action_restore_pending(self) -> None:
+        """Discard all staged edits and restore the last saved state."""
         if not self.session.has_pending_changes:
             self.notify('no staged changes to restore', severity='information')
             return
@@ -2021,6 +2030,7 @@ class MapApp(App):
         self._quit_confirmed = False
 
     def action_save_pending(self) -> None:
+        """Persist staged edits to the mapping YAML."""
         if not self.session.has_pending_changes:
             self.notify('no staged changes to save', severity='information')
             return
@@ -2030,6 +2040,7 @@ class MapApp(App):
         self._populate_cmip_tree(preserve_table_expansion=True)
 
     def action_refresh_tree(self) -> None:
+        """Rebuild the trees when there are no unsaved edits."""
         # a rebuild re-categorizes staged edits from the recomputed report, dropping their
         # in-place markers (e.g. a staged-cleared source of a multiply-mapped variable)
         if self.session.has_pending_changes:
@@ -2041,6 +2052,7 @@ class MapApp(App):
         self._populate_cmip_tree()
 
     async def action_quit(self) -> None:
+        """Prompt before quitting when staged changes have not been saved."""
         if self.session.has_pending_changes and not self._quit_confirmed:
             self._quit_confirmed = True
             count = self.session.pending_count

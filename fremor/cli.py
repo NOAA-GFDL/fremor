@@ -41,6 +41,7 @@ class FremorCommand(click.Command):
     and provide a user-friendly error message.
     """
     def make_context(self, info_name, args, parent=None, **extra):
+        """Create a command context and explain misplaced global flags."""
         try:
             return super().make_context(info_name, args, parent=parent, **extra)
         except click.NoSuchOption as e:
@@ -57,6 +58,7 @@ class FremorCommand(click.Command):
 class FremorGroup(click.Group):
     """Main group that automatically uses FremorCommand for all subcommands."""
     def command(self, *args, **kwargs):
+        """Register a subcommand that uses FremorCommand by default."""
         kwargs.setdefault('cls', FremorCommand)
         return super().command(*args, **kwargs)
 
