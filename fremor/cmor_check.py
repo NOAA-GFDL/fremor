@@ -1647,8 +1647,8 @@ def cmor_check_subtool(
         for table_target in selected_table_targets
     )
     fre_logger.info(
-        f'loading {varlist_count} variable list(s) for '
-        f'{len(table_names)} MIP table(s)...',
+        'loading %s variable list(s) for %s MIP table(s)...',
+        varlist_count, len(table_names),
     )
     if check_staging:
         fre_logger.warning(
@@ -1671,10 +1671,11 @@ def cmor_check_subtool(
         )
     output_files_index = []
     if check_output:
-        fre_logger.info(f'indexing existing output under {outdir}...')
+        fre_logger.info('indexing existing output under %s...', outdir)
         output_files_index = _index_output_files(outdir)
         fre_logger.info(
-            f'found {len(output_files_index)} existing output file(s) under {outdir}',
+            'found %s existing output file(s) under %s',
+            len(output_files_index), outdir,
         )
     report = {}
     exp_json = cmor_yaml_ctx.get('exp_json')
@@ -1720,8 +1721,8 @@ def cmor_check_subtool(
                 enabled_checks.append('range')
             check_detail += f" and {'/'.join(enabled_checks)} input-file checks"
         fre_logger.info(
-            f'checking table {index}/{len(table_names)} '
-            f'({table_name}): {check_detail}...',
+            'checking table %s/%s (%s): %s...',
+            index, len(table_names), table_name, check_detail,
         )
         table_started_at = time.monotonic()
         table_target = table_targets_by_name.get(table_name)
@@ -1746,8 +1747,8 @@ def cmor_check_subtool(
         )
         report[table_entry.pop('table_name')] = table_entry
         fre_logger.info(
-            f'finished {table_name} in '
-            f'{time.monotonic() - table_started_at:.1f}s',
+            'finished %s in %.1fs',
+            table_name, time.monotonic() - table_started_at,
         )
 
     if json_output:
@@ -1761,5 +1762,5 @@ def cmor_check_subtool(
             json.dump(report, handle, indent=2)
         fre_logger.info('wrote check report to %s', output_report)
 
-    fre_logger.info(f'complete in {time.monotonic() - started_at:.1f}s')
+    fre_logger.info('complete in %.1fs', time.monotonic() - started_at)
     return report

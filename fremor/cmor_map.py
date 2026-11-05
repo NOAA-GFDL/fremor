@@ -2094,7 +2094,7 @@ def cmor_map_subtool(
     fre_logger.info('loading configuration and variable lists...')
     session = MapSession(yamlfile, table_patterns, ncinfo_bin, dmls_bin)
     fre_logger.debug(
-        f'loaded {len(session.table_names)} MIP table(s) in '
-        f'{time.monotonic() - started_at:.1f}s; starting interface...',
+        'loaded %s MIP table(s) in %.1fs; starting interface...',
+        len(session.table_names), time.monotonic() - started_at,
     )
     MapApp(session).run()
