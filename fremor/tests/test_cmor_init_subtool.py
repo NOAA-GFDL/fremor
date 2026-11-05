@@ -364,15 +364,11 @@ def test_fetch_cmip6plus_cv_no_tables_dir(tmp_path, caplog):
     # Verify the appropriate warning was logged
     assert 'no Tables directory found under' in caplog.text
 
-import stat
-
 def test_fetch_cmip6plus_cv_functional_failure(tmp_path, caplog):
     """
     Test that _fetch_cmip6plus_cv returns None and logs a warning
     when the curl download command fails, using actual execution (no mocks).
     """
-    from fremor.cmor_init import _fetch_cmip6plus_cv
-
     # 1. Create a valid Tables directory structure to pass the first check
     tables_dir = tmp_path / 'tables_root'
     target_dir = tables_dir / 'Tables'

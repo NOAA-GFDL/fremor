@@ -34,7 +34,6 @@ import json
 import logging
 import os
 from pathlib import Path
-from pprint import pformat
 import re
 import shutil
 import subprocess
@@ -47,7 +46,7 @@ import netCDF4 as nc
 from .cmor_helpers import ( from_ds_get_this, create_lev_bnds,
                             get_iso_datetime_ranges, check_dataset_for_ocean_grid, get_vertical_dimension,
                             create_tmp_dir, get_json_file_data, exp_config_overrides, warn_overridden_exp_config,
-                            normalize_calendar, get_time_calendar_ds, get_time_calendar_value,
+                            normalize_calendar, get_time_calendar_ds,
                             calendars_are_equivalent,
                             resolve_mip_era_table_resource, find_ps_companion, table_declares_ps,
                             resolve_cmip7_brand, resolve_input_file_brand, scalar_z_coords,
@@ -143,7 +142,7 @@ def expected_output_prefix(input_file: str, local_var: str, target_var: str,
     try:
         var_brand = resolve_input_file_brand(input_file, local_var, target_var, mip_var_cfgs,
                                              reduce)
-    except Exception as exc:  # pylint: disable=broad-except
+    except Exception as exc:
         fre_logger.warning('could not resolve the CMIP7 brand of %s in %s to look for '
                            'existing output: %s', local_var, input_file, exc)
         return None
@@ -326,7 +325,7 @@ def rewrite_netcdf_file_var( mip_var_cfgs: dict = None,
             '    expected_mip_coord_dims = %s\n',
             expected_mip_coord_dims
         )
-    except Exception as exc:
+    except KeyError as exc:
         fre_logger.warning(
             'could not get expected coordinate dimensions for %s. '
             '   in mip_var_cfgs file %s. \n exc = %s',
@@ -538,7 +537,7 @@ def rewrite_netcdf_file_var( mip_var_cfgs: dict = None,
                                   coord_vals=time_coords,
                                   cell_bounds=time_bnds,
                                   interval=None)#interval='mon')#
-        except Exception as exc: #ValueError as exc: #uncovered
+        except ValueError as exc:
             fre_logger.error('exc is %s', str(exc))
             fre_logger.info('assigning cmor_time WITHOUT time_bnds...')
             ntimes_passed=len(time_coords)
@@ -945,7 +944,7 @@ def cmorize_target_var_files(indir: str = None,
         except Exception as exc:
             cmor_logfile = CMOR_LOG if CMOR_LOG is not None else nc_file_work.replace('.nc','.log')
             _pprint_cmor_logfile(cmor_logfile, None)
-            raise Exception(
+            raise RuntimeError(
                 'problem with rewrite_netcdf_file_var. '
                 f'exc={exc}\n'
                 'exiting and executing finally block.') from exc
@@ -979,8 +978,12 @@ def cmorize_target_var_files(indir: str = None,
                 if Path(local_file_name.replace('.nc', '.log')).exists():
                     mv_log_cmd = f"mv {local_file_name.replace('.nc', '.log')} {filedir}"
                     subprocess.run(mv_log_cmd, shell=True, check=True)
-            except Exception as exc: # this is the fremor.cmor_constants.CMOR_LOGFILE != None case
-                fre_logger.warning('could not move cmor_logfile next to cmorized file, but moving on. exception was:\nexc = %s', exc)
+            except (OSError, subprocess.SubprocessError) as exc:
+                fre_logger.warning(
+                    'could not move cmor_logfile next to cmorized file, but moving on. '
+                    'exception was:\nexc = %s',
+                    exc,
+                )
 
         # delete files in work dirs
         if Path(nc_file_work).exists():
@@ -1295,15 +1298,15 @@ def cmor_run_subtool(indir: str = None,
                              '... there\'s nothing to process, exit')
         vars_to_run[opt_var_name] = opt_var_name
     else:
-        for local_var in var_list:
-            if var_list[local_var] not in mip_var_list: #mip_var_cfgs['variable_entry']:
+        for local_var, target_var in var_list.items():
+            if target_var not in mip_var_list: #mip_var_cfgs['variable_entry']:
                 fre_logger.warning('skipping local_var = %s /\n'
                                    'target_var = %s\n'
-                                   'target_var not found in CMOR variable group', local_var, var_list[local_var])
+                                   'target_var not found in CMOR variable group', local_var, target_var)
                 continue
 
-            fre_logger.info('%s found in %s', var_list[local_var], Path(json_table_config).name)
-            vars_to_run[local_var] = var_list[local_var]
+            fre_logger.info('%s found in %s', target_var, Path(json_table_config).name)
+            vars_to_run[local_var] = target_var
 
     if var_reduce:
         fre_logger.info('reduce methods: %s', var_reduce)

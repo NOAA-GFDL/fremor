@@ -15,62 +15,60 @@ mocked so the tests focus exclusively on the calendar-type routing logic.
 """
 
 import json
+from typing import NamedTuple
 from unittest.mock import patch
-
-import pytest
 
 from fremor.cmor_mixer import cmor_run_subtool
 
 
+class CalendarTestInputs(NamedTuple):
+    """Files and mock inputs shared by the calendar-routing tests."""
+
+    exp_config_file: str
+    var_list_file: str
+    table_config_file: str
+    fake_nc_filenames: list[str]
+
+
 # ---------------------------------------------------------------------------
-# shared fixtures – minimal JSON configs written to tmp_path
+# shared input builder – minimal JSON configs written to tmp_path
 # ---------------------------------------------------------------------------
 
-@pytest.fixture
-def exp_config_file(tmp_path):
-    """Minimal CMIP6 experiment configuration JSON (with outpath for update_outpath)."""
-    config = {
+def _make_calendar_test_inputs(tmp_path):
+    """Write the config files and fake NetCDF paths used by both calendar tests."""
+    exp_config = {
         "mip_era": "cmip6",
         "calendar": "360_day",
         "grid": "test_grid",
         "grid_label": "gn",
         "nominal_resolution": "1 km",
-        "outpath": "."
+        "outpath": ".",
     }
-    path = tmp_path / "exp_config.json"
-    path.write_text(json.dumps(config))
-    return str(path)
+    exp_config_file = tmp_path / "exp_config.json"
+    exp_config_file.write_text(json.dumps(exp_config))
 
+    var_list_file = tmp_path / "var_list.json"
+    var_list_file.write_text(json.dumps({"temp": "temp", "salt": "salt"}))
 
-@pytest.fixture
-def var_list_file(tmp_path):
-    """Variable-list JSON mapping local names to target names."""
-    path = tmp_path / "var_list.json"
-    path.write_text(json.dumps({"temp": "temp", "salt": "salt"}))
-    return str(path)
-
-
-@pytest.fixture
-def table_config_file(tmp_path):
-    """MIP-table JSON with two stub variable entries."""
-    table = {
+    table_config = {
         "variable_entry": {
             "temp": {"frequency": "mon"},
-            "salt": {"frequency": "mon"}
+            "salt": {"frequency": "mon"},
         }
     }
-    path = tmp_path / "table_config.json"
-    path.write_text(json.dumps(table))
-    return str(path)
+    table_config_file = tmp_path / "table_config.json"
+    table_config_file.write_text(json.dumps(table_config))
 
-
-@pytest.fixture
-def fake_nc_filenames(tmp_path):
-    """Return a list of fake NetCDF filenames that glob would find."""
-    return [
+    fake_nc_filenames = [
         str(tmp_path / "mock_test_file.00010101-00041231.temp.nc"),
-        str(tmp_path / "mock_test_file.00010101-00041231.salt.nc")
+        str(tmp_path / "mock_test_file.00010101-00041231.salt.nc"),
     ]
+    return CalendarTestInputs(
+        str(exp_config_file),
+        str(var_list_file),
+        str(table_config_file),
+        fake_nc_filenames,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -89,29 +87,26 @@ _MOCKS = [
 def test_cmor_run_w_cal_type(
     mock_glob,
     mock_cmorize,
-    exp_config_file, # pylint: disable=redefined-outer-name
-    var_list_file, # pylint: disable=redefined-outer-name
-    table_config_file, # pylint: disable=redefined-outer-name
-    fake_nc_filenames, # pylint: disable=redefined-outer-name
     tmp_path
 ):
     """When calendar_type is provided, it is passed on as a dataset override."""
+    calendar_test_inputs = _make_calendar_test_inputs(tmp_path)
 
-    mock_glob.return_value = fake_nc_filenames
+    mock_glob.return_value = calendar_test_inputs.fake_nc_filenames
     mock_cmorize.return_value = 0
     calendar_type = "noleap"
 
     cmor_run_subtool(
         indir            = str(tmp_path),
-        json_var_list    = var_list_file,
-        json_table_config = table_config_file,
-        json_exp_config  = exp_config_file,
+        json_var_list    = calendar_test_inputs.var_list_file,
+        json_table_config = calendar_test_inputs.table_config_file,
+        json_exp_config  = calendar_test_inputs.exp_config_file,
         outdir           = str(tmp_path / "output"),
         calendar_type    = calendar_type
     )
 
     assert mock_cmorize.call_args.kwargs["exp_overrides"] == {"calendar": "365_day"}
-    with open(exp_config_file, encoding="utf-8") as handle:
+    with open(calendar_test_inputs.exp_config_file, encoding="utf-8") as handle:
         assert json.load(handle)["calendar"] == "360_day"
 
 
@@ -120,22 +115,19 @@ def test_cmor_run_w_cal_type(
 def test_cmor_run_no_cal_type(
     mock_glob,
     mock_cmorize,
-    exp_config_file, # pylint: disable=redefined-outer-name
-    var_list_file, # pylint: disable=redefined-outer-name
-    table_config_file, # pylint: disable=redefined-outer-name
-    fake_nc_filenames, # pylint: disable=redefined-outer-name
     tmp_path
 ):
     """When calendar_type is None (default), no calendar override is passed on."""
+    calendar_test_inputs = _make_calendar_test_inputs(tmp_path)
 
-    mock_glob.return_value = fake_nc_filenames
+    mock_glob.return_value = calendar_test_inputs.fake_nc_filenames
     mock_cmorize.return_value = 0
 
     cmor_run_subtool(
         indir            = str(tmp_path),
-        json_var_list    = var_list_file,
-        json_table_config = table_config_file,
-        json_exp_config  = exp_config_file,
+        json_var_list    = calendar_test_inputs.var_list_file,
+        json_table_config = calendar_test_inputs.table_config_file,
+        json_exp_config  = calendar_test_inputs.exp_config_file,
         outdir           = str(tmp_path / "output"),
         calendar_type    = None
     )

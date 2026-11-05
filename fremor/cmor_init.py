@@ -90,7 +90,20 @@ def _cmip6_exp_config_template():
         'grid': '',
         'grid_label': '',
         'nominal_resolution': '',
-        'license': 'CMIP6 model data produced by Lawrence Livermore NOAA-GFDL is licensed under a Creative Commons Attribution 4.0 International License (https://creativecommons.org/licenses/by/4.0/). Consult https://pcmdi.llnl.gov/CMIP6/TermsOfUse for terms of use governing CMIP6 output, including citation requirements and proper acknowledgment. Further information about this data, including some limitations, can be found via the further_info_url (recorded as a global attribute in this file) and at https:///pcmdi.llnl.gov/. The data producers and data providers make no warranty, either express or implied, including, but not limited to, warranties of merchantability and fitness for a particular purpose. All liabilities arising from the supply of the information (including any liability arising in negligence) are excluded to the fullest extent permitted by law.', # pylint: disable=line-too-long
+        'license': (
+            'CMIP6 model data produced by Lawrence Livermore NOAA-GFDL is licensed under a '
+            'Creative Commons Attribution 4.0 International License '
+            '(https://creativecommons.org/licenses/by/4.0/). Consult '
+            'https://pcmdi.llnl.gov/CMIP6/TermsOfUse for terms of use governing CMIP6 output, '
+            'including citation requirements and proper acknowledgment. Further information '
+            'about this data, including some limitations, can be found via the further_info_url '
+            '(recorded as a global attribute in this file) and at https:///pcmdi.llnl.gov/. '
+            'The data producers and data providers make no warranty, either express or implied, '
+            'including, but not limited to, warranties of merchantability and fitness for a '
+            'particular purpose. All liabilities arising from the supply of the information '
+            '(including any liability arising in negligence) are excluded to the fullest extent '
+            'permitted by law.'
+        ),
         # keep this relative. fremor chdir's into <outdir>/CMOR_tmp/ before running CMOR and
         # recovers the final destination by stripping '/CMOR_tmp/' from the path cmor.close()
         # returns, so an absolute outpath escapes that relocation and --outdir is ignored.
@@ -161,7 +174,16 @@ def _cmip6plus_exp_config_template():
         'grid': '',
         'grid_label': '',
         'nominal_resolution': '',
-        'license': 'CMIP6Plus model data produced by NOAA-GFDL is licensed under a Creative Commons Attribution 4.0 International License (https://creativecommons.org/licenses/by/4.0/). Consult https://pcmdi.llnl.gov/CMIP6Plus/TermsOfUse for terms of use governing CMIP6Plus output, including citation requirements and proper acknowledgment. The data producers and data providers make no warranty, either express or implied, including, but not limited to, warranties of merchantability and fitness for a particular purpose. All liabilities arising from the supply of the information (including any liability arising in negligence) are excluded to the fullest extent permitted by law.', # pylint: disable=line-too-long
+        'license': (
+            'CMIP6Plus model data produced by NOAA-GFDL is licensed under a Creative Commons '
+            'Attribution 4.0 International License (https://creativecommons.org/licenses/by/4.0/). '
+            'Consult https://pcmdi.llnl.gov/CMIP6Plus/TermsOfUse for terms of use governing '
+            'CMIP6Plus output, including citation requirements and proper acknowledgment. The data '
+            'producers and data providers make no warranty, either express or implied, including, '
+            'but not limited to, warranties of merchantability and fitness for a particular '
+            'purpose. All liabilities arising from the supply of the information (including any '
+            'liability arising in negligence) are excluded to the fullest extent permitted by law.'
+        ),
         # keep this relative. fremor chdir's into <outdir>/CMOR_tmp/ before running CMOR and
         # recovers the final destination by stripping '/CMOR_tmp/' from the path cmor.close()
         # returns, so an absolute outpath escapes that relocation and --outdir is ignored.
@@ -208,7 +230,17 @@ def _cmip7_exp_config_template():
         '#note': ' **** CMIP7 experiment configuration template – fill in values below ****',
         'contact': 'MIP participant mipmember@foobar.c.om',
         'comment': 'additional important information not fitting into other fields can be placed here',
-        'license': 'CC-BY-4.0; CMIP7 data produced by NOAA-GFDL is licensed under a Creative Commons Attribution 4.0 International License (https://creativecommons.org/licenses/by/4.0). Consult https://wcrp-cmip.github.io/cmip7-guidance/docs/CMIP7/Guidance_for_users/#2-terms-of-use-and-citations-requirements for terms of use governing CMIP7 output, including citation requirements and proper acknowledgment. The data producers and data providers make no warranty, either express or implied, including, but not limited to, warranties of merchantability and fitness for a particular purpose. All liabilities arising from the supply of the information (including any liability arising in negligence) are excluded to the fullest extent permitted by law.', # pylint: disable=line-too-long
+        'license': (
+            'CC-BY-4.0; CMIP7 data produced by NOAA-GFDL is licensed under a Creative Commons '
+            'Attribution 4.0 International License (https://creativecommons.org/licenses/by/4.0). '
+            'Consult https://wcrp-cmip.github.io/cmip7-guidance/docs/CMIP7/Guidance_for_users/'
+            '#2-terms-of-use-and-citations-requirements for terms of use governing CMIP7 output, '
+            'including citation requirements and proper acknowledgment. The data producers and '
+            'data providers make no warranty, either express or implied, including, but not '
+            'limited to, warranties of merchantability and fitness for a particular purpose. All '
+            'liabilities arising from the supply of the information (including any liability '
+            'arising in negligence) are excluded to the fullest extent permitted by law.'
+        ),
         'references': '',
         'drs_specs': 'MIP-DRS7',
         'archive_id': 'WCRP',
@@ -220,7 +252,10 @@ def _cmip7_exp_config_template():
         'parent_mip_era': 'CMIP7',
         'parent_activity_id': 'CMIP',
         'institution_id': 'NOAA-GFDL',
-        'source': 'GFDL-ESM4p5: aerosol: gfdl-am4p5-aerosol; atmosphere: gfdl-am4p5; land-surface: gfdl-lm4p5; ocean-biogeochemistry: cobaltv3p1; ocean: gfdl-om4p5; sea-ice: sis2', # pylint: disable=line-too-long
+        'source': (
+            'GFDL-ESM4p5: aerosol: gfdl-am4p5-aerosol; atmosphere: gfdl-am4p5; land-surface: '
+            'gfdl-lm4p5; ocean-biogeochemistry: cobaltv3p1; ocean: gfdl-om4p5; sea-ice: sis2'
+        ),
         'source_id': 'GFDL-ESM4p5',
         'source_type': '',
         'experiment_id': '',

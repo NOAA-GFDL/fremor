@@ -3,7 +3,6 @@ largely tests for fremor.cmor_config.cmor_config_subtool error conditions / mess
 '''
 
 import json
-import tempfile
 from pathlib import Path
 from unittest.mock import patch
 
@@ -13,12 +12,6 @@ import pytest
 
 from fremor.cmor_config import (_bronx_to_iso_chunk, _load_config_yaml, _recall_static_files,
                                 cmor_config_subtool)
-
-@pytest.fixture
-def temp_dir():
-    ''' fixture yielding a temporary directory '''
-    with tempfile.TemporaryDirectory() as tmpdir:
-        yield tmpdir
 
 
 def test_cmor_config_subtool_noppdir_err(temp_dir): # pylint: disable=redefined-outer-name
@@ -317,5 +310,5 @@ def test_load_config_yaml_rejects_yaml_without_cmor_section(temp_dir): # pylint:
     bad_yaml = Path(temp_dir) / 'bad.yaml'
     bad_yaml.write_text(yaml.safe_dump({'not_cmor': {}}), encoding='utf-8')
 
-    with pytest.raises(ValueError, match="expected a top-level mapping"):
+    with pytest.raises(ValueError, match='expected a top-level mapping'):
         _load_config_yaml(str(bad_yaml))

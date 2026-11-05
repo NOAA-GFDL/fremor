@@ -179,8 +179,8 @@ def _require_binary(binary_name):
     return Path(binary_path)
 
 
-@pytest.fixture(scope='module')
-def modulefile_runtime():
+@pytest.fixture(scope='module', name='modulefile_runtime')
+def _modulefile_runtime():
     """Return the shell/runtime paths required by the modulefile integration tests."""
     _require_binary('ncgen3')
     tcsh_path = _require_binary('tcsh')
@@ -331,34 +331,30 @@ def _assert_job_artifacts(shell_root, shell_name, job_out, job_err, case):
     assert 'aliased' in stdout_text
     assert expected_alias_target not in stderr_text
 
-    for expected_fragment in case.get('expect_stdout_contains', []):
-        assert expected_fragment in stdout_text
-    for rejected_fragment in case.get('expect_stdout_not_contains', []):
-        assert rejected_fragment not in stdout_text
+    _assert_fragments(
+        stdout_text,
+        case.get('expect_stdout_contains', []),
+        case.get('expect_stdout_not_contains', []),
+    )
 
     if case.get('expect_stderr_empty'):
         assert stderr_text == ''
     else:
-        for expected_fragment in case.get('expect_stderr_contains', []):
-            assert expected_fragment in stderr_text
-    for rejected_fragment in case.get('expect_stderr_not_contains', []):
-        assert rejected_fragment not in stderr_text
+        _assert_fragments(stderr_text, case.get('expect_stderr_contains', []), [])
+    _assert_fragments(stderr_text, [], case.get('expect_stderr_not_contains', []))
 
-    if case['expect_output']:
-        expected_output = shell_root / 'output' / EXPECTED_OUTPUT_RELATIVE
-        assert expected_output.exists()
-    else:
-        expected_output = shell_root / 'output' / EXPECTED_OUTPUT_RELATIVE
-        assert not expected_output.exists()
+    expected_output = shell_root / 'output' / EXPECTED_OUTPUT_RELATIVE
+    assert expected_output.exists() == case['expect_output']
 
     log_path = _log_path(shell_root)
     if case.get('expect_log_file'):
         assert log_path.exists()
         log_text = log_path.read_text(encoding='utf-8')
-        for expected_fragment in case.get('expect_log_contains', []):
-            assert expected_fragment in log_text
-        for rejected_fragment in case.get('expect_log_not_contains', []):
-            assert rejected_fragment not in log_text
+        _assert_fragments(
+            log_text,
+            case.get('expect_log_contains', []),
+            case.get('expect_log_not_contains', []),
+        )
     else:
         assert not log_path.exists()
 
@@ -366,6 +362,13 @@ def _assert_job_artifacts(shell_root, shell_name, job_out, job_err, case):
         assert 'fremor is aliased to' in stdout_text
     else:
         assert 'fremor:' in stdout_text
+
+
+def _assert_fragments(text, expected_fragments, rejected_fragments):
+    for expected_fragment in expected_fragments:
+        assert expected_fragment in text
+    for rejected_fragment in rejected_fragments:
+        assert rejected_fragment not in text
 
 
 def test_build_case_command_includes_required_run_args_for_success_case(tmp_path):
@@ -392,8 +395,8 @@ def test_build_case_command_omits_required_run_args_for_error_case(tmp_path):
     assert '--outdir' not in command
 
 
-@pytest.fixture
-def real_slurm_root(tmp_path):
+@pytest.fixture(name='real_slurm_root')
+def _real_slurm_root(tmp_path):
     """Return a Slurm-shared workspace root when real Slurm testing is enabled."""
     if os.environ.get('FREMOR_TEST_REAL_SLURM') != '1':
         pytest.skip('real Slurm integration test not requested')

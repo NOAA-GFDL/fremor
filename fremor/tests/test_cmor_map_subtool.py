@@ -3,10 +3,11 @@ tests for fremor.cmor_map
 '''
 
 import json
-import stat
-import tempfile
-from pathlib import Path
 import logging
+import stat
+from dataclasses import dataclass
+from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 import yaml
@@ -38,21 +39,12 @@ from fremor.cmor_map import (
     _read_exp_grid,
     cmor_map_subtool,
 )
-
-
-@pytest.fixture
-def temp_dir():
-    ''' fixture yielding a temporary directory '''
-    with tempfile.TemporaryDirectory() as tmpdir:
-        yield tmpdir
-
-
-def _write_table(tables_dir, table_name, var_names):
-    variable_entry = {name: {'standard_name': name} for name in var_names}
-    (Path(tables_dir) / f'CMIP6_{table_name}.json').write_text(
-        json.dumps({'Header': {'table_id': f'Table {table_name}'}, 'variable_entry': variable_entry}),
-        encoding='utf-8'
-    )
+from fremor.tests._cmor_test_helpers import (
+    component_entry as _component_entry,
+    minimal_cmor_yaml_doc,
+    table_target as _table_target,
+    write_table as _write_table,
+)
 
 
 def _write_nc_file(nc_path, var_name, units='degC', long_name='a variable'):
@@ -286,41 +278,9 @@ def _make_session_fixture(root_dir):
     return str(pp_dir), str(varlist_dir), str(tables_dir)
 
 
-def _component_entry(component_name, variable_list_path, chunk='P5Y'):
-    return {
-        'component_name': component_name,
-        'variable_list': str(variable_list_path),
-        'data_series_type': 'ts',
-        'chunk': chunk,
-    }
-
-
-def _table_target(table_name, components, freq='monthly'):
-    return {
-        'table_name': table_name,
-        'freq': freq,
-        'gridding': {'grid_label': 'gn', 'grid_desc': 'd', 'nom_res': '100 km'},
-        'target_components': components,
-    }
-
-
 def _write_map_yaml(root_dir, pp_dir, tables_dir, table_targets, mip_era='cmip6'):
     ''' write a minimal but structurally-real cmor yaml (as fremor config would produce) '''
-    doc = {
-        'cmor': {
-            'start': None,
-            'stop': None,
-            'calendar_type': 'noleap',
-            'mip_era': mip_era,
-            'exp_json': str(Path(root_dir) / 'exp.json'),
-            'directories': {
-                'pp_dir': str(pp_dir),
-                'table_dir': str(tables_dir),
-                'outdir': str(Path(root_dir) / 'out'),
-            },
-            'table_targets': table_targets,
-        }
-    }
+    doc = minimal_cmor_yaml_doc(root_dir, pp_dir, tables_dir, table_targets, mip_era)
     yamlfile = Path(root_dir) / 'cmor.yaml'
     yamlfile.write_text(yaml.safe_dump(doc), encoding='utf-8')
     return str(yamlfile)
@@ -728,13 +688,18 @@ def test_mapsession_usage_count_reflects_staged_edits(temp_dir): # pylint: disab
 
 
 # ── selected-CMIP-variable box formatting ───────────────────────────────────
-def test_format_previewtext(temp_dir):
+def test_format_previewtext():
     ''' various returns of _format_preview_text '''
-    assert _format_preview_text(local_var_name = 'foo', source = 'none'  , data = {}) == 'no preview available for variable "foo"'
-    assert _format_preview_text(local_var_name = 'foo', source = 'ncinfo', data = {}) == '[ncinfo] foo\ntype=None dims=()'
-    assert _format_preview_text(local_var_name = 'foo', source = 'ncinfo',
-                         data = {"attributes":[ {'name':'some_attr'},
-                                                {'value':'some_value'} ] }
+    assert _format_preview_text(
+        local_var_name='foo', source='none', data={},
+    ) == 'no preview available for variable "foo"'
+    assert _format_preview_text(
+        local_var_name='foo', source='ncinfo', data={},
+    ) == '[ncinfo] foo\ntype=None dims=()'
+    assert _format_preview_text(
+        local_var_name='foo',
+        source='ncinfo',
+        data={'attributes': [{'name': 'some_attr'}, {'value': 'some_value'}]},
     ) == '[ncinfo] foo\ntype=None dims=()\n  some_attr: None\n  None: some_value'
 
 def test_read_exp_grid(temp_dir, caplog):
@@ -787,17 +752,36 @@ def test_format_selected_cmip_source(temp_dir): # pylint: disable=redefined-oute
 # real keybinding dispatch via pilot.press(), which is the part these tests
 # exist to verify.
 
-class _FakeControl: # pylint: disable=too-few-public-methods
+@dataclass(frozen=True)
+class _FakeControl:
     ''' stand-in for Tree.NodeSelected/.NodeExpanded's `.control` property '''
-    def __init__(self, control_id):
-        self.id = control_id
+
+    id: str
 
 
-class _FakeTreeEvent: # pylint: disable=too-few-public-methods
+@dataclass(init=False)
+class _FakeTreeEvent:
     ''' stand-in for a Tree.NodeSelected/.NodeExpanded message '''
+
+    node: object
+    control: _FakeControl
+
     def __init__(self, node, control_id):
         self.node = node
         self.control = _FakeControl(control_id)
+
+
+def _select_pp_file(app, local_key):
+    """Expand the PP tree to files and select the file with the requested key."""
+    node = app.query_one('#pp_tree').root.children[0]
+    for _ in range(2):
+        app.on_tree_node_expanded(_FakeTreeEvent(node, 'pp_tree'))
+        node = node.children[0]
+    app.on_tree_node_expanded(_FakeTreeEvent(node, 'pp_tree'))
+    file_node = next(
+        child for child in node.children if child.data['local_key'] == local_key
+    )
+    app.on_tree_node_selected(_FakeTreeEvent(file_node, 'pp_tree'))
 
 
 @pytest.mark.asyncio
@@ -869,8 +853,11 @@ async def test_map_app_assign_mapping(temp_dir): # pylint: disable=redefined-out
 
     comp_ts_dir = Path(pp_dir) / 'atmos' / 'ts' / 'monthly' / '5yr'
     comp_ts_dir.mkdir(parents=True)
-    nc_path = comp_ts_dir / 'atmos.000101-000512.pr.nc'
-    _write_nc_file(nc_path, 'pr', units='kg m-2 s-1')
+    _write_nc_file(
+        comp_ts_dir / 'atmos.000101-000512.pr.nc',
+        'pr',
+        units='kg m-2 s-1',
+    )
 
     yamlfile = _amon_yaml(temp_dir, pp_dir, varlist_dir, tables_dir, component_names=['atmos'])
     session = MapSession(yamlfile)
@@ -888,15 +875,7 @@ async def test_map_app_assign_mapping(temp_dir): # pylint: disable=redefined-out
         selected_box = app.query_one('#selected_cmip')
         assert 'Amon' in selected_box.content and 'pr' in selected_box.content
 
-        pp_tree = app.query_one('#pp_tree')
-        component_node = pp_tree.root.children[0]
-        app.on_tree_node_expanded(_FakeTreeEvent(component_node, 'pp_tree'))
-        freq_node = component_node.children[0]
-        app.on_tree_node_expanded(_FakeTreeEvent(freq_node, 'pp_tree'))
-        chunk_node = freq_node.children[0]
-        app.on_tree_node_expanded(_FakeTreeEvent(chunk_node, 'pp_tree'))
-        file_node = chunk_node.children[0]
-        app.on_tree_node_selected(_FakeTreeEvent(file_node, 'pp_tree'))
+        _select_pp_file(app, 'pr')
         assert app.selected_pp['local_key'] == 'pr'
         await pilot.pause()
 
@@ -955,15 +934,7 @@ async def test_map_app_assign_mapping_reassigns_and_clears_old_source(temp_dir):
         # land afterward and clobber selected_pp back to the old file.
         await pilot.pause()
 
-        pp_tree = app.query_one('#pp_tree')
-        component_node = pp_tree.root.children[0]
-        app.on_tree_node_expanded(_FakeTreeEvent(component_node, 'pp_tree'))
-        freq_node = component_node.children[0]
-        app.on_tree_node_expanded(_FakeTreeEvent(freq_node, 'pp_tree'))
-        chunk_node = freq_node.children[0]
-        app.on_tree_node_expanded(_FakeTreeEvent(chunk_node, 'pp_tree'))
-        new_file_node = next(n for n in chunk_node.children if n.data['local_key'] == 't_ref2')
-        app.on_tree_node_selected(_FakeTreeEvent(new_file_node, 'pp_tree'))
+        _select_pp_file(app, 't_ref2')
         await pilot.pause()
 
         await pilot.press('m')
@@ -1136,33 +1107,45 @@ def _fake_dmls(monkeypatch, dmls_bin, state_by_path):
     monkeypatch.setattr(
         'shutil.which', lambda name: dmls_bin if name == 'dmls' else None)
 
-    class _FakeResult: # pylint: disable=too-few-public-methods
-        def __init__(self, stdout):
-            self.stdout = stdout
-
     def _fake_run(cmd, **kwargs): # pylint: disable=unused-argument
         assert cmd[0] == dmls_bin
         path = cmd[-1]
         state = state_by_path[path]
-        return _FakeResult(f'-rw-r--r-- 1 user group 123 Jan 1 12:00 ({state}) {path}\n')
+        return SimpleNamespace(
+            stdout=f'-rw-r--r-- 1 user group 123 Jan 1 12:00 ({state}) {path}\n')
 
     monkeypatch.setattr(subprocess_mod, 'run', _fake_run)
+
+
+def _make_pp_preview_app(temp_dir, monkeypatch, dmls_state=None, variables=(('pr', 'kg m-2 s-1'),)):
+    ''' build a preview app with pp files, optionally mocking their dmls residency state '''
+    if dmls_state is None:
+        monkeypatch.setattr('shutil.which', lambda _: None)
+
+    pp_dir, varlist_dir, tables_dir = _make_session_fixture(temp_dir)
+    comp_ts_dir = Path(pp_dir) / 'atmos' / 'ts' / 'monthly' / '5yr'
+    comp_ts_dir.mkdir(parents=True)
+
+    for local_key, units in variables:
+        nc_path = comp_ts_dir / f'atmos.000101-000512.{local_key}.nc'
+        _write_nc_file(nc_path, local_key, units=units)
+
+    if dmls_state is not None:
+        state_by_path = {
+            str(comp_ts_dir / f'atmos.000101-000512.{local_key}.nc'): dmls_state
+            for local_key, _ in variables
+        }
+        _fake_dmls(monkeypatch, '/usr/bin/dmls', state_by_path)
+
+    yamlfile = _amon_yaml(temp_dir, pp_dir, varlist_dir, tables_dir, component_names=['atmos'])
+    return MapApp(MapSession(yamlfile))
 
 
 @pytest.mark.asyncio
 async def test_pp_preview_shows_tape_message_when_offline(temp_dir, monkeypatch): # pylint: disable=redefined-outer-name
     ''' a pp file whose dmls status is anything other than REG/DUL (still on tape) shows a
     "still on tape" message instead of a preview -- ncinfo/netCDF4 are never even attempted '''
-    pp_dir, varlist_dir, tables_dir = _make_session_fixture(temp_dir)
-
-    comp_ts_dir = Path(pp_dir) / 'atmos' / 'ts' / 'monthly' / '5yr'
-    comp_ts_dir.mkdir(parents=True)
-    nc_path = comp_ts_dir / 'atmos.000101-000512.pr.nc'
-    _write_nc_file(nc_path, 'pr', units='kg m-2 s-1')
-    _fake_dmls(monkeypatch, '/usr/bin/dmls', {str(nc_path): 'OFL'})
-
-    yamlfile = _amon_yaml(temp_dir, pp_dir, varlist_dir, tables_dir, component_names=['atmos'])
-    app = MapApp(MapSession(yamlfile))
+    app = _make_pp_preview_app(temp_dir, monkeypatch, dmls_state='OFL')
 
     async with app.run_test() as pilot:
         pp_tree = app.query_one('#pp_tree')
@@ -1186,16 +1169,7 @@ async def test_pp_preview_shows_tape_message_when_offline(temp_dir, monkeypatch)
 @pytest.mark.asyncio
 async def test_pp_preview_shown_when_dmls_reports_disk_resident(temp_dir, monkeypatch): # pylint: disable=redefined-outer-name
     ''' a pp file whose dmls status is REG or DUL is previewed normally '''
-    pp_dir, varlist_dir, tables_dir = _make_session_fixture(temp_dir)
-
-    comp_ts_dir = Path(pp_dir) / 'atmos' / 'ts' / 'monthly' / '5yr'
-    comp_ts_dir.mkdir(parents=True)
-    nc_path = comp_ts_dir / 'atmos.000101-000512.pr.nc'
-    _write_nc_file(nc_path, 'pr', units='kg m-2 s-1')
-    _fake_dmls(monkeypatch, '/usr/bin/dmls', {str(nc_path): 'DUL'})
-
-    yamlfile = _amon_yaml(temp_dir, pp_dir, varlist_dir, tables_dir, component_names=['atmos'])
-    app = MapApp(MapSession(yamlfile))
+    app = _make_pp_preview_app(temp_dir, monkeypatch, dmls_state='DUL')
 
     async with app.run_test() as pilot:
         pp_tree = app.query_one('#pp_tree')
@@ -1221,15 +1195,7 @@ async def test_pp_preview_shown_when_dmls_reports_disk_resident(temp_dir, monkey
 async def test_pp_preview_falls_back_to_stat_heuristic_without_dmls(temp_dir, monkeypatch): # pylint: disable=redefined-outer-name
     ''' with no dmls binary available at all, a normal on-disk file still previews (via the
     stat-based residency heuristic) instead of being reported as on tape '''
-    monkeypatch.setattr('shutil.which', lambda _: None)
-    pp_dir, varlist_dir, tables_dir = _make_session_fixture(temp_dir)
-
-    comp_ts_dir = Path(pp_dir) / 'atmos' / 'ts' / 'monthly' / '5yr'
-    comp_ts_dir.mkdir(parents=True)
-    _write_nc_file(comp_ts_dir / 'atmos.000101-000512.pr.nc', 'pr', units='kg m-2 s-1')
-
-    yamlfile = _amon_yaml(temp_dir, pp_dir, varlist_dir, tables_dir, component_names=['atmos'])
-    app = MapApp(MapSession(yamlfile))
+    app = _make_pp_preview_app(temp_dir, monkeypatch)
 
     async with app.run_test() as pilot:
         pp_tree = app.query_one('#pp_tree')
@@ -1254,16 +1220,11 @@ async def test_pp_preview_shows_latest_selection_after_rapid_switch(temp_dir, mo
     ''' selecting a second pp file before the first one's preview has finished loading still
     ends up showing the second file's preview, never the first's -- the in-flight preview
     for the first selection is effectively cancelled from the user's point of view '''
-    monkeypatch.setattr('shutil.which', lambda _: None)
-    pp_dir, varlist_dir, tables_dir = _make_session_fixture(temp_dir)
-
-    comp_ts_dir = Path(pp_dir) / 'atmos' / 'ts' / 'monthly' / '5yr'
-    comp_ts_dir.mkdir(parents=True)
-    _write_nc_file(comp_ts_dir / 'atmos.000101-000512.tas.nc', 'tas', units='K')
-    _write_nc_file(comp_ts_dir / 'atmos.000101-000512.pr.nc', 'pr', units='kg m-2 s-1')
-
-    yamlfile = _amon_yaml(temp_dir, pp_dir, varlist_dir, tables_dir, component_names=['atmos'])
-    app = MapApp(MapSession(yamlfile))
+    app = _make_pp_preview_app(
+        temp_dir,
+        monkeypatch,
+        variables=(('tas', 'K'), ('pr', 'kg m-2 s-1')),
+    )
 
     async with app.run_test() as pilot:
         pp_tree = app.query_one('#pp_tree')
@@ -1383,15 +1344,7 @@ async def test_map_app_undo_key(temp_dir): # pylint: disable=redefined-outer-nam
         pr_node = next(n for n in unmapped_node.children if n.data['var'] == 'pr')
         app.on_tree_node_selected(_FakeTreeEvent(pr_node, 'cmip_tree'))
 
-        pp_tree = app.query_one('#pp_tree')
-        component_node = pp_tree.root.children[0]
-        app.on_tree_node_expanded(_FakeTreeEvent(component_node, 'pp_tree'))
-        freq_node = component_node.children[0]
-        app.on_tree_node_expanded(_FakeTreeEvent(freq_node, 'pp_tree'))
-        chunk_node = freq_node.children[0]
-        app.on_tree_node_expanded(_FakeTreeEvent(chunk_node, 'pp_tree'))
-        file_node = chunk_node.children[0]
-        app.on_tree_node_selected(_FakeTreeEvent(file_node, 'pp_tree'))
+        _select_pp_file(app, 'pr')
         await pilot.pause()
 
         await pilot.press('m')
@@ -1729,14 +1682,7 @@ async def test_map_app_clear_mapping_keeps_variable_selected(temp_dir): # pylint
         assert app.selected_cmip_node is source_node
         assert app.query_one('#selected_cmip').content == 'selected: Amon / tas'
 
-        pp_tree = app.query_one('#pp_tree')
-        component_node = pp_tree.root.children[0]
-        app.on_tree_node_expanded(_FakeTreeEvent(component_node, 'pp_tree'))
-        freq_node = component_node.children[0]
-        app.on_tree_node_expanded(_FakeTreeEvent(freq_node, 'pp_tree'))
-        chunk_node = freq_node.children[0]
-        app.on_tree_node_expanded(_FakeTreeEvent(chunk_node, 'pp_tree'))
-        app.on_tree_node_selected(_FakeTreeEvent(chunk_node.children[0], 'pp_tree'))
+        _select_pp_file(app, 't_surf')
         await pilot.press('m')
         await pilot.pause()
 
@@ -2207,16 +2153,8 @@ async def test_map_app_assign_mapping_blocked_on_freq_mismatch(temp_dir): # pyli
         pr_node = next(n for n in unmapped_node.children if n.data['var'] == 'pr')
         app.on_tree_node_selected(_FakeTreeEvent(pr_node, 'cmip_tree'))
 
-        pp_tree = app.query_one('#pp_tree')
-        component_node = pp_tree.root.children[0]
-        app.on_tree_node_expanded(_FakeTreeEvent(component_node, 'pp_tree'))
-        freq_node = component_node.children[0]
-        assert freq_node.data['freq'] == 'daily'
-        app.on_tree_node_expanded(_FakeTreeEvent(freq_node, 'pp_tree'))
-        chunk_node = freq_node.children[0]
-        app.on_tree_node_expanded(_FakeTreeEvent(chunk_node, 'pp_tree'))
-        file_node = chunk_node.children[0]
-        app.on_tree_node_selected(_FakeTreeEvent(file_node, 'pp_tree'))
+        _select_pp_file(app, 'pr')
+        assert app.query_one('#pp_tree').root.children[0].children[0].data['freq'] == 'daily'
         await pilot.pause()
 
         notifications = []
@@ -2255,16 +2193,11 @@ async def test_map_app_assign_mapping_blocked_on_chunk_mismatch(temp_dir): # pyl
         pr_node = next(n for n in unmapped_node.children if n.data['var'] == 'pr')
         app.on_tree_node_selected(_FakeTreeEvent(pr_node, 'cmip_tree'))
 
-        pp_tree = app.query_one('#pp_tree')
-        component_node = pp_tree.root.children[0]
-        app.on_tree_node_expanded(_FakeTreeEvent(component_node, 'pp_tree'))
-        freq_node = component_node.children[0]
-        app.on_tree_node_expanded(_FakeTreeEvent(freq_node, 'pp_tree'))
-        chunk_node = freq_node.children[0]
-        assert chunk_node.data['chunk'] == '10yr'
-        app.on_tree_node_expanded(_FakeTreeEvent(chunk_node, 'pp_tree'))
-        file_node = chunk_node.children[0]
-        app.on_tree_node_selected(_FakeTreeEvent(file_node, 'pp_tree'))
+        _select_pp_file(app, 'pr')
+        assert (
+            app.query_one('#pp_tree').root.children[0].children[0].children[0].data['chunk']
+            == '10yr'
+        )
         await pilot.pause()
 
         notifications = []
@@ -2941,10 +2874,8 @@ async def test_map_app_lists_unknown_mappings_in_unknown_branch(temp_dir):
 async def test_map_app_populates_static_file_and_blocks_mapping_to_time_varying_table(temp_dir):
     ''' real static NetCDF data appears as a pp-tree leaf but cannot be mapped to a monthly table '''
     pp_dir, varlist_dir, tables_dir = _make_session_fixture(temp_dir)
-    component_dir = Path(pp_dir) / 'atmos'
-    component_dir.mkdir()
-    static_path = component_dir / 'atmos.static.nc'
-    with Dataset(static_path, 'w') as ds:
+    Path(pp_dir, 'atmos').mkdir()
+    with Dataset(Path(pp_dir, 'atmos', 'atmos.static.nc'), 'w') as ds:
         ds.createDimension('lat', 2)
         ds.createVariable('ps_local', 'f4', ('lat',))
     (Path(varlist_dir) / 'CMIP6_Amon_atmos.list').write_text('{}', encoding='utf-8')

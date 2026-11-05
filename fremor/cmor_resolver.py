@@ -40,6 +40,20 @@ def _load_yaml_dict(yaml_path: Path) -> dict:
     return loaded
 
 
+def _load_selected_yaml_sections(yaml_paths: list[Path]) -> dict:
+    """Concatenate YAML files and retain the sections used by downstream tools."""
+    combined_yaml_text = ''.join(
+        yaml_path.read_text(encoding='utf-8') + '\n'
+        for yaml_path in yaml_paths
+    )
+    combined_yaml = yaml.safe_load(combined_yaml_text)
+    return {
+        key: combined_yaml[key]
+        for key in ('fre_properties', 'grids', 'cmor')
+        if key in combined_yaml
+    }
+
+
 def resolve_fremor_yaml(yamlfile: str,
                         experiment: str,
                         output: Optional[str] = None) -> dict:
@@ -94,18 +108,8 @@ def resolve_fremor_yaml(yamlfile: str,
     for grid_yaml_path in grid_yaml_paths:
         check_path_existence(str(grid_yaml_path))
 
-    combined_yaml_text = ''
-    for yaml_path in [model_yaml_path, *grid_yaml_paths, cmor_yaml_path]:
-        combined_yaml_text += yaml_path.read_text(encoding='utf-8')
-        combined_yaml_text += '\n'
-
-    combined_yaml = yaml.safe_load(combined_yaml_text)
-
-    resolved_yaml = {
-        key: combined_yaml[key]
-        for key in ('fre_properties', 'grids', 'cmor')
-        if key in combined_yaml
-    }
+    resolved_yaml = _load_selected_yaml_sections(
+        [model_yaml_path, *grid_yaml_paths, cmor_yaml_path])
 
     if output is not None:
         with open(output, 'w', encoding='utf-8') as handle:

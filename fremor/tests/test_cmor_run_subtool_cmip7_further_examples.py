@@ -15,14 +15,16 @@ configuration and CMIP7-format CMOR tables.
 """
 
 from datetime import date
-import glob
 import json
-from pathlib import Path
 
 import pytest
-from netCDF4 import Dataset
 
 from fremor import cmor_run_subtool
+from fremor.tests._cmor_test_helpers import (
+    assert_cmor_output_matches_input,
+    find_cmor_output,
+    ncgen_for_case as _ncgen_for_case,
+)
 from fremor.tests.conftest import ncgen
 
 
@@ -54,39 +56,6 @@ ESM4_DEV_PP_DIR = (
 CMOR_CREATES_DIR_BASE_CMIP7 = (
     'CMIP/GFDL-ESM4p5/historical/r3i1p1f3'
 )
-
-
-# ── helper: convert CDLs to NC in a test directory ─────────────────────────
-def _ncgen_for_case(testfile_dir, opt_var_name):
-    """
-    Convert the CDL file(s) for *opt_var_name* to NetCDF-4 inside *testfile_dir*.
-
-    Returns the path to the primary NC file. Also generates ancillary files
-    (e.g. ``ps.nc`` for ``cl`` / ``mc``, ``ocean_monthly.static.nc`` for native
-    ocean grid variables).
-    """
-    cdl_files = glob.glob(f'{testfile_dir}*.{opt_var_name}.cdl')
-    assert len(cdl_files) >= 1, (
-        f'no CDL file found for variable {opt_var_name} in {testfile_dir}'
-    )
-    cdl_file = cdl_files[0]
-    nc_file = cdl_file.replace('.cdl', '.nc')
-    ncgen(cdl_file, nc_file)
-
-    # ancillary files required by specific variables
-    if opt_var_name in ('cl', 'mc'):
-        ps_cdl = cdl_file.replace(f'{opt_var_name}.cdl', 'ps.cdl')
-        assert Path(ps_cdl).exists(), f'ps CDL not found: {ps_cdl}'
-        ncgen(ps_cdl, ps_cdl.replace('.cdl', '.nc'))
-
-    elif opt_var_name == 'sos':
-        static_cdl = testfile_dir.replace(
-            'ts/monthly/5yr/', 'ocean_monthly.static.cdl'
-        )
-        if Path(static_cdl).exists():
-            ncgen(static_cdl, static_cdl.replace('.cdl', '.nc'))
-
-    return nc_file
 
 
 # ── CMIP7 parametrized tests ──────────────────────────────────────────────
@@ -156,35 +125,31 @@ def test_case_cmip7(  # pylint: disable=too-many-arguments,too-many-positional-a
     """
     Run cmor_run_subtool for a single CMIP7 variable and assert output exists.
     """
-    local_var_name = opt_var_name
-    target_var_name = local_var_name
+    target_var_name = opt_var_name
     varlist = CMORBITE_VARLIST
-    selected_var_name = local_var_name
-    if local_var_name == 'ch4global':
+    if opt_var_name == 'ch4global':
         # CMIP7 names the global-mean methane target `ch4`; use the local
         # variable name as the varlist key and let the table select its brand.
         target_var_name = 'ch4'
-        varlist_path = tmp_path / 'ch4global_varlist.json'
-        varlist_path.write_text(
-            json.dumps({local_var_name: target_var_name}),
+        varlist = tmp_path / 'ch4global_varlist.json'
+        varlist.write_text(
+            json.dumps({opt_var_name: target_var_name}),
             encoding='utf-8',
         )
-        varlist = str(varlist_path)
-        selected_var_name = None
 
-    input_nc = _ncgen_for_case(testfile_dir, local_var_name)
+    input_nc = _ncgen_for_case(testfile_dir, opt_var_name, ncgen)
 
     table_file = f'{CMIP7_TABLE_REPO_PATH}/tables/{table}.json'
     outdir = str(tmp_path / 'outdir')
 
     cmor_run_subtool(
         indir=testfile_dir,
-        json_var_list=varlist,
+        json_var_list=str(varlist),
         json_table_config=table_file,
         json_exp_config=EXP_CONFIG_CMIP7,
         outdir=outdir,
         run_one_mode=True,
-        opt_var_name=selected_var_name,
+        opt_var_name=None if opt_var_name == 'ch4global' else opt_var_name,
         grid='FOO_PLACEHOLDER',
         grid_label=grid_label,
         nom_res='100 km',
@@ -197,24 +162,15 @@ def test_case_cmip7(  # pylint: disable=too-many-arguments,too-many-positional-a
         f'{outdir}/{CMOR_CREATES_DIR_BASE_CMIP7}'
         f'/{target_var_name}/**/*{target_var_name}*{grid_label}*.nc'
     )
-    cmor_output_files = glob.glob(cmor_output_glob, recursive=True)
-    assert len(cmor_output_files) >= 1, (
-        f'no CMOR output found matching {cmor_output_glob}'
+    cmor_output_file = find_cmor_output(cmor_output_glob)
+    assert_cmor_output_matches_input(
+        input_nc,
+        cmor_output_file,
+        opt_var_name,
+        target_var_name,
+        expected_standard_name=(
+            'mole_fraction_of_methane_in_air'
+            if opt_var_name == 'ch4global'
+            else None
+        ),
     )
-    assert Path(cmor_output_files[0]).exists()
-
-    # dtype must be preserved between input and CMOR output
-    with Dataset(input_nc) as ds_in, Dataset(cmor_output_files[0]) as ds_out:
-        assert target_var_name in ds_out.variables, (
-            f'CMOR output does not contain mapped variable {target_var_name}'
-        )
-        in_dtype = ds_in.variables[local_var_name][:].dtype
-        out_dtype = ds_out.variables[target_var_name][:].dtype
-        assert in_dtype == out_dtype, (
-            f'{local_var_name} input dtype {in_dtype} differs from '
-            f'{target_var_name} CMOR output dtype {out_dtype}'
-        )
-        if local_var_name == 'ch4global':
-            assert ds_out.variables[target_var_name].standard_name == (
-                'mole_fraction_of_methane_in_air'
-            )

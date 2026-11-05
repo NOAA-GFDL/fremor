@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 import shutil
 import subprocess
+import tempfile
 
 import pytest
 
@@ -203,6 +204,13 @@ _CMIP7_EXP_CONFIG_DATA = {
 
 
 # ── experiment-config fixtures ──────────────────────────────────────────────
+@pytest.fixture
+def temp_dir():
+    """Yield a temporary directory for tests that need a string path."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        yield tmpdir
+
+
 @pytest.fixture(autouse=True, scope='session')
 def _write_exp_configs():
     """Write both experiment-config JSONs to ROOTDIR at the start of every session.

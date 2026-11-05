@@ -127,7 +127,7 @@ def test_cli_fremor_ddebug_logfile(mock_subtool, tmp_path):
     dummy_yaml = tmp_path / 'cmor.yaml'
     dummy_yaml.write_text('placeholder', encoding='utf-8')
 
-    def _emit_ddebug(*args, **kwargs):
+    def _emit_ddebug(*_args, **_kwargs):
         logging.getLogger('fremor.cli').ddebug('deep debug enabled')
 
     mock_subtool.side_effect = _emit_ddebug
@@ -962,67 +962,65 @@ def test_cli_fremor_init_cmip6plus_exp_config(tmp_path):
     assert 'output_path_template' in config
 
 
-def test_cli_fremor_init_cmip6_default_name(tmp_path):
+def test_cli_fremor_init_cmip6_default_name(tmp_path, monkeypatch):
     """
     fremor init -- when no --exp_config is given and no --tables_dir,
     a default-named file should be created in the current directory.
     """
-    # Use CliRunner's isolated_filesystem to avoid polluting the actual working directory
-    with runner.isolated_filesystem(temp_dir=tmp_path):
-        result = runner.invoke(fremor, args=[
-            'init',
-            '--mip_era', 'cmip6'
-        ])
-        assert result.exit_code == 0, f'init failed: {result.output}'
+    monkeypatch.chdir(tmp_path)
+    result = runner.invoke(fremor, args=[
+        'init',
+        '--mip_era', 'cmip6'
+    ])
+    assert result.exit_code == 0, f'init failed: {result.output}'
 
-        default_path = Path('CMOR_cmip6_template.json')
-        assert default_path.exists(), 'default output config was not created'
+    default_path = Path('CMOR_cmip6_template.json')
+    assert default_path.exists(), 'default output config was not created'
 
-        with open(default_path, 'r', encoding='utf-8') as f:
-            config = json.load(f)
-        assert config['mip_era'] == 'CMIP6'
+    with open(default_path, 'r', encoding='utf-8') as f:
+        config = json.load(f)
+    assert config['mip_era'] == 'CMIP6'
 
-def test_cli_fremor_init_cmip6plus_default_name(tmp_path):
+
+def test_cli_fremor_init_cmip6plus_default_name(tmp_path, monkeypatch):
     """
     fremor init -- when no --exp_config is given and no --tables_dir,
     a default-named file should be created in the current directory.
     """
-    # Use CliRunner's isolated_filesystem to avoid polluting the actual working directory
-    with runner.isolated_filesystem(temp_dir=tmp_path):
-        result = runner.invoke(fremor, args=[
-            'init',
-            '--mip_era', 'cmip6plus'
-        ])
-        assert result.exit_code == 0, f'init failed: {result.output}'
+    monkeypatch.chdir(tmp_path)
+    result = runner.invoke(fremor, args=[
+        'init',
+        '--mip_era', 'cmip6plus'
+    ])
+    assert result.exit_code == 0, f'init failed: {result.output}'
 
-        default_path = Path('CMOR_cmip6plus_template.json')
-        assert default_path.exists(), 'default output config was not created'
+    default_path = Path('CMOR_cmip6plus_template.json')
+    assert default_path.exists(), 'default output config was not created'
 
-        with open(default_path, 'r', encoding='utf-8') as f:
-            config = json.load(f)
-        assert config['mip_era'] == 'CMIP6Plus'
-
+    with open(default_path, 'r', encoding='utf-8') as f:
+        config = json.load(f)
+    assert config['mip_era'] == 'CMIP6Plus'
 
 
-def test_cli_fremor_init_cmip7_default_name(tmp_path):
+
+def test_cli_fremor_init_cmip7_default_name(tmp_path, monkeypatch):
     """
     fremor init -- when no --exp_config is given and no --tables_dir,
     a default-named file should be created in the current directory.
     """
-    # Use CliRunner's isolated_filesystem to avoid polluting the actual working directory
-    with runner.isolated_filesystem(temp_dir=tmp_path):
-        result = runner.invoke(fremor, args=[
-            'init',
-            '--mip_era', 'cmip7'
-        ])
-        assert result.exit_code == 0, f'init failed: {result.output}'
+    monkeypatch.chdir(tmp_path)
+    result = runner.invoke(fremor, args=[
+        'init',
+        '--mip_era', 'cmip7'
+    ])
+    assert result.exit_code == 0, f'init failed: {result.output}'
 
-        default_path = Path('CMOR_cmip7_template.json')
-        assert default_path.exists(), 'default output config was not created'
+    default_path = Path('CMOR_cmip7_template.json')
+    assert default_path.exists(), 'default output config was not created'
 
-        with open(default_path, 'r', encoding='utf-8') as f:
-            config = json.load(f)
-        assert config['mip_era'] == 'CMIP7'
+    with open(default_path, 'r', encoding='utf-8') as f:
+        config = json.load(f)
+    assert config['mip_era'] == 'CMIP7'
 
 
 def test_cli_fremor_init_exp_config_and_tables_dir_have_consistent_layout(tmp_path):
@@ -1170,8 +1168,8 @@ def test_cli_fremor_yaml_misplaced_global_verbose_flag():
     # Test with a short flag (-v) on the yaml subcommand
     result_v = runner.invoke(fremor, args=['yaml', '-v'])
     assert result_v.exit_code == 2
-    assert "Error: The \"-v\" flag is in the wrong spot." in result_v.output
-    assert "Global flags must be placed before the command (e.g., `fremor -v yaml`)." in result_v.output
+    assert 'Error: The "-v" flag is in the wrong spot.' in result_v.output
+    assert 'Global flags must be placed before the command (e.g., `fremor -v yaml`).' in result_v.output
 
 
 def test_cli_fremor_run_misplaced_global_quiet_flag():
@@ -1184,8 +1182,8 @@ def test_cli_fremor_run_misplaced_global_quiet_flag():
     # Test with a long flag (--quiet) on the run subcommand
     result_q = runner.invoke(fremor, args=['run', '--quiet'])
     assert result_q.exit_code == 2
-    assert "Error: The \"--quiet\" flag is in the wrong spot." in result_q.output
-    assert "Global flags must be placed before the command (e.g., `fremor --quiet run`)." in result_q.output
+    assert 'Error: The "--quiet" flag is in the wrong spot.' in result_q.output
+    assert 'Global flags must be placed before the command (e.g., `fremor --quiet run`).' in result_q.output
 
 def test_cli_fremor_genuinely_unknown_flag():
     """
@@ -1199,7 +1197,7 @@ def test_cli_fremor_genuinely_unknown_flag():
     assert result.exit_code == 2
 
     # Ensure our custom message was bypassed
-    assert "is in the wrong spot" not in result.output
+    assert 'is in the wrong spot' not in result.output
 
     # Ensure the standard click exception was re-raised and handled
-    assert "Error: No such option '--made-up-flag'" in result.output
+    assert 'Error: No such option \'--made-up-flag\'' in result.output

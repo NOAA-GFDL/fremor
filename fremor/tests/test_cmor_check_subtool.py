@@ -3,9 +3,9 @@ tests for fremor.cmor_check.cmor_check_subtool
 '''
 
 import json
-import tempfile
 import logging
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -14,43 +14,16 @@ from netCDF4 import Dataset
 
 from fremor import cmor_check as check_module
 from fremor.cmor_check import cmor_check_subtool
-
-
-@pytest.fixture
-def temp_dir():
-    ''' fixture yielding a temporary directory '''
-    with tempfile.TemporaryDirectory() as tmpdir:
-        yield tmpdir
-
-
-def _write_table(tables_dir, table_name, var_names):
-    variable_entry = {name: {'standard_name': name} for name in var_names}
-    (Path(tables_dir) / f'CMIP6_{table_name}.json').write_text(
-        json.dumps({'Header': {'table_id': f'Table {table_name}'}, 'variable_entry': variable_entry}),
-        encoding='utf-8'
-    )
+from fremor.tests._cmor_test_helpers import (
+    component_entry as _component_entry,
+    minimal_cmor_yaml_doc,
+    table_target as _table_target,
+    write_table as _write_table,
+)
 
 
 def _write_amon_table(tables_dir, var_names):
     _write_table(tables_dir, 'Amon', var_names)
-
-
-def _component_entry(component_name, variable_list_path, chunk='P5Y'):
-    return {
-        'component_name': component_name,
-        'variable_list': str(variable_list_path),
-        'data_series_type': 'ts',
-        'chunk': chunk,
-    }
-
-
-def _table_target(table_name, components, freq='monthly'):
-    return {
-        'table_name': table_name,
-        'freq': freq,
-        'gridding': {'grid_label': 'gn', 'grid_desc': 'd', 'nom_res': '100 km'},
-        'target_components': components,
-    }
 
 
 def _write_yaml(temp_dir, table_targets, mip_era='cmip6', pp_dir=None, table_dir=None): # pylint: disable=redefined-outer-name
@@ -60,22 +33,7 @@ def _write_yaml(temp_dir, table_targets, mip_era='cmip6', pp_dir=None, table_dir
     pp_dir.mkdir(parents=True, exist_ok=True)
     table_dir = Path(table_dir) if table_dir else temp_root / 'tables'
     table_dir.mkdir(parents=True, exist_ok=True)
-
-    doc = {
-        'cmor': {
-            'start': None,
-            'stop': None,
-            'calendar_type': 'noleap',
-            'mip_era': mip_era,
-            'exp_json': str(temp_root / 'exp.json'),
-            'directories': {
-                'pp_dir': str(pp_dir),
-                'table_dir': str(table_dir),
-                'outdir': str(temp_root / 'out'),
-            },
-            'table_targets': table_targets,
-        }
-    }
+    doc = minimal_cmor_yaml_doc(temp_root, pp_dir, table_dir, table_targets, mip_era)
     yamlfile = temp_root / 'cmor.yaml'
     yamlfile.write_text(yaml.safe_dump(doc), encoding='utf-8')
     return str(yamlfile)
@@ -502,7 +460,7 @@ def test_cmor_check_subtool_all_disabled_returns_empty_report(temp_dir): # pylin
     disabled_amon['disabled'] = True
     yamlfile = _write_yaml(temp_dir, [disabled_amon], table_dir=tables_dir)
 
-    assert cmor_check_subtool(yamlfile=yamlfile, table_patterns=['Amon']) == {}
+    assert not cmor_check_subtool(yamlfile=yamlfile, table_patterns=['Amon'])
 
 
 def test_cmor_check_subtool_reports_startup_progress(temp_dir, capsys, caplog): # pylint: disable=redefined-outer-name
@@ -521,7 +479,7 @@ def test_cmor_check_subtool_reports_startup_progress(temp_dir, capsys, caplog): 
     ], table_dir=tables_dir)
 
     with caplog.at_level( logging.INFO, logger='fremor.cmor_check'):
-         cmor_check_subtool(yamlfile=yamlfile, json_output=True)
+        cmor_check_subtool(yamlfile=yamlfile, json_output=True)
 
     captured = caplog.messages
     assert json.loads(capsys.readouterr().out)['Amon']['reference_var_count'] == 1
@@ -764,17 +722,16 @@ def test_cmor_check_subtool_coverage_missing_files(temp_dir): # pylint: disable=
 
 def test_cmor_check_subtool_staging_dmls_offline(temp_dir, monkeypatch, capsys): # pylint: disable=redefined-outer-name
     ''' check_staging: when a dmls binary is available, its (OFL) tag marks a file unstaged '''
-    temp_root = Path(temp_dir)
-    tables_dir = temp_root / 'tables'
+    tables_dir = Path(temp_dir) / 'tables'
     tables_dir.mkdir()
     _write_amon_table(tables_dir, ['tas'])
 
-    varlist_dir = temp_root / 'varlists'
+    varlist_dir = Path(temp_dir) / 'varlists'
     varlist_dir.mkdir()
     atmos_list = varlist_dir / 'CMIP6_Amon_atmos.list'
     atmos_list.write_text(json.dumps({'tas': 'tas'}), encoding='utf-8')
 
-    pp_dir = temp_root / 'pp'
+    pp_dir = Path(temp_dir) / 'pp'
     yamlfile = _write_yaml(temp_dir, [
         _table_target('Amon', [_component_entry('atmos', atmos_list)])
     ], table_dir=tables_dir, pp_dir=pp_dir)
@@ -785,12 +742,13 @@ def test_cmor_check_subtool_staging_dmls_offline(temp_dir, monkeypatch, capsys):
 
     import subprocess as subprocess_mod # pylint: disable=import-outside-toplevel
 
-    class _FakeResult:
-        stdout = f'-rw-r--r-- 1 user group 123 Jan 1 12:00 (OFL) {nc_path}\n'
+    fake_result = SimpleNamespace(
+        stdout=f'-rw-r--r-- 1 user group 123 Jan 1 12:00 (OFL) {nc_path}\n',
+    )
 
     def _fake_run(cmd, **kwargs): # pylint: disable=unused-argument
         assert cmd[0] == 'dmls'
-        return _FakeResult()
+        return fake_result
 
     monkeypatch.setattr(subprocess_mod, 'run', _fake_run)
 
@@ -1104,10 +1062,13 @@ def test_cmor_check_subtool_no_files_key_by_default(temp_dir): # pylint: disable
 
 # ── check_output ─────────────────────────────────────────────────────────
 
-def _write_cmor_output(outdir, var, table_name, date_range, source_id='PCMDI-test',
-                       experiment_id='piControl', variant_label='r1i1p1f1', grid_label='gn'):
+def _write_cmor_output(outdir, var, table_name, date_range):
     ''' touch a fake CMOR output file nested a few levels deep under outdir, named the way
     CMOR actually names CMIP6/CMIP6Plus output (variable_id first, table second) '''
+    source_id = 'PCMDI-test'
+    experiment_id = 'piControl'
+    variant_label = 'r1i1p1f1'
+    grid_label = 'gn'
     nested = Path(outdir) / table_name / var / grid_label / 'v20260101'
     nested.mkdir(parents=True, exist_ok=True)
     filename = f'{var}_{table_name}_{source_id}_{experiment_id}_{variant_label}_{grid_label}_{date_range}.nc'
@@ -1272,6 +1233,26 @@ def _write_input_nc_with_attrs(nc_path, local_var, units=None, cell_methods=None
             var.cell_methods = cell_methods
         if values is not None:
             var[:] = values
+
+
+def _prepare_offline_range_check(root):
+    tables_dir = Path(root) / 'tables'
+    tables_dir.mkdir()
+    _write_table_with_attrs(tables_dir, 'Amon', {'tas': {'valid_min': '150', 'valid_max': '350'}})
+
+    varlist_dir = Path(root) / 'varlists'
+    varlist_dir.mkdir()
+    atmos_list = varlist_dir / 'CMIP6_Amon_atmos.list'
+    atmos_list.write_text(json.dumps({'tas': 'tas'}), encoding='utf-8')
+
+    pp_dir = Path(root) / 'pp'
+    yamlfile = _write_yaml(root, [
+        _table_target('Amon', [_component_entry('atmos', atmos_list)])
+    ], table_dir=tables_dir, pp_dir=pp_dir)
+
+    nc_path = _input_dir(pp_dir, 'atmos') / 'atmos.197901-198312.tas.nc'
+    _write_input_nc_with_attrs(nc_path, 'tas', values=[270.0, 271.0])
+    return yamlfile, nc_path
 
 
 def test_cmor_check_subtool_attrs_ok(temp_dir, capsys): # pylint: disable=redefined-outer-name
@@ -1472,29 +1453,13 @@ def test_cmor_check_subtool_range_no_bounds_declared(temp_dir): # pylint: disabl
 def test_cmor_check_subtool_range_skips_offline_file(temp_dir, monkeypatch, capsys): # pylint: disable=redefined-outer-name
     ''' check_range: a representative file reported offline by dmls is skipped rather than
     having its data read (which would trigger a tape retrieval) '''
-    temp_root = Path(temp_dir)
-    tables_dir = temp_root / 'tables'
-    tables_dir.mkdir()
-    _write_table_with_attrs(tables_dir, 'Amon', {'tas': {'valid_min': '150', 'valid_max': '350'}})
-
-    varlist_dir = temp_root / 'varlists'
-    varlist_dir.mkdir()
-    atmos_list = varlist_dir / 'CMIP6_Amon_atmos.list'
-    atmos_list.write_text(json.dumps({'tas': 'tas'}), encoding='utf-8')
-
-    pp_dir = temp_root / 'pp'
-    yamlfile = _write_yaml(temp_dir, [
-        _table_target('Amon', [_component_entry('atmos', atmos_list)])
-    ], table_dir=tables_dir, pp_dir=pp_dir)
-
-    comp_dir = _input_dir(pp_dir, 'atmos')
-    nc_path = comp_dir / 'atmos.197901-198312.tas.nc'
-    _write_input_nc_with_attrs(nc_path, 'tas', values=[270.0, 271.0])
+    yamlfile, nc_path = _prepare_offline_range_check(temp_dir)
 
     import subprocess as subprocess_mod # pylint: disable=import-outside-toplevel
 
-    class _FakeResult:
-        stdout = f'-rw-r--r-- 1 user group 123 Jan 1 12:00 (OFL) {nc_path}\n'
+    fake_result = SimpleNamespace(
+        stdout=f'-rw-r--r-- 1 user group 123 Jan 1 12:00 (OFL) {nc_path}\n',
+    )
 
     read_attempts = []
     real_dataset_init = Dataset.__init__
@@ -1505,7 +1470,7 @@ def test_cmor_check_subtool_range_skips_offline_file(temp_dir, monkeypatch, caps
 
     def _fake_run(cmd, **kwargs): # pylint: disable=unused-argument
         assert cmd[0] == 'dmls'
-        return _FakeResult()
+        return fake_result
 
     monkeypatch.setattr(subprocess_mod, 'run', _fake_run)
     monkeypatch.setattr(Dataset, '__init__', _tracking_init)

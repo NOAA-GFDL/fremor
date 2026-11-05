@@ -41,6 +41,7 @@ class FremorCommand(click.Command):
     and provide a user-friendly error message.
     """
     def make_context(self, info_name, args, parent=None, **extra):
+        """Create a command context and explain misplaced global flags."""
         try:
             return super().make_context(info_name, args, parent=parent, **extra)
         except click.NoSuchOption as e:
@@ -49,7 +50,7 @@ class FremorCommand(click.Command):
                 click.secho(
                     f'Error: The "{e.option_name}" flag is in the wrong spot. '
                     f'Global flags must be placed before the command (e.g., `fremor {e.option_name} {info_name}`).',
-                    fg="red", err=True
+                    fg='red', err=True
                 )
                 sys.exit(2)
             raise # Re-raise if it's a genuinely unknown flag
@@ -57,6 +58,7 @@ class FremorCommand(click.Command):
 class FremorGroup(click.Group):
     """Main group that automatically uses FremorCommand for all subcommands."""
     def command(self, *args, **kwargs):
+        """Register a subcommand that uses FremorCommand by default."""
         kwargs.setdefault('cls', FremorCommand)
         return super().command(*args, **kwargs)
 
@@ -475,7 +477,8 @@ def config(pp_dir, mip_tables_dir, mip_era, exp_config, output_yaml, output_dir,
                    'input file\'s vertical dimension matches what the MIP table declares (e.g. '
                    'distinguishing model-level "alevel" output from fixed "plevNN" pressure '
                    'levels), and whether hybrid-sigma variables have their companion .ps.nc '
-                   'file present. For CMIP7, checks that lat-lon input grids match the grid label. Only inspects one file\'s header per variable.')
+                   'file present. For CMIP7, checks that lat-lon input grids match the grid label. '
+                   'Only inspects one file\'s header per variable.')
 @click.option('--check-outputs', '--check_outputs', is_flag=True, default=False,
               help='For every one-to-one-mapped variable, also report whether CMOR has '
                    'actually produced matching output file(s) under the yaml\'s outdir, plus '

@@ -423,7 +423,7 @@ def test_collect_stage_files_warns_when_ps_component_directory_is_missing(tmp_pa
         record.levelname == 'WARNING'
         and record.getMessage() == (
             f"ps_component directory {tmp_path / 'pp' / 'missing_ps' / 'ts' / 'monthly' / '5yr'} "
-            "for table Amon does not exist"
+            'for table Amon does not exist'
         )
         for record in caplog.records
     )

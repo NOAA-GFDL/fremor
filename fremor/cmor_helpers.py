@@ -115,9 +115,7 @@ def calendars_are_equivalent(cal1: Optional[str], cal2: Optional[str]) -> bool:
     return normalize_calendar(cal1) == normalize_calendar(cal2)
 
 def get_time_calendar_ds(ds = None):
-    """
-    
-    """
+    """Return the normalized calendar attached to a dataset's time coordinate."""
     try:
         return get_time_calendar_value(ds['time'])
     except KeyError as exc:
@@ -136,13 +134,13 @@ def get_time_calendar_value(time_var) -> Optional[str]:
     calendar_val = None
     try:
         calendar_val = str(time_var.calendar).lower()
-    except Exception:
+    except AttributeError:
         fre_logger.debug('could not find calendar attribute on time axis. moving on.')
 
     if calendar_val is None:
         try:
             calendar_val = str(time_var.calendar_type).lower()
-        except Exception:
+        except AttributeError:
             fre_logger.debug('could not find calendar_type attribute on time axis. moving on.')
 
     return normalize_calendar(calendar_val)
@@ -166,7 +164,7 @@ def print_data_minmax( ds_variable: Optional[np.ma.core.MaskedArray] = None,
     try:
         fre_logger.info('info for \n desc = %s \n %s', desc, type(ds_variable))
         fre_logger.info('%s < %s < %s', ds_variable.min(), desc, ds_variable.max())
-    except Exception:
+    except (AttributeError, TypeError, ValueError):
         fre_logger.warning('could not print min/max entries for desc = %s', desc)
 
 
@@ -186,7 +184,7 @@ def from_ds_get_this( from_ds: Dataset,
     """
     try:
         return from_ds[var_name][:].copy()
-    except Exception:
+    except (IndexError, KeyError, OSError, RuntimeError, TypeError):
         fre_logger.exception('could not retrieve variable: %s\n returning None!\n', var_name)
         return None
 
@@ -537,9 +535,7 @@ def create_lev_bnds(bound_these: Variable) -> np.ndarray:
     # Initialize a float array to prevent decimal truncation
     the_bnds = np.zeros((len(bound_these), 2), dtype=float)
 
-    for i in range(len(bound_these)):
-        z_l = bound_these[i]
-
+    for i, z_l in enumerate(bound_these):
         if i == 0:
             z_l_lo = 0.0
             z_l_hi = 2.0 * z_l
@@ -785,7 +781,7 @@ def create_tmp_dir( outdir: str,
         with open(json_exp_config, 'r', encoding='utf-8') as table_config_file:
             try:
                 outdir_from_exp_config = json.load(table_config_file)['outpath']
-            except Exception:
+            except (json.JSONDecodeError, KeyError):
                 fre_logger.warning(
                     'could not read outdir from json_exp_config. the cmor module will throw a toothless warning')
 
@@ -796,10 +792,10 @@ def create_tmp_dir( outdir: str,
             fre_logger.info('attempting to create %s dir in tmp_dir targ', outdir_from_exp_config)
             try:
                 os.makedirs(tmp_dir + '/' + outdir_from_exp_config, exist_ok=True)
-            except Exception:
+            except OSError:
                 fre_logger.info('attempting to create %s dir in tmp_dir targ did not work', outdir_from_exp_config)
                 fre_logger.info('... attempt to avoid a toothless cmor warning failed... moving on')
-    except Exception as exc:
+    except OSError as exc:
         raise OSError(f'problem creating tmp output directory {tmp_dir}. stop.') from exc
 
     return tmp_dir
@@ -1074,7 +1070,7 @@ def filter_brands( brands: list,
 
     filtered_brands = []
     for brand in brands:
-        
+
         mip_key = f'{target_var}_{brand}'
         mip_dims = mip_var_cfgs['variable_entry'][mip_key]['dimensions']
         mip_standard_name = mip_var_cfgs['variable_entry'][mip_key]['standard_name']
@@ -1126,7 +1122,7 @@ def filter_brands( brands: list,
             fre_logger.debug("filtering out brand %s: input var standard_name does not match mip table's", brand )
             continue
 
-        fre_logger.debug(f'appending %s to list of possible brands', brand)
+        fre_logger.debug('appending %s to list of possible brands', brand)
         filtered_brands.append(brand)
 
     if len(filtered_brands) == 1:

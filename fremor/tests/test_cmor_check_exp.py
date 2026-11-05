@@ -163,7 +163,7 @@ def test_check_exp_config_missing_calendar(tmp_path):
 
 def test_check_license_without_text_returns_no_finding():
     ''' an absent license text does not produce a pattern mismatch '''
-    assert cmor_check_exp._check_license({}, {'license': ['^valid license$']}) == []
+    assert not cmor_check_exp._check_license({}, {'license': ['^valid license$']})
 
 
 def test_check_exp_config_file_problems(tmp_path):

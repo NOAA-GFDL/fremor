@@ -378,7 +378,7 @@ def cmor_config_subtool(
                         output_variable_list=variable_list,
                         json_mip_table=mip_table
                     )
-                except Exception as exc: # pylint: disable=broad-exception-caught
+                except Exception as exc:
                     fre_logger.warning(
                         'variable list creation failed for %s %s %s \nWith exception: %s',
                         static_file, variable_list, mip_table, exc
@@ -416,7 +416,7 @@ def cmor_config_subtool(
                     check_freq=check_freq
                 )
 
-            except Exception as exc:
+            except (KeyError, OSError, RuntimeError, TypeError, ValueError) as exc:
                 fre_logger.warning(
                     'variable list creation failed for %s %s %s \nWith exception: %s',
                     dir_targ, variable_list, mip_table, exc

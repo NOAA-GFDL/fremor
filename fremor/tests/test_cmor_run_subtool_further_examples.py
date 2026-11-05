@@ -14,13 +14,15 @@ and grid labels drawn from a mock pp-archive.
 '''
 
 from datetime import date
-import glob
-from pathlib import Path
 
 import pytest
-from netCDF4 import Dataset
 
 from fremor import cmor_run_subtool
+from fremor.tests._cmor_test_helpers import (
+    assert_cmor_output_matches_input,
+    find_cmor_output,
+    ncgen_for_case as _ncgen_for_case,
+)
 from fremor.tests.conftest import ncgen
 
 
@@ -51,38 +53,6 @@ ESM4_DEV_PP_DIR = (
 CMOR_CREATES_DIR_BASE_CMIP6 = (
     'CMIP6/CMIP6/ISMIP6/PCMDI/PCMDI-test-1-0/piControl-withism/r3i1p1f1'
 )
-
-
-# ── helper: convert CDLs to NC in a test directory ─────────────────────────
-def _ncgen_for_case(testfile_dir, opt_var_name):
-    '''Convert the CDL file(s) for *opt_var_name* to NetCDF-4 inside *testfile_dir*.
-
-    Returns the path to the primary NC file. Also generates ancillary files
-    (e.g. ``ps.nc`` for ``cl`` / ``mc``, ``ocean_monthly.static.nc`` for native
-    ocean grid variables).
-    '''
-    cdl_files = glob.glob(f'{testfile_dir}*.{opt_var_name}.cdl')
-    assert len(cdl_files) >= 1, (
-        f'no CDL file found for variable {opt_var_name} in {testfile_dir}'
-    )
-    cdl_file = cdl_files[0]
-    nc_file = cdl_file.replace('.cdl', '.nc')
-    ncgen(cdl_file, nc_file)
-
-    # ancillary files required by specific variables
-    if opt_var_name in ('cl', 'mc'):
-        ps_cdl = cdl_file.replace(f'{opt_var_name}.cdl', 'ps.cdl')
-        assert Path(ps_cdl).exists(), f'ps CDL not found: {ps_cdl}'
-        ncgen(ps_cdl, ps_cdl.replace('.cdl', '.nc'))
-
-    elif opt_var_name == 'sos':
-        static_cdl = testfile_dir.replace(
-            'ts/monthly/5yr/', 'ocean_monthly.static.cdl'
-        )
-        if Path(static_cdl).exists():
-            ncgen(static_cdl, static_cdl.replace('.cdl', '.nc'))
-
-    return nc_file
 
 
 # ── CMIP6 parametrized tests ───────────────────────────────────────────────
@@ -155,7 +125,7 @@ def test_case_cmip6(  # pylint: disable=too-many-arguments,too-many-positional-a
             lambda **kw: None,
         )
 
-    input_nc = _ncgen_for_case(testfile_dir, opt_var_name)
+    input_nc = _ncgen_for_case(testfile_dir, opt_var_name, ncgen)
 
     table_file = f'{CMIP6_TABLE_REPO_PATH}/Tables/CMIP6_{table}.json'
     outdir = str(tmp_path / 'outdir')
@@ -184,16 +154,7 @@ def test_case_cmip6(  # pylint: disable=too-many-arguments,too-many-positional-a
         f'{cmor_output_dir}/{opt_var_name}_{table}_PCMDI-test-1-0'
         f'_piControl-withism_r3i1p1f1_{output_grid_label}_??????-??????.nc'
     )
-    cmor_output_files = glob.glob(cmor_output_glob)
-    assert len(cmor_output_files) >= 1, (
-        f'no CMOR output found matching {cmor_output_glob}'
+    cmor_output_file = find_cmor_output(cmor_output_glob)
+    assert_cmor_output_matches_input(
+        input_nc, cmor_output_file, opt_var_name, opt_var_name
     )
-    assert Path(cmor_output_files[0]).exists()
-
-    # dtype must be preserved between input and CMOR output
-    with Dataset(input_nc) as ds_in, Dataset(cmor_output_files[0]) as ds_out:
-        in_dtype = ds_in.variables[opt_var_name][:].dtype
-        out_dtype = ds_out.variables[opt_var_name][:].dtype
-        assert in_dtype == out_dtype, (
-            f'{opt_var_name} input dtype {in_dtype} differs from CMOR output dtype {out_dtype}'
-        )

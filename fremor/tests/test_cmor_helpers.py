@@ -5,6 +5,8 @@ tests for fremor helper functions in cmor_helpers
 import json
 from pathlib import Path
 import re
+from types import SimpleNamespace
+from unittest.mock import MagicMock
 
 import numpy as np
 import pytest
@@ -12,11 +14,11 @@ import pytest
 import netCDF4
 import cmor
 
-import fremor.cmor_helpers as cmor_helpers
+from fremor import cmor_helpers
 from fremor.cmor_constants import CMOR_EXIT_CTL, CMOR_EXIT_CTL_BY_ERA
 from fremor.cmor_helpers import ( find_statics_file, print_data_minmax, variable_grid_label,
                                   find_gold_ocean_statics_file,
-                                  create_lev_bnds, get_iso_datetime_ranges, iso_to_bronx_chunk,
+                                  get_iso_datetime_ranges, iso_to_bronx_chunk,
                                   create_tmp_dir, get_json_file_data,
                                   get_bronx_freq_from_mip_table,
                                   filter_brands, get_vertical_dimension,
@@ -513,31 +515,19 @@ def _make_mock_dataset(dims_info):
     Returns an object with a ``variables`` dict containing a single variable 'var'
     whose dimensions are the keys of ``dims_info``.
     """
-    class MockVar:
-        def __init__(self, attrs):
-            self._attrs = attrs or {}
-        def ncattrs(self):
-            return list(self._attrs.keys())
-        def __getattr__(self, name):
-            if name.startswith('_'):
-                raise AttributeError(name)
-            try:
-                return self._attrs[name]
-            except KeyError:
-                raise AttributeError(name)
+    dimensions = {}
+    for name, attrs in dims_info.items():
+        variable = MagicMock()
+        attrs = attrs or {}
+        variable.ncattrs.return_value = list(attrs)
+        for attr_name, value in attrs.items():
+            setattr(variable, attr_name, value)
+        dimensions[name] = variable
 
-    class MockDataVar:
-        def __init__(self, dims):
-            self.dimensions = tuple(dims)
-
-    class MockDS:
-        def __init__(self, dims_info):
-            self._dims = {k: MockVar(v) for k, v in dims_info.items()}
-            self.variables = {'var': MockDataVar(list(dims_info.keys()))}
-        def __getitem__(self, key):
-            return self._dims[key]
-
-    return MockDS(dims_info)
+    dataset = MagicMock()
+    dataset.variables = {'var': SimpleNamespace(dimensions=tuple(dims_info))}
+    dataset.__getitem__.side_effect = dimensions.__getitem__
+    return dataset
 
 
 def test_get_vertical_dimension_axis_z():

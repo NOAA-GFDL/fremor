@@ -15,34 +15,14 @@ https://cmor.llnl.gov/, and of course ``fremor``'s documentation at https://frem
 
 import logging
 
+from ._logging import DDEBUG_LEVEL_NUM, FORMAT
 from ._version import __version__, version
+from .cmor_mixer import cmor_run_subtool
+from .cmor_finder import cmor_find_subtool, make_simple_varlist
+from .cmor_yamler import cmor_yaml_subtool
+from .cmor_resolver import resolve_fremor_yaml
+from .cmor_config import cmor_config_subtool
+from .cmor_init import cmor_init_subtool
+from .cmor_stage import cmor_stage_subtool
 
 fre_logger = logging.getLogger(__name__)
-
-DDEBUG_LEVEL_NUM = 5
-logging.DDEBUG = DDEBUG_LEVEL_NUM
-logging.addLevelName(DDEBUG_LEVEL_NUM, 'DDEBUG')
-
-
-def ddebug(self, message, *args, **kws):
-    """Deep-debug logging for large arrays and dictionaries."""
-    if self.isEnabledFor(DDEBUG_LEVEL_NUM):
-        self._log(DDEBUG_LEVEL_NUM, message, args, **kws) # pylint: disable=protected-access
-
-
-logging.Logger.ddebug = ddebug
-
-FORMAT = '[%(levelname)5s:%(filename)24s:%(funcName)24s] %(message)s'
-logging.basicConfig( level = logging.WARNING,
-                     format = FORMAT,
-                     filename = None,
-                     encoding = 'utf-8' )
-
-# these need to be here for the base logger configuration, i think
-from .cmor_mixer import cmor_run_subtool # pylint: disable=wrong-import-position
-from .cmor_finder import cmor_find_subtool, make_simple_varlist # pylint: disable=wrong-import-position
-from .cmor_yamler import cmor_yaml_subtool # pylint: disable=wrong-import-position
-from .cmor_resolver import resolve_fremor_yaml # pylint: disable=wrong-import-position
-from .cmor_config import cmor_config_subtool # pylint: disable=wrong-import-position
-from .cmor_init import cmor_init_subtool # pylint: disable=wrong-import-position
-from .cmor_stage import cmor_stage_subtool # pylint: disable=wrong-import-position

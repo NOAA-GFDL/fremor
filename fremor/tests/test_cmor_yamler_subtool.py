@@ -30,40 +30,50 @@ GRID_LABEL = 'gr'
 NOM_RES = '10000 km'
 
 
-def _build_cmor_dict(*, pp_dir, table_dir, outdir, exp_config,
-                     varlist, mip_era='CMIP6', table_name='Omon',
-                     freq='monthly', component='ocean_monthly_1x1deg',
-                     chunk='P5Y', data_series_type='ts',
-                     gridding=None, start='1993', stop='1993',
-                     calendar_type='julian'):
+def _build_cmor_dict(*, pp_dir, table_dir, outdir, exp_config, varlist,
+                     config_overrides=None):
     """Build the CMOR YAML mapping consumed by cmor_yaml_subtool."""
-    if gridding is None:
-        gridding = {
+    settings = {
+        'mip_era': 'CMIP6',
+        'table_name': 'Omon',
+        'freq': 'monthly',
+        'component': 'ocean_monthly_1x1deg',
+        'chunk': 'P5Y',
+        'data_series_type': 'ts',
+        'gridding': None,
+        'start': '1993',
+        'stop': '1993',
+        'calendar_type': 'julian',
+    }
+    if config_overrides is not None:
+        settings.update(config_overrides)
+    if settings['gridding'] is None:
+        settings['gridding'] = {
             'grid_label': GRID_LABEL,
             'grid_desc': GRID,
             'nom_res': NOM_RES,
         }
     return {
-        'mip_era': mip_era,
+        'mip_era': settings['mip_era'],
         'directories': {
             'pp_dir': pp_dir,
             'table_dir': table_dir,
             'outdir': outdir,
         },
         'exp_json': exp_config,
-        'start': start,
-        'stop': stop,
-        'calendar_type': calendar_type,
+        'start': settings['start'],
+        'stop': settings['stop'],
+        'calendar_type': settings['calendar_type'],
         'table_targets': [
             {
-                'table_name': table_name,
-                'freq': freq,
-                'gridding': gridding,
+                'table_name': settings['table_name'],
+                'freq': settings['freq'],
+                'gridding': settings['gridding'],
                 'target_components': [
                     {
-                        'component_name': component,
-                        'chunk': chunk,
-                        'data_series_type': data_series_type,
+                        'component_name': settings['component'],
+                        'chunk': settings['chunk'],
+                        'data_series_type': settings['data_series_type'],
                         'variable_list': varlist,
                     }
                 ],
@@ -319,7 +329,7 @@ def test_mip_table_file_does_not_exist(tmp_path):
             outdir=str(outdir),
             exp_config=str(local_exp),
             varlist=VARLIST,
-            table_name='NoSuchTable',
+            config_overrides={'table_name': 'NoSuchTable'},
         ),
     )
 
@@ -344,9 +354,11 @@ def test_cmip7_freq_none_raises(tmp_path):
             outdir=str(outdir),
             exp_config=str(local_exp),
             varlist=VARLIST,
-            mip_era='CMIP7',
-            table_name='ocean',
-            freq=None,
+            config_overrides={
+                'mip_era': 'CMIP7',
+                'table_name': 'ocean',
+                'freq': None,
+            },
         ),
     )
 
@@ -377,9 +389,11 @@ def test_cmip6_freq_none_no_derivation_raises(tmp_path):
             outdir=str(outdir),
             exp_config=str(local_exp),
             varlist=VARLIST,
-            mip_era='CMIP6',
-            table_name='FakePt',
-            freq=None,
+            config_overrides={
+                'mip_era': 'CMIP6',
+                'table_name': 'FakePt',
+                'freq': None,
+            },
         ),
     )
 
@@ -410,9 +424,11 @@ def test_cmip6_fx_table_freq_derives_static(tmp_path):
             outdir=str(outdir),
             exp_config=str(local_exp),
             varlist=VARLIST,
-            mip_era='CMIP6',
-            table_name='FakeFx',
-            freq=None,
+            config_overrides={
+                'mip_era': 'CMIP6',
+                'table_name': 'FakeFx',
+                'freq': None,
+            },
         ),
     )
 
@@ -441,9 +457,11 @@ def test_cmip6_freq_none_derivation_exception_caught(tmp_path):
             outdir=str(outdir),
             exp_config=str(local_exp),
             varlist=VARLIST,
-            mip_era='CMIP6',
-            table_name='FakeBad',
-            freq=None,
+            config_overrides={
+                'mip_era': 'CMIP6',
+                'table_name': 'FakeBad',
+                'freq': None,
+            },
         ),
     )
 
@@ -468,10 +486,12 @@ def test_gridding_dict_has_none_value_raises(tmp_path):
             outdir=str(outdir),
             exp_config=str(local_exp),
             varlist=VARLIST,
-            gridding={
-                'grid_label': GRID_LABEL,
-                'grid_desc': None,
-                'nom_res': NOM_RES,
+            config_overrides={
+                'gridding': {
+                    'grid_label': GRID_LABEL,
+                    'grid_desc': None,
+                    'nom_res': NOM_RES,
+                },
             },
         ),
     )
@@ -574,9 +594,11 @@ def test_cmip6_freq_none_derivation_succeeds(tmp_path):
             outdir=str(outdir),
             exp_config=str(local_exp),
             varlist=VARLIST,
-            mip_era='CMIP6',
-            table_name='Omon',
-            freq=None,
+            config_overrides={
+                'mip_era': 'CMIP6',
+                'table_name': 'Omon',
+                'freq': None,
+            },
         ),
     )
 
@@ -598,8 +620,7 @@ def test_static_components_infer_static_frequency(tmp_path, caplog):
         outdir=str(outdir),
         exp_config=str(local_exp),
         varlist=VARLIST,
-        freq=None,
-        data_series_type='static',
+        config_overrides={'freq': None, 'data_series_type': 'static'},
     )
     yamlfile = _write_cmor_yaml(tmp_path, cmor_dict)
 
@@ -658,7 +679,7 @@ def test_cmip6plus_uses_mip_table_prefix(tmp_path, caplog):
             outdir=str(outdir),
             exp_config=str(local_exp),
             varlist=VARLIST,
-            mip_era='CMIP6PLUS',
+            config_overrides={'mip_era': 'CMIP6PLUS'},
         ),
     )
 

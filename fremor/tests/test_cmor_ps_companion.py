@@ -10,6 +10,7 @@ import pytest
 
 from fremor import cmor_mixer, cmor_yamler
 from fremor.cmor_helpers import find_ps_companion, resolve_named_ps_source, table_declares_ps
+from fremor.tests._cmor_test_helpers import write_minimal_cmip6_cmor_yaml
 
 ROOTDIR = Path(__file__).parent / 'test_files'
 CMIP6_TABLE_CONFIG = ROOTDIR / 'cmip6-cmor-tables' / 'Tables' / 'CMIP6_Amon.json'
@@ -278,28 +279,31 @@ def test_cmor_yaml_subtool_uses_table_ps_across_components(monkeypatch, tmp_path
     atmos_list.write_text(json.dumps({'pres': 'ps'}), encoding='utf-8')
 
     yamlfile = tmp_path / 'test.yaml'
-    yamlfile.write_text(f"""
-cmor:
-  mip_era: CMIP6
-  directories:
-    pp_dir: {pp_dir}
-    table_dir: {table_dir}
-    outdir: {outdir}
-  exp_json: {exp_json}
-  table_targets:
-    - table_name: Amon
-      freq: monthly
-      gridding: null
-      target_components:
-        - component_name: atmos_level
-          chunk: "P5Y"
-          data_series_type: ts
-          variable_list: "{level_list}"
-        - component_name: atmos
-          chunk: "P5Y"
-          data_series_type: ts
-          variable_list: "{atmos_list}"
-""", encoding='utf-8')
+    write_minimal_cmip6_cmor_yaml(
+        yamlfile,
+        tmp_path,
+        [
+            {
+                'table_name': 'Amon',
+                'freq': 'monthly',
+                'gridding': None,
+                'target_components': [
+                    {
+                        'component_name': 'atmos_level',
+                        'chunk': 'P5Y',
+                        'data_series_type': 'ts',
+                        'variable_list': str(level_list),
+                    },
+                    {
+                        'component_name': 'atmos',
+                        'chunk': 'P5Y',
+                        'data_series_type': 'ts',
+                        'variable_list': str(atmos_list),
+                    },
+                ],
+            }
+        ],
+    )
 
     calls = []
     monkeypatch.setattr(cmor_yamler, 'cmor_run_subtool',

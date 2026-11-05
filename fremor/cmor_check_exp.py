@@ -165,6 +165,13 @@ def _as_list(value) -> list:
 
 def _check_consistency(exp_config_data: dict, cv: dict) -> list:
     """Cross-check against the CV's entries for the chosen experiment_id and source_id."""
+    return (
+        _check_experiment_consistency(exp_config_data, cv)
+        + _check_source_consistency(exp_config_data, cv)
+    )
+
+
+def _check_experiment_consistency(exp_config_data: dict, cv: dict) -> list:
     findings = []
     experiment_id = exp_config_data.get('experiment_id')
     experiment = (cv.get('experiment_id') or {}).get(experiment_id)
@@ -208,6 +215,11 @@ def _check_consistency(exp_config_data: dict, cv: dict) -> list:
                 'error', 'sub_experiment_id',
                 f'{sub!r} is not a sub-experiment of {experiment_id} (CV allows {allowed_subs})'))
 
+    return findings
+
+
+def _check_source_consistency(exp_config_data: dict, cv: dict) -> list:
+    findings = []
     source_id = exp_config_data.get('source_id')
     source = (cv.get('source_id') or {}).get(source_id)
     if isinstance(source, dict):
@@ -505,7 +517,7 @@ def _input_lat_lon(nc_path: str, local_var: str) -> Union[tuple, str]:
                 kind = _coordinate_kind(coord)
                 if kind is not None:
                     coords[kind] = np.asarray(coord[:], dtype=float)
-    except Exception as exc:  # pylint: disable=broad-except
+    except Exception as exc:
         return f'could not read {nc_path} ({exc})'
     if 'lon' not in coords or 'lat' not in coords:
         return (f'{local_var} has no 1-D latitude/longitude coordinates (e.g. a native ocean '

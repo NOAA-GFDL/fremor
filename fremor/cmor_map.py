@@ -242,7 +242,7 @@ def _inspect_nc_variable(nc_path: str, var_name: str) -> Optional[dict]:
             attrs['dimensions'] = list(variable.dimensions)
             attrs['shape'] = list(variable.shape)
             return attrs
-    except Exception:  # pylint: disable=broad-except
+    except Exception:
         fre_logger.debug('could not inspect %s in %s', var_name, nc_path, exc_info=True)
         return None
 
@@ -487,7 +487,7 @@ def _read_exp_grid(exp_json: Optional[str]) -> dict:
         return {}
     try:
         exp_data = get_json_file_data(exp_json)
-    except Exception as exc: # pylint: disable=broad-exception-caught
+    except Exception as exc:
         fre_logger.warning('could not read exp_json %s: %s', exp_json, exc)
         return {}
     return {field: exp_data.get(exp_key) for field, exp_key in _EXP_GRID_KEYS.items()}
@@ -511,7 +511,7 @@ def _snapshot_varlists(varlists_by_table: dict) -> dict:
     }
 
 
-class MapSession: # pylint: disable=too-many-public-methods
+class MapSession:
     """Loads MIP tables + varlists for a `fremor map` session, computes per-table mapping
     status reports, and stages mapping edits in memory until ``save_pending`` is called --
     edits are visible immediately (e.g. in ``table_report``) but not written to disk until
@@ -1100,6 +1100,7 @@ class TableSettingsScreen(ModalScreen):
         return 'default: ps'
 
     def compose(self) -> ComposeResult:
+        """Build the table settings dialog controls."""
         with VerticalScroll(id='settings_dialog'):
             yield Static(f'{self.table_name}: grid and surface-pressure settings')
             for field in TABLE_SETTING_FIELDS:
@@ -1179,6 +1180,7 @@ class ReduceScreen(ModalScreen):
         self.current = current
 
     def compose(self) -> ComposeResult:
+        """Build the reduction-method picker."""
         methods = [None] + sorted(REDUCE_METHODS)
         options = [Option(_REDUCE_DESCRIPTIONS.get(method, method), id=method or _NO_REDUCE_ID)
                    for method in methods]
@@ -1325,6 +1327,7 @@ class MapApp(App):
         self._undo_labels = []
 
     def compose(self) -> ComposeResult:
+        """Build the mapping interface panes and their initial content."""
         with Horizontal():
             with Vertical(id='cmip_pane'):
                 yield Tree('MIP Tables', id='cmip_tree')
@@ -1578,7 +1581,7 @@ class MapApp(App):
             return
         try:
             local_vars = static_file_variables(static_file)
-        except Exception as exc:  # pylint: disable=broad-except
+        except Exception as exc:
             fre_logger.warning('could not read static file %s: %s', static_file, exc)
             node.add_leaf(f'(could not read {Path(static_file).name})', data={'kind': 'info'})
             return
@@ -1591,6 +1594,7 @@ class MapApp(App):
                       'files': [(static_file, None)]})
 
     def on_tree_node_expanded(self, event: Tree.NodeExpanded) -> None:
+        """Populate a pp-tree node when the user expands it."""
         if event.control.id != 'pp_tree':
             return
         self._ensure_pp_node_populated(event.node)
@@ -1675,6 +1679,7 @@ class MapApp(App):
     # ---- selection tracking ----
 
     def on_tree_node_selected(self, event: Tree.NodeSelected) -> None:
+        """Update selected mapping details and preview the selected pp file."""
         data = event.node.data or {}
         kind = data.get('kind')
 
@@ -1882,7 +1887,7 @@ class MapApp(App):
             return
         self._open_reduce_picker(*target)
 
-    def _open_reduce_picker(self, table_name: str, component: str, local_key: str, # pylint: disable=too-many-arguments, too-many-positional-arguments
+    def _open_reduce_picker(self, table_name: str, component: str, local_key: str,
                             cmip_var: str, node, suggested: Optional[str] = None) -> None:
         current = self.session.mapping_reduce(table_name, component, local_key)
         title = f'reduce method for {table_name} / {cmip_var} <- {component}:{local_key}'
@@ -1893,7 +1898,7 @@ class MapApp(App):
             callback=lambda choice: self._stage_reduce(table_name, component, local_key, node,
                                                        choice))
 
-    def _stage_reduce(self, table_name: str, component: str, local_key: str, node, # pylint: disable=too-many-arguments, too-many-positional-arguments
+    def _stage_reduce(self, table_name: str, component: str, local_key: str, node,
                       choice: Optional[dict]) -> None:
         """ReduceScreen's dismiss callback: stage the chosen reduce method, if any."""
         if choice is None:
@@ -1927,6 +1932,7 @@ class MapApp(App):
         return label
 
     def action_clear_mapping(self) -> None:
+        """Stage removal of the selected component-to-variable mapping."""
         if self.selected_cmip is None or self.selected_cmip.get('kind') != 'source':
             self.notify('select an existing component:local_key mapping to clear',
                         severity='warning')
@@ -1954,6 +1960,7 @@ class MapApp(App):
         self._quit_confirmed = False
 
     def action_toggle_disabled(self) -> None:
+        """Stage enabling or disabling the selected MIP table."""
         table_name = self.selected_table_name
         if table_name is None:
             self.notify('select a MIP table (or one of its variables) first', severity='warning')
@@ -1998,6 +2005,7 @@ class MapApp(App):
         self._quit_confirmed = False
 
     def action_undo(self) -> None:
+        """Undo the most recently staged mapping edit."""
         edit = self.session.undo()
         if edit is None:
             self.notify('nothing to undo', severity='information')
@@ -2011,6 +2019,7 @@ class MapApp(App):
         self._quit_confirmed = False
 
     def action_restore_pending(self) -> None:
+        """Discard all staged edits and restore the last saved state."""
         if not self.session.has_pending_changes:
             self.notify('no staged changes to restore', severity='information')
             return
@@ -2021,6 +2030,7 @@ class MapApp(App):
         self._quit_confirmed = False
 
     def action_save_pending(self) -> None:
+        """Persist staged edits to the mapping YAML."""
         if not self.session.has_pending_changes:
             self.notify('no staged changes to save', severity='information')
             return
@@ -2030,6 +2040,7 @@ class MapApp(App):
         self._populate_cmip_tree(preserve_table_expansion=True)
 
     def action_refresh_tree(self) -> None:
+        """Rebuild the trees when there are no unsaved edits."""
         # a rebuild re-categorizes staged edits from the recomputed report, dropping their
         # in-place markers (e.g. a staged-cleared source of a multiply-mapped variable)
         if self.session.has_pending_changes:
@@ -2041,6 +2052,7 @@ class MapApp(App):
         self._populate_cmip_tree()
 
     async def action_quit(self) -> None:
+        """Prompt before quitting when staged changes have not been saved."""
         if self.session.has_pending_changes and not self._quit_confirmed:
             self._quit_confirmed = True
             count = self.session.pending_count
@@ -2094,7 +2106,7 @@ def cmor_map_subtool(
     fre_logger.info('loading configuration and variable lists...')
     session = MapSession(yamlfile, table_patterns, ncinfo_bin, dmls_bin)
     fre_logger.debug(
-        f'loaded {len(session.table_names)} MIP table(s) in '
-        f'{time.monotonic() - started_at:.1f}s; starting interface...',
+        'loaded %s MIP table(s) in %.1fs; starting interface...',
+        len(session.table_names), time.monotonic() - started_at,
     )
     MapApp(session).run()

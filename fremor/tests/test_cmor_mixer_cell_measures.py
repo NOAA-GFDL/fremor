@@ -1,3 +1,5 @@
+"""Tests for CMIP7 cell-measures lookup keys."""
+
 from fremor.cmor_mixer import _cmip7_cell_measures_key
 
 
