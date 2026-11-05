@@ -109,7 +109,7 @@ def test_cmor_yaml_subtool_exception_non_strict(monkeypatch, mock_yaml_environme
     """
     # Force cmor_run_subtool to raise an Exception
     def mock_run_subtool(*args, **kwargs):
-        raise Exception("simulated run_subtool failure")
+        raise RuntimeError("simulated run_subtool failure")
     monkeypatch.setattr(cmor_yamler, "cmor_run_subtool", mock_run_subtool)
 
     # Run the function and capture the logs
@@ -126,9 +126,9 @@ def test_cmor_yaml_subtool_exception_strict_mode(monkeypatch, mock_yaml_environm
     """
     # Force cmor_run_subtool to raise an Exception
     def mock_run_subtool(*args, **kwargs):
-        raise Exception("simulated strict failure")
+        raise RuntimeError("simulated strict failure")
     monkeypatch.setattr(cmor_yamler, "cmor_run_subtool", mock_run_subtool)
 
     # Assert that the exception actually bubbles up and stops execution
-    with pytest.raises(Exception, match="simulated strict failure"):
+    with pytest.raises(RuntimeError, match="simulated strict failure"):
         cmor_yamler.cmor_yaml_subtool(yamlfile=mock_yaml_environment, run_strict_mode=True)
