@@ -771,6 +771,18 @@ class _FakeTreeEvent:
         self.control = _FakeControl(control_id)
 
 
+def _select_pp_file(app, local_key):
+    """Expand the PP tree to files and select the file with the requested key."""
+    node = app.query_one('#pp_tree').root.children[0]
+    for _ in range(3):
+        app.on_tree_node_expanded(_FakeTreeEvent(node, 'pp_tree'))
+        node = node.children[0]
+    file_node = next(
+        child for child in node.children if child.data['local_key'] == local_key
+    )
+    app.on_tree_node_selected(_FakeTreeEvent(file_node, 'pp_tree'))
+
+
 @pytest.mark.asyncio
 async def test_map_app_shows_startup_message_while_building_tree( # pylint: disable=redefined-outer-name
         temp_dir, monkeypatch):
@@ -840,8 +852,11 @@ async def test_map_app_assign_mapping(temp_dir): # pylint: disable=redefined-out
 
     comp_ts_dir = Path(pp_dir) / 'atmos' / 'ts' / 'monthly' / '5yr'
     comp_ts_dir.mkdir(parents=True)
-    nc_path = comp_ts_dir / 'atmos.000101-000512.pr.nc'
-    _write_nc_file(nc_path, 'pr', units='kg m-2 s-1')
+    _write_nc_file(
+        comp_ts_dir / 'atmos.000101-000512.pr.nc',
+        'pr',
+        units='kg m-2 s-1',
+    )
 
     yamlfile = _amon_yaml(temp_dir, pp_dir, varlist_dir, tables_dir, component_names=['atmos'])
     session = MapSession(yamlfile)
@@ -859,15 +874,7 @@ async def test_map_app_assign_mapping(temp_dir): # pylint: disable=redefined-out
         selected_box = app.query_one('#selected_cmip')
         assert 'Amon' in selected_box.content and 'pr' in selected_box.content
 
-        pp_tree = app.query_one('#pp_tree')
-        component_node = pp_tree.root.children[0]
-        app.on_tree_node_expanded(_FakeTreeEvent(component_node, 'pp_tree'))
-        freq_node = component_node.children[0]
-        app.on_tree_node_expanded(_FakeTreeEvent(freq_node, 'pp_tree'))
-        chunk_node = freq_node.children[0]
-        app.on_tree_node_expanded(_FakeTreeEvent(chunk_node, 'pp_tree'))
-        file_node = chunk_node.children[0]
-        app.on_tree_node_selected(_FakeTreeEvent(file_node, 'pp_tree'))
+        _select_pp_file(app, 'pr')
         assert app.selected_pp['local_key'] == 'pr'
         await pilot.pause()
 
@@ -926,15 +933,7 @@ async def test_map_app_assign_mapping_reassigns_and_clears_old_source(temp_dir):
         # land afterward and clobber selected_pp back to the old file.
         await pilot.pause()
 
-        pp_tree = app.query_one('#pp_tree')
-        component_node = pp_tree.root.children[0]
-        app.on_tree_node_expanded(_FakeTreeEvent(component_node, 'pp_tree'))
-        freq_node = component_node.children[0]
-        app.on_tree_node_expanded(_FakeTreeEvent(freq_node, 'pp_tree'))
-        chunk_node = freq_node.children[0]
-        app.on_tree_node_expanded(_FakeTreeEvent(chunk_node, 'pp_tree'))
-        new_file_node = next(n for n in chunk_node.children if n.data['local_key'] == 't_ref2')
-        app.on_tree_node_selected(_FakeTreeEvent(new_file_node, 'pp_tree'))
+        _select_pp_file(app, 't_ref2')
         await pilot.pause()
 
         await pilot.press('m')
