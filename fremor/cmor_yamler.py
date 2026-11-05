@@ -70,7 +70,7 @@ def _find_table_ps_source(json_mip_table_config: str, table_components_list: lis
     """
     try:
         mip_var_cfgs = get_json_file_data(json_mip_table_config)
-    except Exception:  # pylint: disable=broad-except
+    except Exception:
         # an unreadable table is reported when the table's components run, not here
         fre_logger.warning('could not read %s while looking for a ps entry, skipping', json_mip_table_config)
         return None, None
@@ -81,7 +81,7 @@ def _find_table_ps_source(json_mip_table_config: str, table_components_list: lis
     for targ_comp_config in table_components_list:
         try:
             var_list = get_json_file_data(os.path.expandvars(targ_comp_config['variable_list']))
-        except Exception:  # pylint: disable=broad-except
+        except Exception:
             # an unreadable variable list is reported when its component runs, not here
             fre_logger.warning('could not read %s while looking for a ps mapping, skipping it',
                                targ_comp_config['variable_list'])

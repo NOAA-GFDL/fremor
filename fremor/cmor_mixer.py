@@ -142,7 +142,7 @@ def expected_output_prefix(input_file: str, local_var: str, target_var: str,
     try:
         var_brand = resolve_input_file_brand(input_file, local_var, target_var, mip_var_cfgs,
                                              reduce)
-    except Exception as exc:  # pylint: disable=broad-except
+    except Exception as exc:
         fre_logger.warning('could not resolve the CMIP7 brand of %s in %s to look for '
                            'existing output: %s', local_var, input_file, exc)
         return None

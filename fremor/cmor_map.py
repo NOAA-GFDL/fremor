@@ -242,7 +242,7 @@ def _inspect_nc_variable(nc_path: str, var_name: str) -> Optional[dict]:
             attrs['dimensions'] = list(variable.dimensions)
             attrs['shape'] = list(variable.shape)
             return attrs
-    except Exception:  # pylint: disable=broad-except
+    except Exception:
         fre_logger.debug('could not inspect %s in %s', var_name, nc_path, exc_info=True)
         return None
 
@@ -1581,7 +1581,7 @@ class MapApp(App):
             return
         try:
             local_vars = static_file_variables(static_file)
-        except Exception as exc:  # pylint: disable=broad-except
+        except Exception as exc:
             fre_logger.warning('could not read static file %s: %s', static_file, exc)
             node.add_leaf(f'(could not read {Path(static_file).name})', data={'kind': 'info'})
             return

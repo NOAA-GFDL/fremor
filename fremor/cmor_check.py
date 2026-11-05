@@ -672,7 +672,7 @@ def _input_vertical_token(nc_path: str, local_var: str,
             vert_dim = get_vertical_dimension(dataset, local_var)
             if vert_dim == 0:
                 return _scalar_vertical_token(dataset, local_var, mip_vert_tokens) or 0
-    except Exception:  # pylint: disable=broad-except
+    except Exception:
         fre_logger.debug('could not inspect %s in %s for vertical dim', local_var, nc_path,
                          exc_info=True)
         return _INSPECTION_ERROR
@@ -791,7 +791,7 @@ def _input_attrs(nc_path: str, local_var: str) -> Union[dict, object]:
                 'units': getattr(variable, 'units', None),
                 'cell_methods': getattr(variable, 'cell_methods', None),
             }
-    except Exception:  # pylint: disable=broad-except
+    except Exception:
         fre_logger.debug('could not inspect %s in %s for units/cell_methods', local_var,
                          nc_path, exc_info=True)
         return _INSPECTION_ERROR
@@ -908,7 +908,7 @@ def _range_finding(bounds: dict, files: list, dmls_bin: Optional[str] = None,
     try:
         with Dataset(str(representative), 'r') as dataset:
             data = dataset.variables[local_var][...]
-    except Exception:  # pylint: disable=broad-except
+    except Exception:
         fre_logger.debug('could not read %s in %s for range check', local_var, representative,
                          exc_info=True)
         return {
@@ -1046,7 +1046,7 @@ def _input_dir_brand(input_dir: Optional[Path], gfdl_key: str, var: str, table_d
         return None
     try:
         return resolve_input_file_brand(files[0], gfdl_key, var, table_data, reduce)
-    except Exception as exc:  # pylint: disable=broad-except
+    except Exception as exc:
         fre_logger.debug('could not resolve the CMIP7 brand of %s in %s: %s',
                          gfdl_key, files[0], exc)
         return None
@@ -1691,7 +1691,7 @@ def cmor_check_subtool(
         exp_config_data = {}
         try:
             exp_config_data = get_json_file_data(exp_json) if exp_json else {}
-        except Exception:  # pylint: disable=broad-except
+        except Exception:
             fre_logger.warning('could not read exp_json %s for the grid-label check', exp_json)
         exp_grid_label = exp_config_data.get('grid_label')
         grid_cv, _cv_path = load_cv(mip_tables_dir, exp_config_data, mip_era)
