@@ -535,9 +535,7 @@ def create_lev_bnds(bound_these: Variable) -> np.ndarray:
     # Initialize a float array to prevent decimal truncation
     the_bnds = np.zeros((len(bound_these), 2), dtype=float)
 
-    for i in range(len(bound_these)):
-        z_l = bound_these[i]
-
+    for i, z_l in enumerate(bound_these):
         if i == 0:
             z_l_lo = 0.0
             z_l_hi = 2.0 * z_l
