@@ -3,10 +3,12 @@ tests for fremor.cmor_map
 '''
 
 import json
+import logging
 import stat
 import tempfile
+from dataclasses import dataclass
 from pathlib import Path
-import logging
+from types import SimpleNamespace
 
 import pytest
 import yaml
@@ -792,14 +794,20 @@ def test_format_selected_cmip_source(temp_dir): # pylint: disable=redefined-oute
 # real keybinding dispatch via pilot.press(), which is the part these tests
 # exist to verify.
 
-class _FakeControl: # pylint: disable=too-few-public-methods
+@dataclass(frozen=True)
+class _FakeControl:
     ''' stand-in for Tree.NodeSelected/.NodeExpanded's `.control` property '''
-    def __init__(self, control_id):
-        self.id = control_id
+
+    id: str
 
 
-class _FakeTreeEvent: # pylint: disable=too-few-public-methods
+@dataclass(init=False)
+class _FakeTreeEvent:
     ''' stand-in for a Tree.NodeSelected/.NodeExpanded message '''
+
+    node: object
+    control: _FakeControl
+
     def __init__(self, node, control_id):
         self.node = node
         self.control = _FakeControl(control_id)
@@ -1141,15 +1149,12 @@ def _fake_dmls(monkeypatch, dmls_bin, state_by_path):
     monkeypatch.setattr(
         'shutil.which', lambda name: dmls_bin if name == 'dmls' else None)
 
-    class _FakeResult: # pylint: disable=too-few-public-methods
-        def __init__(self, stdout):
-            self.stdout = stdout
-
     def _fake_run(cmd, **kwargs): # pylint: disable=unused-argument
         assert cmd[0] == dmls_bin
         path = cmd[-1]
         state = state_by_path[path]
-        return _FakeResult(f'-rw-r--r-- 1 user group 123 Jan 1 12:00 ({state}) {path}\n')
+        return SimpleNamespace(
+            stdout=f'-rw-r--r-- 1 user group 123 Jan 1 12:00 ({state}) {path}\n')
 
     monkeypatch.setattr(subprocess_mod, 'run', _fake_run)
 
