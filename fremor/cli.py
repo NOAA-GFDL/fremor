@@ -475,7 +475,8 @@ def config(pp_dir, mip_tables_dir, mip_era, exp_config, output_yaml, output_dir,
                    'input file\'s vertical dimension matches what the MIP table declares (e.g. '
                    'distinguishing model-level "alevel" output from fixed "plevNN" pressure '
                    'levels), and whether hybrid-sigma variables have their companion .ps.nc '
-                   'file present. For CMIP7, checks that lat-lon input grids match the grid label. Only inspects one file\'s header per variable.')
+                   'file present. For CMIP7, checks that lat-lon input grids match the grid label. '
+                   'Only inspects one file\'s header per variable.')
 @click.option('--check-outputs', '--check_outputs', is_flag=True, default=False,
               help='For every one-to-one-mapped variable, also report whether CMOR has '
                    'actually produced matching output file(s) under the yaml\'s outdir, plus '

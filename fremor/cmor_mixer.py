@@ -979,7 +979,11 @@ def cmorize_target_var_files(indir: str = None,
                     mv_log_cmd = f"mv {local_file_name.replace('.nc', '.log')} {filedir}"
                     subprocess.run(mv_log_cmd, shell=True, check=True)
             except Exception as exc: # this is the fremor.cmor_constants.CMOR_LOGFILE != None case
-                fre_logger.warning('could not move cmor_logfile next to cmorized file, but moving on. exception was:\nexc = %s', exc)
+                fre_logger.warning(
+                    'could not move cmor_logfile next to cmorized file, but moving on. '
+                    'exception was:\nexc = %s',
+                    exc,
+                )
 
         # delete files in work dirs
         if Path(nc_file_work).exists():
