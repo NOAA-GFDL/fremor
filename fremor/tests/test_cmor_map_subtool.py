@@ -733,7 +733,7 @@ def test_format_previewtext(temp_dir):
     assert _format_preview_text(local_var_name = 'foo', source = 'none'  , data = {}) == 'no preview available for variable "foo"'
     assert _format_preview_text(local_var_name = 'foo', source = 'ncinfo', data = {}) == '[ncinfo] foo\ntype=None dims=()'
     assert _format_preview_text(local_var_name = 'foo', source = 'ncinfo',
-                         data = {"attributes":[ {'name':'some_attr'},
+                         data = {'attributes':[ {'name':'some_attr'},
                                                 {'value':'some_value'} ] }
     ) == '[ncinfo] foo\ntype=None dims=()\n  some_attr: None\n  None: some_value'
 

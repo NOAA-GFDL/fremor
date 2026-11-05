@@ -317,5 +317,5 @@ def test_load_config_yaml_rejects_yaml_without_cmor_section(temp_dir): # pylint:
     bad_yaml = Path(temp_dir) / 'bad.yaml'
     bad_yaml.write_text(yaml.safe_dump({'not_cmor': {}}), encoding='utf-8')
 
-    with pytest.raises(ValueError, match="expected a top-level mapping"):
+    with pytest.raises(ValueError, match='expected a top-level mapping'):
         _load_config_yaml(str(bad_yaml))

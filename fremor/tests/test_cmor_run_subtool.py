@@ -643,7 +643,7 @@ def test_fre_cmor_run_subtool_var_not_in_table(tmp_path, caplog):
     # Create a dummy varlist containing a target variable that doesn't exist in the MIP table
     bad_varlist = tmp_path / 'bad_varlist.json'
     bad_varlist.write_text(json.dumps({
-        "my_local_var": "this_target_var_does_not_exist"
+        'my_local_var': 'this_target_var_does_not_exist'
     }))
 
     # The function will skip the bogus variable at line 1028 and hit `continue`.
@@ -658,7 +658,7 @@ def test_fre_cmor_run_subtool_var_not_in_table(tmp_path, caplog):
         )
 
     # Verify the specific warning from lines 1029-1031 was successfully logged
-    assert "target_var not found in CMOR variable group" in caplog.text
+    assert 'target_var not found in CMOR variable group' in caplog.text
 
 def test_fre_cmor_run_subtool_missing_input_file(tmp_path, caplog):
     """
@@ -682,7 +682,7 @@ def test_fre_cmor_run_subtool_missing_input_file(tmp_path, caplog):
     # This guarantees 'sos' gets added to `vars_to_run` and passes table validation.
     missing_varlist = tmp_path / 'missing_varlist.json'
     missing_varlist.write_text(json.dumps({
-        "sos": "sos"
+        'sos': 'sos'
     }))
 
     # Execute the full subtool
@@ -700,8 +700,8 @@ def test_fre_cmor_run_subtool_missing_input_file(tmp_path, caplog):
     )
 
     # The expected missing file path that cmorize_target_var_files will construct and fail to find
-    expected_missing_file = str(indir / f"reduced_ocean_monthly_1x1deg.{DATETIMES_INPUTFILE}.sos.nc")
+    expected_missing_file = str(indir / f'reduced_ocean_monthly_1x1deg.{DATETIMES_INPUTFILE}.sos.nc')
 
     # Verify the specific warning from line 674 was logged before the loop skipped
-    assert "input file not found, omitting:" in caplog.text
+    assert 'input file not found, omitting:' in caplog.text
     assert expected_missing_file in caplog.text
