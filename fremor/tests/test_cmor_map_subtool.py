@@ -5,7 +5,6 @@ tests for fremor.cmor_map
 import json
 import logging
 import stat
-import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
@@ -40,13 +39,6 @@ from fremor.cmor_map import (
     _read_exp_grid,
     cmor_map_subtool,
 )
-
-
-@pytest.fixture(name='temp_dir')
-def _temp_dir():
-    ''' fixture yielding a temporary directory '''
-    with tempfile.TemporaryDirectory() as tmpdir:
-        yield tmpdir
 
 
 def _write_table(tables_dir, table_name, var_names):

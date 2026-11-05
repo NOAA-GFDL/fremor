@@ -3,7 +3,6 @@ largely tests for fremor.cmor_config.cmor_config_subtool error conditions / mess
 '''
 
 import json
-import tempfile
 from pathlib import Path
 from unittest.mock import patch
 
@@ -13,12 +12,6 @@ import pytest
 
 from fremor.cmor_config import (_bronx_to_iso_chunk, _load_config_yaml, _recall_static_files,
                                 cmor_config_subtool)
-
-@pytest.fixture
-def temp_dir():
-    ''' fixture yielding a temporary directory '''
-    with tempfile.TemporaryDirectory() as tmpdir:
-        yield tmpdir
 
 
 def test_cmor_config_subtool_noppdir_err(temp_dir): # pylint: disable=redefined-outer-name

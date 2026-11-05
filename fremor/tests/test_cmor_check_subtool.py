@@ -3,7 +3,6 @@ tests for fremor.cmor_check.cmor_check_subtool
 '''
 
 import json
-import tempfile
 import logging
 from pathlib import Path
 from types import SimpleNamespace
@@ -15,13 +14,6 @@ from netCDF4 import Dataset
 
 from fremor import cmor_check as check_module
 from fremor.cmor_check import cmor_check_subtool
-
-
-@pytest.fixture
-def temp_dir():
-    ''' fixture yielding a temporary directory '''
-    with tempfile.TemporaryDirectory() as tmpdir:
-        yield tmpdir
 
 
 def _write_table(tables_dir, table_name, var_names):
