@@ -2,8 +2,6 @@
 tests for the calendar helpers in fremor.cmor_helpers
 """
 
-import json
-
 import pytest
 
 from fremor.cmor_helpers import (
