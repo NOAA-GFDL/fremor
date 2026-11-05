@@ -1605,7 +1605,7 @@ class MapApp(App):
             return
         try:
             local_vars = static_file_variables(static_file)
-        except Exception as exc:
+        except (OSError, RuntimeError) as exc:
             fre_logger.warning('could not read static file %s: %s', static_file, exc)
             node.add_leaf(f'(could not read {Path(static_file).name})', data={'kind': 'info'})
             return
