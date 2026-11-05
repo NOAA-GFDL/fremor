@@ -774,7 +774,7 @@ def test_cmor_check_subtool_staging_dmls_offline(temp_dir, monkeypatch, capsys):
     atmos_list = varlist_dir / 'CMIP6_Amon_atmos.list'
     atmos_list.write_text(json.dumps({'tas': 'tas'}), encoding='utf-8')
 
-    pp_dir = temp_root / 'pp'
+    pp_dir = Path(temp_dir) / 'pp'
     yamlfile = _write_yaml(temp_dir, [
         _table_target('Amon', [_component_entry('atmos', atmos_list)])
     ], table_dir=tables_dir, pp_dir=pp_dir)
