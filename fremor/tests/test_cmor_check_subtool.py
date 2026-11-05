@@ -765,12 +765,11 @@ def test_cmor_check_subtool_coverage_missing_files(temp_dir): # pylint: disable=
 
 def test_cmor_check_subtool_staging_dmls_offline(temp_dir, monkeypatch, capsys): # pylint: disable=redefined-outer-name
     ''' check_staging: when a dmls binary is available, its (OFL) tag marks a file unstaged '''
-    temp_root = Path(temp_dir)
-    tables_dir = temp_root / 'tables'
+    tables_dir = Path(temp_dir) / 'tables'
     tables_dir.mkdir()
     _write_amon_table(tables_dir, ['tas'])
 
-    varlist_dir = temp_root / 'varlists'
+    varlist_dir = Path(temp_dir) / 'varlists'
     varlist_dir.mkdir()
     atmos_list = varlist_dir / 'CMIP6_Amon_atmos.list'
     atmos_list.write_text(json.dumps({'tas': 'tas'}), encoding='utf-8')
