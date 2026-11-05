@@ -40,6 +40,29 @@ from .cmor_constants import DO_NOT_PRINT_LIST
 
 fre_logger = logging.getLogger(__name__)
 
+
+def _log_variable_entry(entry: dict) -> None:
+    """Log the printable fields of one MIP variable entry."""
+    for field, value in entry.items():
+        if field not in DO_NOT_PRINT_LIST:
+            fre_logger.info('    %s: %s', field, value)
+
+
+def _log_branded_variable_entries(var_content: list, table_file_name: str,
+                                  table_name: Optional[str], var_name: str) -> None:
+    """Log the CMIP7 brand entries found for a variable name."""
+    fre_logger.info('amongst branded variables, looked for variable name: %s', var_name)
+    for brand_var_content in var_content:
+        branded_var = str(list(brand_var_content)[0])
+        entry = brand_var_content[branded_var]
+        fre_logger.info('\n')
+        fre_logger.info('in table %s / table_name %s, found %s',
+                        table_file_name, table_name, branded_var)
+        fre_logger.ddebug(entry)
+        fre_logger.debug(type(entry))
+        _log_variable_entry(entry)
+
+
 def print_var_content(table_config_file: IO[str],
                       var_name: str) -> None:
     """
@@ -102,24 +125,10 @@ def print_var_content(table_config_file: IO[str],
         return
 
     if isinstance(var_content, list): # likely, cmip7 case, shouldn't occur unless brands
-        fre_logger.info('amongst branded variables, looked for variable name: %s', var_name)
-        for brand_var_content in var_content:
-            branded_var=str(list(brand_var_content)[0])
-            fre_logger.info('\n')
-
-            fre_logger.info('in table %s / table_name %s, found %s', table_file_name, table_name, branded_var)
-            fre_logger.ddebug(brand_var_content[branded_var])
-            fre_logger.debug(type(brand_var_content[branded_var]))
-            for thing in brand_var_content[branded_var]:
-                if thing in DO_NOT_PRINT_LIST:
-                    continue
-                fre_logger.info('    %s: %s', thing, brand_var_content[branded_var][thing])
+        _log_branded_variable_entries(var_content, table_file_name, table_name, var_name)
     else: # non cmip7 case
         fre_logger.info('    variable key: %s', var_name)
-        for content in var_content:
-            if content in DO_NOT_PRINT_LIST:
-                continue
-            fre_logger.info('    %s: %s', content, var_content[content])
+        _log_variable_entry(var_content)
     fre_logger.info('\n')
 
 def print_var_content_in_dir_w_mip_tables(json_table_configs: list = None,
