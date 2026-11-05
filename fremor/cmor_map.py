@@ -1887,7 +1887,7 @@ class MapApp(App):
             return
         self._open_reduce_picker(*target)
 
-    def _open_reduce_picker(self, table_name: str, component: str, local_key: str, # pylint: disable=too-many-arguments, too-many-positional-arguments
+    def _open_reduce_picker(self, table_name: str, component: str, local_key: str, # pylint: disable=too-many-positional-arguments
                             cmip_var: str, node, suggested: Optional[str] = None) -> None:
         current = self.session.mapping_reduce(table_name, component, local_key)
         title = f'reduce method for {table_name} / {cmip_var} <- {component}:{local_key}'
@@ -1898,7 +1898,7 @@ class MapApp(App):
             callback=lambda choice: self._stage_reduce(table_name, component, local_key, node,
                                                        choice))
 
-    def _stage_reduce(self, table_name: str, component: str, local_key: str, node, # pylint: disable=too-many-arguments, too-many-positional-arguments
+    def _stage_reduce(self, table_name: str, component: str, local_key: str, node, # pylint: disable=too-many-positional-arguments
                       choice: Optional[dict]) -> None:
         """ReduceScreen's dismiss callback: stage the chosen reduce method, if any."""
         if choice is None:

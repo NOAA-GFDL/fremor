@@ -1035,7 +1035,7 @@ def _build_files_report(table_data: Optional[dict], mip_era: str,
     return files_report
 
 
-def _input_dir_brand(input_dir: Optional[Path], gfdl_key: str, var: str, table_data: dict, # pylint: disable=too-many-arguments, too-many-positional-arguments
+def _input_dir_brand(input_dir: Optional[Path], gfdl_key: str, var: str, table_data: dict, # pylint: disable=too-many-positional-arguments
                      reduce: Optional[str], start: Optional[int], stop: Optional[int],
                      dmls_bin: Optional[str]) -> Optional[str]:
     """The CMIP7 brand `gfdl_key`'s files in `input_dir` would be CMORized to as `var`, read
@@ -1052,7 +1052,7 @@ def _input_dir_brand(input_dir: Optional[Path], gfdl_key: str, var: str, table_d
         return None
 
 
-def _source_brand(table_data: dict, var: str, source: tuple, reduce: Optional[str], # pylint: disable=too-many-arguments, too-many-positional-arguments, too-many-locals
+def _source_brand(table_data: dict, var: str, source: tuple, reduce: Optional[str], # pylint: disable=too-many-positional-arguments, too-many-locals
                   pp_dir: str, table_target: dict, start: Optional[int], stop: Optional[int],
                   dmls_bin: Optional[str], brand_cache: dict) -> Optional[str]:
     """The CMIP7 brand of `var` that `source` -- a (component, GFDL diagnostic key) pair --
@@ -1075,7 +1075,7 @@ def _source_brand(table_data: dict, var: str, source: tuple, reduce: Optional[st
     return brand_cache[cache_key]
 
 
-def _split_multi_brand(multiply_mapped: dict, table_data: dict, reduce_by_source: dict, # pylint: disable=too-many-arguments, too-many-positional-arguments
+def _split_multi_brand(multiply_mapped: dict, table_data: dict, reduce_by_source: dict, # pylint: disable=too-many-positional-arguments
                        pp_dir: str, table_target: dict, start: Optional[int],
                        stop: Optional[int], dmls_bin: Optional[str], brand_cache: dict) -> tuple:
     """Move each CMIP7 variable in `multiply_mapped` whose sources all resolve to different
