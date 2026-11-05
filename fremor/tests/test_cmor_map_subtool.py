@@ -40,8 +40,8 @@ from fremor.cmor_map import (
 )
 
 
-@pytest.fixture
-def temp_dir():
+@pytest.fixture(name='temp_dir')
+def _temp_dir():
     ''' fixture yielding a temporary directory '''
     with tempfile.TemporaryDirectory() as tmpdir:
         yield tmpdir

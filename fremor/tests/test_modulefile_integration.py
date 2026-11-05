@@ -179,8 +179,8 @@ def _require_binary(binary_name):
     return Path(binary_path)
 
 
-@pytest.fixture(scope='module')
-def modulefile_runtime():
+@pytest.fixture(scope='module', name='modulefile_runtime')
+def _modulefile_runtime():
     """Return the shell/runtime paths required by the modulefile integration tests."""
     _require_binary('ncgen3')
     tcsh_path = _require_binary('tcsh')
@@ -392,8 +392,8 @@ def test_build_case_command_omits_required_run_args_for_error_case(tmp_path):
     assert '--outdir' not in command
 
 
-@pytest.fixture
-def real_slurm_root(tmp_path):
+@pytest.fixture(name='real_slurm_root')
+def _real_slurm_root(tmp_path):
     """Return a Slurm-shared workspace root when real Slurm testing is enabled."""
     if os.environ.get('FREMOR_TEST_REAL_SLURM') != '1':
         pytest.skip('real Slurm integration test not requested')
