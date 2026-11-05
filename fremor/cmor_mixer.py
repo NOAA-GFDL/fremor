@@ -325,7 +325,7 @@ def rewrite_netcdf_file_var( mip_var_cfgs: dict = None,
             '    expected_mip_coord_dims = %s\n',
             expected_mip_coord_dims
         )
-    except Exception as exc:
+    except KeyError as exc:
         fre_logger.warning(
             'could not get expected coordinate dimensions for %s. '
             '   in mip_var_cfgs file %s. \n exc = %s',
@@ -537,7 +537,7 @@ def rewrite_netcdf_file_var( mip_var_cfgs: dict = None,
                                   coord_vals=time_coords,
                                   cell_bounds=time_bnds,
                                   interval=None)#interval='mon')#
-        except Exception as exc: #ValueError as exc: #uncovered
+        except ValueError as exc:
             fre_logger.error('exc is %s', str(exc))
             fre_logger.info('assigning cmor_time WITHOUT time_bnds...')
             ntimes_passed=len(time_coords)
@@ -978,7 +978,7 @@ def cmorize_target_var_files(indir: str = None,
                 if Path(local_file_name.replace('.nc', '.log')).exists():
                     mv_log_cmd = f"mv {local_file_name.replace('.nc', '.log')} {filedir}"
                     subprocess.run(mv_log_cmd, shell=True, check=True)
-            except Exception as exc: # this is the fremor.cmor_constants.CMOR_LOGFILE != None case
+            except (OSError, subprocess.SubprocessError) as exc:
                 fre_logger.warning(
                     'could not move cmor_logfile next to cmorized file, but moving on. '
                     'exception was:\nexc = %s',

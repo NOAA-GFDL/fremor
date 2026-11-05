@@ -134,13 +134,13 @@ def get_time_calendar_value(time_var) -> Optional[str]:
     calendar_val = None
     try:
         calendar_val = str(time_var.calendar).lower()
-    except Exception:
+    except AttributeError:
         fre_logger.debug('could not find calendar attribute on time axis. moving on.')
 
     if calendar_val is None:
         try:
             calendar_val = str(time_var.calendar_type).lower()
-        except Exception:
+        except AttributeError:
             fre_logger.debug('could not find calendar_type attribute on time axis. moving on.')
 
     return normalize_calendar(calendar_val)
@@ -164,7 +164,7 @@ def print_data_minmax( ds_variable: Optional[np.ma.core.MaskedArray] = None,
     try:
         fre_logger.info('info for \n desc = %s \n %s', desc, type(ds_variable))
         fre_logger.info('%s < %s < %s', ds_variable.min(), desc, ds_variable.max())
-    except Exception:
+    except (AttributeError, TypeError, ValueError):
         fre_logger.warning('could not print min/max entries for desc = %s', desc)
 
 
@@ -184,7 +184,7 @@ def from_ds_get_this( from_ds: Dataset,
     """
     try:
         return from_ds[var_name][:].copy()
-    except Exception:
+    except (IndexError, KeyError, OSError, RuntimeError, TypeError):
         fre_logger.exception('could not retrieve variable: %s\n returning None!\n', var_name)
         return None
 
@@ -781,7 +781,7 @@ def create_tmp_dir( outdir: str,
         with open(json_exp_config, 'r', encoding='utf-8') as table_config_file:
             try:
                 outdir_from_exp_config = json.load(table_config_file)['outpath']
-            except Exception:
+            except (json.JSONDecodeError, KeyError):
                 fre_logger.warning(
                     'could not read outdir from json_exp_config. the cmor module will throw a toothless warning')
 
@@ -792,10 +792,10 @@ def create_tmp_dir( outdir: str,
             fre_logger.info('attempting to create %s dir in tmp_dir targ', outdir_from_exp_config)
             try:
                 os.makedirs(tmp_dir + '/' + outdir_from_exp_config, exist_ok=True)
-            except Exception:
+            except OSError:
                 fre_logger.info('attempting to create %s dir in tmp_dir targ did not work', outdir_from_exp_config)
                 fre_logger.info('... attempt to avoid a toothless cmor warning failed... moving on')
-    except Exception as exc:
+    except OSError as exc:
         raise OSError(f'problem creating tmp output directory {tmp_dir}. stop.') from exc
 
     return tmp_dir
