@@ -12,7 +12,7 @@ import pytest
 import netCDF4
 import cmor
 
-import fremor.cmor_helpers as cmor_helpers
+from fremor import cmor_helpers
 from fremor.cmor_constants import CMOR_EXIT_CTL, CMOR_EXIT_CTL_BY_ERA
 from fremor.cmor_helpers import ( find_statics_file, print_data_minmax, variable_grid_label,
                                   find_gold_ocean_statics_file,
