@@ -1046,7 +1046,7 @@ def _input_dir_brand(input_dir: Optional[Path], gfdl_key: str, var: str, table_d
         return None
     try:
         return resolve_input_file_brand(files[0], gfdl_key, var, table_data, reduce)
-    except Exception as exc:
+    except (OSError, ValueError) as exc:
         fre_logger.debug('could not resolve the CMIP7 brand of %s in %s: %s',
                          gfdl_key, files[0], exc)
         return None
