@@ -511,7 +511,7 @@ def _snapshot_varlists(varlists_by_table: dict) -> dict:
     }
 
 
-class MapSession: # pylint: disable=too-many-public-methods
+class MapSession:
     """Loads MIP tables + varlists for a `fremor map` session, computes per-table mapping
     status reports, and stages mapping edits in memory until ``save_pending`` is called --
     edits are visible immediately (e.g. in ``table_report``) but not written to disk until
