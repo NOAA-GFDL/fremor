@@ -15,15 +15,16 @@ configuration and CMIP7-format CMOR tables.
 """
 
 from datetime import date
-import glob
 import json
-from pathlib import Path
 
 import pytest
-from netCDF4 import Dataset
 
 from fremor import cmor_run_subtool
-from fremor.tests._cmor_test_helpers import ncgen_for_case as _ncgen_for_case
+from fremor.tests._cmor_test_helpers import (
+    assert_cmor_output_matches_input,
+    find_cmor_output,
+    ncgen_for_case as _ncgen_for_case,
+)
 from fremor.tests.conftest import ncgen
 
 
@@ -165,24 +166,16 @@ def test_case_cmip7(  # pylint: disable=too-many-arguments,too-many-positional-a
         f'{outdir}/{CMOR_CREATES_DIR_BASE_CMIP7}'
         f'/{target_var_name}/**/*{target_var_name}*{grid_label}*.nc'
     )
-    cmor_output_files = glob.glob(cmor_output_glob, recursive=True)
-    assert len(cmor_output_files) >= 1, (
-        f'no CMOR output found matching {cmor_output_glob}'
+    cmor_output_file = find_cmor_output(cmor_output_glob)
+    expected_standard_name = (
+        'mole_fraction_of_methane_in_air'
+        if local_var_name == 'ch4global'
+        else None
     )
-    assert Path(cmor_output_files[0]).exists()
-
-    # dtype must be preserved between input and CMOR output
-    with Dataset(input_nc) as ds_in, Dataset(cmor_output_files[0]) as ds_out:
-        assert target_var_name in ds_out.variables, (
-            f'CMOR output does not contain mapped variable {target_var_name}'
-        )
-        in_dtype = ds_in.variables[local_var_name][:].dtype
-        out_dtype = ds_out.variables[target_var_name][:].dtype
-        assert in_dtype == out_dtype, (
-            f'{local_var_name} input dtype {in_dtype} differs from '
-            f'{target_var_name} CMOR output dtype {out_dtype}'
-        )
-        if local_var_name == 'ch4global':
-            assert ds_out.variables[target_var_name].standard_name == (
-                'mole_fraction_of_methane_in_air'
-            )
+    assert_cmor_output_matches_input(
+        input_nc,
+        cmor_output_file,
+        local_var_name,
+        target_var_name,
+        expected_standard_name=expected_standard_name,
+    )

@@ -4,6 +4,8 @@ import glob
 import json
 from pathlib import Path
 
+from netCDF4 import Dataset
+
 
 def write_table(tables_dir, table_name, var_names):
     """Write a minimal CMIP6 table containing the requested variables."""
@@ -76,3 +78,31 @@ def ncgen_for_case(testfile_dir, opt_var_name, ncgen):
             ncgen(static_cdl, static_cdl.replace('.cdl', '.nc'))
 
     return nc_file
+
+
+def find_cmor_output(output_glob):
+    """Return the first CMOR output file matching a glob pattern."""
+    cmor_output_files = glob.glob(output_glob, recursive=True)
+    assert cmor_output_files, f'no CMOR output found matching {output_glob}'
+    cmor_output_file = cmor_output_files[0]
+    assert Path(cmor_output_file).exists()
+    return cmor_output_file
+
+
+def assert_cmor_output_matches_input(
+    input_path, output_path, input_var_name, output_var_name,
+    expected_standard_name=None
+):
+    """Check that the output variable exists and preserves the input dtype."""
+    with Dataset(input_path) as ds_in, Dataset(output_path) as ds_out:
+        assert output_var_name in ds_out.variables, (
+            f'CMOR output does not contain mapped variable {output_var_name}'
+        )
+        input_dtype = ds_in.variables[input_var_name][:].dtype
+        output_variable = ds_out.variables[output_var_name]
+        assert input_dtype == output_variable[:].dtype, (
+            f'{input_var_name} input dtype {input_dtype} differs from '
+            f'{output_var_name} CMOR output dtype {output_variable[:].dtype}'
+        )
+        if expected_standard_name is not None:
+            assert output_variable.standard_name == expected_standard_name

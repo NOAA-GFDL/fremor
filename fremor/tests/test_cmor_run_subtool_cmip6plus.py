@@ -22,9 +22,11 @@ from pathlib import Path
 import shutil
 import subprocess
 
-from netCDF4 import Dataset
-
 from fremor import cmor_run_subtool
+from fremor.tests._cmor_test_helpers import (
+    assert_cmor_output_matches_input,
+    find_cmor_output,
+)
 from fremor.tests.conftest import CMIP6PLUS_TABLE_CONFIG, _CMIP6PLUS_EXP_CONFIG_DATA
 
 
@@ -103,16 +105,7 @@ def test_case_cmip6plus_tas(tmp_path):
 
     # find the CMOR output file
     cmor_output_glob = f'{outdir}/**/*tas*gr*.nc'
-    cmor_output_files = glob.glob(cmor_output_glob, recursive=True)
-    assert len(cmor_output_files) >= 1, (
-        f'no CMOR output found matching {cmor_output_glob}'
+    cmor_output_file = find_cmor_output(cmor_output_glob)
+    assert_cmor_output_matches_input(
+        input_nc, cmor_output_file, 'tas', 'tas'
     )
-    assert Path(cmor_output_files[0]).exists()
-
-    # dtype must be preserved between input and CMOR output
-    with Dataset(input_nc) as ds_in, Dataset(cmor_output_files[0]) as ds_out:
-        in_dtype = ds_in.variables['tas'][:].dtype
-        out_dtype = ds_out.variables['tas'][:].dtype
-        assert in_dtype == out_dtype, (
-            f'tas input dtype {in_dtype} differs from CMOR output dtype {out_dtype}'
-        )
