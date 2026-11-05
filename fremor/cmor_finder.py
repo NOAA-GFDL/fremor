@@ -361,8 +361,10 @@ def _read_mip_variable_entries(json_mip_table: str) -> dict:
         fre_logger.debug('attempting to read in variable entries in specified mip table')
         return get_json_file_data(json_mip_table)['variable_entry']
     except Exception as exc:
-        raise Exception( 'problem opening mip table and getting variable entry data.'
-                        f'exc = {exc}') from exc
+        raise RuntimeError(
+            'problem opening mip table and getting variable entry data.'
+            f'exc = {exc}'
+        ) from exc
 
 
 def _build_and_write_varlist(candidate_var_list: list,

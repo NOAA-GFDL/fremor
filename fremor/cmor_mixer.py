@@ -944,7 +944,7 @@ def cmorize_target_var_files(indir: str = None,
         except Exception as exc:
             cmor_logfile = CMOR_LOG if CMOR_LOG is not None else nc_file_work.replace('.nc','.log')
             _pprint_cmor_logfile(cmor_logfile, None)
-            raise Exception(
+            raise RuntimeError(
                 'problem with rewrite_netcdf_file_var. '
                 f'exc={exc}\n'
                 'exiting and executing finally block.') from exc
