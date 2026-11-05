@@ -125,35 +125,31 @@ def test_case_cmip7(  # pylint: disable=too-many-arguments,too-many-positional-a
     """
     Run cmor_run_subtool for a single CMIP7 variable and assert output exists.
     """
-    local_var_name = opt_var_name
-    target_var_name = local_var_name
+    target_var_name = opt_var_name
     varlist = CMORBITE_VARLIST
-    selected_var_name = local_var_name
-    if local_var_name == 'ch4global':
+    if opt_var_name == 'ch4global':
         # CMIP7 names the global-mean methane target `ch4`; use the local
         # variable name as the varlist key and let the table select its brand.
         target_var_name = 'ch4'
-        varlist_path = tmp_path / 'ch4global_varlist.json'
-        varlist_path.write_text(
-            json.dumps({local_var_name: target_var_name}),
+        varlist = tmp_path / 'ch4global_varlist.json'
+        varlist.write_text(
+            json.dumps({opt_var_name: target_var_name}),
             encoding='utf-8',
         )
-        varlist = str(varlist_path)
-        selected_var_name = None
 
-    input_nc = _ncgen_for_case(testfile_dir, local_var_name, ncgen)
+    input_nc = _ncgen_for_case(testfile_dir, opt_var_name, ncgen)
 
     table_file = f'{CMIP7_TABLE_REPO_PATH}/tables/{table}.json'
     outdir = str(tmp_path / 'outdir')
 
     cmor_run_subtool(
         indir=testfile_dir,
-        json_var_list=varlist,
+        json_var_list=str(varlist),
         json_table_config=table_file,
         json_exp_config=EXP_CONFIG_CMIP7,
         outdir=outdir,
         run_one_mode=True,
-        opt_var_name=selected_var_name,
+        opt_var_name=None if opt_var_name == 'ch4global' else opt_var_name,
         grid='FOO_PLACEHOLDER',
         grid_label=grid_label,
         nom_res='100 km',
@@ -167,15 +163,14 @@ def test_case_cmip7(  # pylint: disable=too-many-arguments,too-many-positional-a
         f'/{target_var_name}/**/*{target_var_name}*{grid_label}*.nc'
     )
     cmor_output_file = find_cmor_output(cmor_output_glob)
-    expected_standard_name = (
-        'mole_fraction_of_methane_in_air'
-        if local_var_name == 'ch4global'
-        else None
-    )
     assert_cmor_output_matches_input(
         input_nc,
         cmor_output_file,
-        local_var_name,
+        opt_var_name,
         target_var_name,
-        expected_standard_name=expected_standard_name,
+        expected_standard_name=(
+            'mole_fraction_of_methane_in_air'
+            if opt_var_name == 'ch4global'
+            else None
+        ),
     )
