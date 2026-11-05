@@ -1428,6 +1428,69 @@ class MapApp(App):
             return base_label + self.PENDING_SUFFIX
         return base_label
 
+    def _populate_unmapped_node(self, table_node, table_name: str, report: dict) -> None:
+        """Add the table's unmapped variables to its tree node."""
+        unmapped = report['unmapped']
+        unmapped_node = table_node.add(
+            f'Unmapped ({len(unmapped)})', data={'kind': 'branch'})
+        for var in unmapped:
+            unmapped_node.add_leaf(
+                var, data={'kind': 'var', 'table': table_name, 'var': var})
+
+    def _populate_mapped_node(self, table_node, table_name: str, report: dict) -> None:
+        """Add one-to-one and CMIP7 multi-brand variables to the mapped tree node."""
+        # A CMIP7 variable may be mapped once per source when each source has a distinct brand.
+        mapped_sources = {
+            var: [(comp, key, None)] for var, (comp, key) in report['one_to_one_mapped'].items()
+        }
+        mapped_sources.update(report.get('multi_brand_mapped', {}))
+        mapped_node = table_node.add(
+            f'Mapped ({len(mapped_sources)})', data={'kind': 'branch'})
+        for var in sorted(mapped_sources):
+            for component, local_key, brand in mapped_sources[var]:
+                label = f'{var} <- {component}:{local_key}' + self._brand_note(brand)
+                mapped_node.add_leaf(
+                    self._source_label(label, table_name, component, local_key),
+                    data={'kind': 'source', 'table': table_name, 'var': var,
+                          'component': component, 'local_key': local_key})
+
+    def _populate_multiply_mapped_node(self, table_node, table_name: str,
+                                       report: dict) -> None:
+        """Add multiply-mapped variables and their source entries to the tree."""
+        multiply_mapped = report['multiply_mapped']
+        multi_node = table_node.add(
+            f'Multiply-mapped ({len(multiply_mapped)})', data={'kind': 'branch'})
+        for var, entries in multiply_mapped.items():
+            var_node = multi_node.add(
+                f'{var} ({len(entries)})',
+                data={'kind': 'var', 'table': table_name, 'var': var})
+            brands = report.get('multiply_mapped_brands', {}).get(var)
+            for index, (component, local_key) in enumerate(entries):
+                label = f'{component}:{local_key}'
+                if brands:
+                    label += self._brand_note(brands[index] or 'unresolved')
+                var_node.add_leaf(
+                    self._source_label(label, table_name, component, local_key),
+                    data={'kind': 'source', 'table': table_name, 'var': var,
+                          'component': component, 'local_key': local_key})
+
+    def _populate_unknown_node(self, table_node, table_name: str, report: dict) -> None:
+        """Add unknown-mapped variables and their source entries to the tree."""
+        unknown_mapped = report['unknown_mapped']
+        unknown_node = table_node.add(
+            f'Unknown ({len(unknown_mapped)})', data={'kind': 'branch'})
+        for var in unknown_mapped:
+            sources = report['unknown_sources'].get(var, [])
+            var_node = unknown_node.add(
+                f'{var} ({len(sources)})',
+                data={'kind': 'var', 'table': table_name, 'var': var})
+            for component, local_key in sources:
+                var_node.add_leaf(
+                    self._source_label(f'{component}:{local_key}',
+                                       table_name, component, local_key),
+                    data={'kind': 'source', 'table': table_name, 'var': var,
+                          'component': component, 'local_key': local_key})
+
     def _populate_cmip_tree(self, preserve_table_expansion: bool = False) -> None:
         """Rebuild the MIP tree with status categories collapsed.
 
@@ -1458,56 +1521,10 @@ class MapApp(App):
                 expand=table_name in expanded_tables,
             )
             self.table_nodes[table_name] = table_node
-
-            unmapped_node = table_node.add(
-                f'Unmapped ({len(report["unmapped"])})', data={'kind': 'branch'})
-            for var in report['unmapped']:
-                unmapped_node.add_leaf(var, data={'kind': 'var', 'table': table_name, 'var': var})
-
-            # a CMIP7 variable whose sources each CMORize to a different brand is mapped fine
-            # -- one entry per source, each with its brand
-            mapped_sources = {
-                var: [(comp, key, None)] for var, (comp, key) in report['one_to_one_mapped'].items()
-            }
-            mapped_sources.update(report.get('multi_brand_mapped', {}))
-            mapped_node = table_node.add(
-                f'Mapped ({len(mapped_sources)})', data={'kind': 'branch'})
-            for var in sorted(mapped_sources):
-                for comp, key, brand in mapped_sources[var]:
-                    label = f'{var} <- {comp}:{key}' + self._brand_note(brand)
-                    mapped_node.add_leaf(
-                        self._source_label(label, table_name, comp, key),
-                        data={'kind': 'source', 'table': table_name, 'var': var,
-                              'component': comp, 'local_key': key})
-
-            multi_node = table_node.add(
-                f'Multiply-mapped ({len(report["multiply_mapped"])})', data={'kind': 'branch'})
-            for var, entries in report['multiply_mapped'].items():
-                var_node = multi_node.add(
-                    f'{var} ({len(entries)})',
-                    data={'kind': 'var', 'table': table_name, 'var': var})
-                brands = report.get('multiply_mapped_brands', {}).get(var)
-                for index, (comp, key) in enumerate(entries):
-                    label = f'{comp}:{key}'
-                    if brands:
-                        label += self._brand_note(brands[index] or 'unresolved')
-                    var_node.add_leaf(
-                        self._source_label(label, table_name, comp, key),
-                        data={'kind': 'source', 'table': table_name, 'var': var,
-                              'component': comp, 'local_key': key})
-
-            unknown_node = table_node.add(
-                f'Unknown ({len(report["unknown_mapped"])})', data={'kind': 'branch'})
-            for val in report['unknown_mapped']:
-                sources = report['unknown_sources'].get(val, [])
-                val_node = unknown_node.add(
-                    f'{val} ({len(sources)})',
-                    data={'kind': 'var', 'table': table_name, 'var': val})
-                for comp, key in sources:
-                    val_node.add_leaf(
-                        self._source_label(f'{comp}:{key}', table_name, comp, key),
-                        data={'kind': 'source', 'table': table_name, 'var': val,
-                              'component': comp, 'local_key': key})
+            self._populate_unmapped_node(table_node, table_name, report)
+            self._populate_mapped_node(table_node, table_name, report)
+            self._populate_multiply_mapped_node(table_node, table_name, report)
+            self._populate_unknown_node(table_node, table_name, report)
 
     # ---- pp tree (lazily populated on expand) ----
 
