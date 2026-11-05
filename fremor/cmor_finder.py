@@ -284,7 +284,7 @@ def detect_input_frequency(nc_file: str, var_name: str) -> Dict[str, Optional[st
             spacing = _time_spacing_days(ds, time_var)
             base = _base_freq_from_spacing(spacing) if spacing is not None else None
             return {'base': base, 'sampling': sampling}
-    except Exception as exc: # pylint: disable=broad-exception-caught
+    except Exception as exc:
         fre_logger.warning('could not read the time axis of %s in %s, not checking its frequency: %s',
                            var_name, nc_file, exc)
         return unknown
