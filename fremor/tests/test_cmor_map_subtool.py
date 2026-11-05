@@ -1159,20 +1159,35 @@ def _fake_dmls(monkeypatch, dmls_bin, state_by_path):
     monkeypatch.setattr(subprocess_mod, 'run', _fake_run)
 
 
+def _make_pp_preview_app(temp_dir, monkeypatch, dmls_state=None, variables=(('pr', 'kg m-2 s-1'),)):
+    ''' build a preview app with pp files, optionally mocking their dmls residency state '''
+    if dmls_state is None:
+        monkeypatch.setattr('shutil.which', lambda _: None)
+
+    pp_dir, varlist_dir, tables_dir = _make_session_fixture(temp_dir)
+    comp_ts_dir = Path(pp_dir) / 'atmos' / 'ts' / 'monthly' / '5yr'
+    comp_ts_dir.mkdir(parents=True)
+
+    for local_key, units in variables:
+        nc_path = comp_ts_dir / f'atmos.000101-000512.{local_key}.nc'
+        _write_nc_file(nc_path, local_key, units=units)
+
+    if dmls_state is not None:
+        state_by_path = {
+            str(comp_ts_dir / f'atmos.000101-000512.{local_key}.nc'): dmls_state
+            for local_key, _ in variables
+        }
+        _fake_dmls(monkeypatch, '/usr/bin/dmls', state_by_path)
+
+    yamlfile = _amon_yaml(temp_dir, pp_dir, varlist_dir, tables_dir, component_names=['atmos'])
+    return MapApp(MapSession(yamlfile))
+
+
 @pytest.mark.asyncio
 async def test_pp_preview_shows_tape_message_when_offline(temp_dir, monkeypatch): # pylint: disable=redefined-outer-name
     ''' a pp file whose dmls status is anything other than REG/DUL (still on tape) shows a
     "still on tape" message instead of a preview -- ncinfo/netCDF4 are never even attempted '''
-    pp_dir, varlist_dir, tables_dir = _make_session_fixture(temp_dir)
-
-    comp_ts_dir = Path(pp_dir) / 'atmos' / 'ts' / 'monthly' / '5yr'
-    comp_ts_dir.mkdir(parents=True)
-    nc_path = comp_ts_dir / 'atmos.000101-000512.pr.nc'
-    _write_nc_file(nc_path, 'pr', units='kg m-2 s-1')
-    _fake_dmls(monkeypatch, '/usr/bin/dmls', {str(nc_path): 'OFL'})
-
-    yamlfile = _amon_yaml(temp_dir, pp_dir, varlist_dir, tables_dir, component_names=['atmos'])
-    app = MapApp(MapSession(yamlfile))
+    app = _make_pp_preview_app(temp_dir, monkeypatch, dmls_state='OFL')
 
     async with app.run_test() as pilot:
         pp_tree = app.query_one('#pp_tree')
@@ -1196,16 +1211,7 @@ async def test_pp_preview_shows_tape_message_when_offline(temp_dir, monkeypatch)
 @pytest.mark.asyncio
 async def test_pp_preview_shown_when_dmls_reports_disk_resident(temp_dir, monkeypatch): # pylint: disable=redefined-outer-name
     ''' a pp file whose dmls status is REG or DUL is previewed normally '''
-    pp_dir, varlist_dir, tables_dir = _make_session_fixture(temp_dir)
-
-    comp_ts_dir = Path(pp_dir) / 'atmos' / 'ts' / 'monthly' / '5yr'
-    comp_ts_dir.mkdir(parents=True)
-    nc_path = comp_ts_dir / 'atmos.000101-000512.pr.nc'
-    _write_nc_file(nc_path, 'pr', units='kg m-2 s-1')
-    _fake_dmls(monkeypatch, '/usr/bin/dmls', {str(nc_path): 'DUL'})
-
-    yamlfile = _amon_yaml(temp_dir, pp_dir, varlist_dir, tables_dir, component_names=['atmos'])
-    app = MapApp(MapSession(yamlfile))
+    app = _make_pp_preview_app(temp_dir, monkeypatch, dmls_state='DUL')
 
     async with app.run_test() as pilot:
         pp_tree = app.query_one('#pp_tree')
@@ -1231,15 +1237,7 @@ async def test_pp_preview_shown_when_dmls_reports_disk_resident(temp_dir, monkey
 async def test_pp_preview_falls_back_to_stat_heuristic_without_dmls(temp_dir, monkeypatch): # pylint: disable=redefined-outer-name
     ''' with no dmls binary available at all, a normal on-disk file still previews (via the
     stat-based residency heuristic) instead of being reported as on tape '''
-    monkeypatch.setattr('shutil.which', lambda _: None)
-    pp_dir, varlist_dir, tables_dir = _make_session_fixture(temp_dir)
-
-    comp_ts_dir = Path(pp_dir) / 'atmos' / 'ts' / 'monthly' / '5yr'
-    comp_ts_dir.mkdir(parents=True)
-    _write_nc_file(comp_ts_dir / 'atmos.000101-000512.pr.nc', 'pr', units='kg m-2 s-1')
-
-    yamlfile = _amon_yaml(temp_dir, pp_dir, varlist_dir, tables_dir, component_names=['atmos'])
-    app = MapApp(MapSession(yamlfile))
+    app = _make_pp_preview_app(temp_dir, monkeypatch)
 
     async with app.run_test() as pilot:
         pp_tree = app.query_one('#pp_tree')
@@ -1264,16 +1262,11 @@ async def test_pp_preview_shows_latest_selection_after_rapid_switch(temp_dir, mo
     ''' selecting a second pp file before the first one's preview has finished loading still
     ends up showing the second file's preview, never the first's -- the in-flight preview
     for the first selection is effectively cancelled from the user's point of view '''
-    monkeypatch.setattr('shutil.which', lambda _: None)
-    pp_dir, varlist_dir, tables_dir = _make_session_fixture(temp_dir)
-
-    comp_ts_dir = Path(pp_dir) / 'atmos' / 'ts' / 'monthly' / '5yr'
-    comp_ts_dir.mkdir(parents=True)
-    _write_nc_file(comp_ts_dir / 'atmos.000101-000512.tas.nc', 'tas', units='K')
-    _write_nc_file(comp_ts_dir / 'atmos.000101-000512.pr.nc', 'pr', units='kg m-2 s-1')
-
-    yamlfile = _amon_yaml(temp_dir, pp_dir, varlist_dir, tables_dir, component_names=['atmos'])
-    app = MapApp(MapSession(yamlfile))
+    app = _make_pp_preview_app(
+        temp_dir,
+        monkeypatch,
+        variables=(('tas', 'K'), ('pr', 'kg m-2 s-1')),
+    )
 
     async with app.run_test() as pilot:
         pp_tree = app.query_one('#pp_tree')
