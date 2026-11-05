@@ -14,36 +14,15 @@ from netCDF4 import Dataset
 
 from fremor import cmor_check as check_module
 from fremor.cmor_check import cmor_check_subtool
-
-
-def _write_table(tables_dir, table_name, var_names):
-    variable_entry = {name: {'standard_name': name} for name in var_names}
-    (Path(tables_dir) / f'CMIP6_{table_name}.json').write_text(
-        json.dumps({'Header': {'table_id': f'Table {table_name}'}, 'variable_entry': variable_entry}),
-        encoding='utf-8'
-    )
+from fremor.tests._cmor_test_helpers import (
+    component_entry as _component_entry,
+    table_target as _table_target,
+    write_table as _write_table,
+)
 
 
 def _write_amon_table(tables_dir, var_names):
     _write_table(tables_dir, 'Amon', var_names)
-
-
-def _component_entry(component_name, variable_list_path, chunk='P5Y'):
-    return {
-        'component_name': component_name,
-        'variable_list': str(variable_list_path),
-        'data_series_type': 'ts',
-        'chunk': chunk,
-    }
-
-
-def _table_target(table_name, components, freq='monthly'):
-    return {
-        'table_name': table_name,
-        'freq': freq,
-        'gridding': {'grid_label': 'gn', 'grid_desc': 'd', 'nom_res': '100 km'},
-        'target_components': components,
-    }
 
 
 def _write_yaml(temp_dir, table_targets, mip_era='cmip6', pp_dir=None, table_dir=None): # pylint: disable=redefined-outer-name

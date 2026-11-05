@@ -39,14 +39,11 @@ from fremor.cmor_map import (
     _read_exp_grid,
     cmor_map_subtool,
 )
-
-
-def _write_table(tables_dir, table_name, var_names):
-    variable_entry = {name: {'standard_name': name} for name in var_names}
-    (Path(tables_dir) / f'CMIP6_{table_name}.json').write_text(
-        json.dumps({'Header': {'table_id': f'Table {table_name}'}, 'variable_entry': variable_entry}),
-        encoding='utf-8'
-    )
+from fremor.tests._cmor_test_helpers import (
+    component_entry as _component_entry,
+    table_target as _table_target,
+    write_table as _write_table,
+)
 
 
 def _write_nc_file(nc_path, var_name, units='degC', long_name='a variable'):
@@ -278,24 +275,6 @@ def _make_session_fixture(root_dir):
         one_dir.mkdir()
     _write_table(tables_dir, 'Amon', ['tas', 'pr', 'ps'])
     return str(pp_dir), str(varlist_dir), str(tables_dir)
-
-
-def _component_entry(component_name, variable_list_path, chunk='P5Y'):
-    return {
-        'component_name': component_name,
-        'variable_list': str(variable_list_path),
-        'data_series_type': 'ts',
-        'chunk': chunk,
-    }
-
-
-def _table_target(table_name, components, freq='monthly'):
-    return {
-        'table_name': table_name,
-        'freq': freq,
-        'gridding': {'grid_label': 'gn', 'grid_desc': 'd', 'nom_res': '100 km'},
-        'target_components': components,
-    }
 
 
 def _write_map_yaml(root_dir, pp_dir, tables_dir, table_targets, mip_era='cmip6'):
