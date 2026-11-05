@@ -247,10 +247,10 @@ def _run_with_fake_cmor_output(tmp_path, monkeypatch, output_path, create_log=Fa
     if fail_log_move:
         run = subprocess.run
 
-        def fail_sidecar_move(command, *args, **kwargs):
+        def fail_sidecar_move(command, *args, check=False, **kwargs):
             if '.log' in command:
                 raise OSError('test log relocation failure')
-            return run(command, *args, **kwargs)
+            return run(command, *args, check=check, **kwargs)
 
         monkeypatch.setattr(cmor_mixer.subprocess, 'run', fail_sidecar_move)
 
