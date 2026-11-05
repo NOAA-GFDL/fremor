@@ -34,7 +34,6 @@ import json
 import logging
 import os
 from pathlib import Path
-from pprint import pformat
 import re
 import shutil
 import subprocess
@@ -47,7 +46,7 @@ import netCDF4 as nc
 from .cmor_helpers import ( from_ds_get_this, create_lev_bnds,
                             get_iso_datetime_ranges, check_dataset_for_ocean_grid, get_vertical_dimension,
                             create_tmp_dir, get_json_file_data, exp_config_overrides, warn_overridden_exp_config,
-                            normalize_calendar, get_time_calendar_ds, get_time_calendar_value,
+                            normalize_calendar, get_time_calendar_ds,
                             calendars_are_equivalent,
                             resolve_mip_era_table_resource, find_ps_companion, table_declares_ps,
                             resolve_cmip7_brand, resolve_input_file_brand, scalar_z_coords,
