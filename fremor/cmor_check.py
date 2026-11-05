@@ -952,7 +952,7 @@ def _range_finding(bounds: dict, files: list, dmls_bin: Optional[str] = None,
     }
 
 
-def _build_files_report(table_path: str, table_data: Optional[dict], mip_era: str,
+def _build_files_report(table_data: Optional[dict], mip_era: str,
                         table_target: dict, pp_dir: str, one_to_one_mapped: dict,
                         check_staging: bool, check_dims: bool, check_output: bool = False,
                         check_attrs: bool = False, check_range: bool = False,
@@ -1188,7 +1188,7 @@ def _build_table_report(table_path: str, mip_era: str, varlists_by_table: dict,
         needs_table_data = check_dims or check_output or check_attrs or check_range
         table_data = get_json_file_data(table_path) if needs_table_data else None
         report_entry['files'] = _build_files_report(
-            table_path, table_data, mip_era, table_target, pp_dir, one_to_one_mapped,
+            table_data, mip_era, table_target, pp_dir, one_to_one_mapped,
             check_staging, check_dims, check_output, check_attrs, check_range,
             output_files_index, dmls_bin, start, stop, ps_fallback, grid_check,
             multi_brand_mapped=multi_brand_mapped
