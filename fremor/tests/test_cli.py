@@ -962,67 +962,65 @@ def test_cli_fremor_init_cmip6plus_exp_config(tmp_path):
     assert 'output_path_template' in config
 
 
-def test_cli_fremor_init_cmip6_default_name(tmp_path):
+def test_cli_fremor_init_cmip6_default_name(tmp_path, monkeypatch):
     """
     fremor init -- when no --exp_config is given and no --tables_dir,
     a default-named file should be created in the current directory.
     """
-    # Use CliRunner's isolated_filesystem to avoid polluting the actual working directory
-    with runner.isolated_filesystem(temp_dir=tmp_path):
-        result = runner.invoke(fremor, args=[
-            'init',
-            '--mip_era', 'cmip6'
-        ])
-        assert result.exit_code == 0, f'init failed: {result.output}'
+    monkeypatch.chdir(tmp_path)
+    result = runner.invoke(fremor, args=[
+        'init',
+        '--mip_era', 'cmip6'
+    ])
+    assert result.exit_code == 0, f'init failed: {result.output}'
 
-        default_path = Path('CMOR_cmip6_template.json')
-        assert default_path.exists(), 'default output config was not created'
+    default_path = Path('CMOR_cmip6_template.json')
+    assert default_path.exists(), 'default output config was not created'
 
-        with open(default_path, 'r', encoding='utf-8') as f:
-            config = json.load(f)
-        assert config['mip_era'] == 'CMIP6'
+    with open(default_path, 'r', encoding='utf-8') as f:
+        config = json.load(f)
+    assert config['mip_era'] == 'CMIP6'
 
-def test_cli_fremor_init_cmip6plus_default_name(tmp_path):
+
+def test_cli_fremor_init_cmip6plus_default_name(tmp_path, monkeypatch):
     """
     fremor init -- when no --exp_config is given and no --tables_dir,
     a default-named file should be created in the current directory.
     """
-    # Use CliRunner's isolated_filesystem to avoid polluting the actual working directory
-    with runner.isolated_filesystem(temp_dir=tmp_path):
-        result = runner.invoke(fremor, args=[
-            'init',
-            '--mip_era', 'cmip6plus'
-        ])
-        assert result.exit_code == 0, f'init failed: {result.output}'
+    monkeypatch.chdir(tmp_path)
+    result = runner.invoke(fremor, args=[
+        'init',
+        '--mip_era', 'cmip6plus'
+    ])
+    assert result.exit_code == 0, f'init failed: {result.output}'
 
-        default_path = Path('CMOR_cmip6plus_template.json')
-        assert default_path.exists(), 'default output config was not created'
+    default_path = Path('CMOR_cmip6plus_template.json')
+    assert default_path.exists(), 'default output config was not created'
 
-        with open(default_path, 'r', encoding='utf-8') as f:
-            config = json.load(f)
-        assert config['mip_era'] == 'CMIP6Plus'
-
+    with open(default_path, 'r', encoding='utf-8') as f:
+        config = json.load(f)
+    assert config['mip_era'] == 'CMIP6Plus'
 
 
-def test_cli_fremor_init_cmip7_default_name(tmp_path):
+
+def test_cli_fremor_init_cmip7_default_name(tmp_path, monkeypatch):
     """
     fremor init -- when no --exp_config is given and no --tables_dir,
     a default-named file should be created in the current directory.
     """
-    # Use CliRunner's isolated_filesystem to avoid polluting the actual working directory
-    with runner.isolated_filesystem(temp_dir=tmp_path):
-        result = runner.invoke(fremor, args=[
-            'init',
-            '--mip_era', 'cmip7'
-        ])
-        assert result.exit_code == 0, f'init failed: {result.output}'
+    monkeypatch.chdir(tmp_path)
+    result = runner.invoke(fremor, args=[
+        'init',
+        '--mip_era', 'cmip7'
+    ])
+    assert result.exit_code == 0, f'init failed: {result.output}'
 
-        default_path = Path('CMOR_cmip7_template.json')
-        assert default_path.exists(), 'default output config was not created'
+    default_path = Path('CMOR_cmip7_template.json')
+    assert default_path.exists(), 'default output config was not created'
 
-        with open(default_path, 'r', encoding='utf-8') as f:
-            config = json.load(f)
-        assert config['mip_era'] == 'CMIP7'
+    with open(default_path, 'r', encoding='utf-8') as f:
+        config = json.load(f)
+    assert config['mip_era'] == 'CMIP7'
 
 
 def test_cli_fremor_init_exp_config_and_tables_dir_have_consistent_layout(tmp_path):
