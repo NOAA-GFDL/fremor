@@ -188,6 +188,59 @@ def test_cmor_config_subtool_writes_self_contained_yaml(temp_dir): # pylint: dis
     assert target_component['chunk'] == 'P5Y'
 
 
+def test_cmor_config_subtool_infers_component_frequencies_and_chunks(tmp_path):
+    ''' missing CLI metadata is inferred per component and stored on mixed-frequency targets '''
+    pp_dir = tmp_path / 'pp'
+    layouts = {
+        ('ocean', 'daily', '1yr'),
+        ('land', 'monthly', '5yr'),
+    }
+    for component, freq, chunk in layouts:
+        target_dir = pp_dir / component / 'ts' / freq / chunk
+        target_dir.mkdir(parents=True)
+        (target_dir / 'dummy.nc').touch()
+
+    tables_dir = tmp_path / 'tables'
+    tables_dir.mkdir()
+    (tables_dir / 'CMIP7_ocean.json').write_text('{}', encoding='utf-8')
+    exp_config = tmp_path / 'exp.json'
+    exp_config.write_text(json.dumps({
+        'grid': 'native grid from exp config',
+        'nominal_resolution': '100 km',
+    }), encoding='utf-8')
+
+    def _fake_make_simple_varlist(
+            output_variable_list,
+            **kwargs,
+    ):
+        del kwargs
+        Path(output_variable_list).write_text('{}', encoding='utf-8')
+
+    output_yaml = tmp_path / 'cmor.yaml'
+    varlist_dir = tmp_path / 'varlists'
+    with patch('fremor.cmor_config.make_simple_varlist', side_effect=_fake_make_simple_varlist):
+        cmor_config_subtool(
+            pp_dir=str(pp_dir),
+            mip_tables_dir=str(tables_dir),
+            mip_era=None,
+            exp_config=str(exp_config),
+            output_yaml=str(output_yaml),
+            output_dir=str(tmp_path / 'out'),
+            varlist_dir=str(varlist_dir),
+        )
+
+    cmor_yaml = yaml.safe_load(output_yaml.read_text(encoding='utf-8'))['cmor']
+    assert len(cmor_yaml['table_targets']) == 1
+    target = cmor_yaml['table_targets'][0]
+    assert target['freq'] is None
+    assert [(item['component_name'], item['freq'], item['chunk'])
+            for item in target['target_components']] == [
+        ('land', 'monthly', 'P5Y'), ('ocean', 'daily', 'P1Y')
+    ]
+    assert (varlist_dir / 'CMIP7_ocean_ocean.list').is_file()
+    assert (varlist_dir / 'CMIP7_ocean_land.list').is_file()
+
+
 def test_cmor_config_subtool_continues_after_static_varlist_failure(tmp_path, caplog):
     ''' an unreadable static file warns and does not prevent YAML generation '''
     pp_dir = tmp_path / 'pp'
