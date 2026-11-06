@@ -631,6 +631,51 @@ class MapSession:
         keys = _matching_variable_keys(variable_entry, var, self.mip_era)
         return {key: variable_entry[key] for key in keys}
 
+    def _stage_new_varlist_mapping(self, table_name: str, component_name: str,
+                                   local_key: str, cmip_var: str,
+                                   chunk: Optional[str], data_series_type: str) -> object:
+        """Create a varlist mapping and, when needed, its target component entry."""
+        already_declared = any(
+            comp.get('component_name') == component_name
+            for comp in self.table_targets_by_name[table_name].get('target_components') or []
+        )
+        if self.varlist_dir is None:
+            raise ValueError(
+                f'cannot create a new varlist for component {component_name!r} in table '
+                f'{table_name!r}: no existing variable_list entries in the yaml to infer '
+                'a varlist directory from')
+        static = data_series_type == STATIC_DATA_SERIES_TYPE
+        # Match the naming used by fremor config --freq static.
+        list_suffix = f'_{STATIC_FREQ}' if static else ''
+        fname = f'{self.era_upper}_{table_name}_{component_name}{list_suffix}.list'
+        path = f'{self.varlist_dir}/{fname}'
+
+        if not already_declared:
+            if chunk is None and not static:
+                raise ValueError(
+                    f'cannot map component {component_name!r} into table {table_name!r}: '
+                    'it has no target_components entry yet and no chunk was given to '
+                    'create one -- the new varlist would be an orphan file fremor yaml '
+                    'never reads')
+            new_component = {
+                'component_name': component_name,
+                'variable_list': path,
+                'data_series_type': data_series_type,
+            }
+            if not static:
+                new_component['chunk'] = _bronx_to_iso_chunk(chunk)
+            self.table_targets_by_name[table_name].setdefault(
+                'target_components', []).append(new_component)
+            self.new_target_components.add((table_name, component_name))
+            fre_logger.info('staged new target_components entry for %s/%s (not yet saved)',
+                            table_name, component_name)
+
+        data = get_json_file_data(path) if Path(path).is_file() else {}
+        old_value = data.get(local_key, _UNSET)
+        data[local_key] = _remapped_value(old_value, cmip_var)
+        self.varlists_by_table[table_name].append((component_name, path, data))
+        return old_value
+
     def set_mapping(self, table_name: str, component_name: str, local_key: str,
                     cmip_var: str, chunk: Optional[str] = None,
                     data_series_type: str = 'ts') -> None:
@@ -660,46 +705,8 @@ class MapSession:
                 data[local_key] = _remapped_value(old_value, cmip_var)
                 break
         else:
-            already_declared = any(
-                comp.get('component_name') == component_name
-                for comp in self.table_targets_by_name[table_name].get('target_components') or []
-            )
-            if self.varlist_dir is None:
-                raise ValueError(
-                    f'cannot create a new varlist for component {component_name!r} in table '
-                    f'{table_name!r}: no existing variable_list entries in the yaml to infer '
-                    'a varlist directory from')
-            static = data_series_type == STATIC_DATA_SERIES_TYPE
-            # same naming as fremor config --freq static
-            list_suffix = f'_{STATIC_FREQ}' if static else ''
-            fname = f'{self.era_upper}_{table_name}_{component_name}{list_suffix}.list'
-            path = f'{self.varlist_dir}/{fname}'
-
-            if not already_declared:
-                if chunk is None and not static:
-                    raise ValueError(
-                        f'cannot map component {component_name!r} into table {table_name!r}: '
-                        'it has no target_components entry yet and no chunk was given to '
-                        'create one -- the new varlist would be an orphan file fremor yaml '
-                        'never reads')
-                target_components = self.table_targets_by_name[table_name].setdefault(
-                    'target_components', [])
-                new_component = {
-                    'component_name': component_name,
-                    'variable_list': path,
-                    'data_series_type': data_series_type,
-                }
-                if not static:
-                    new_component['chunk'] = _bronx_to_iso_chunk(chunk)
-                target_components.append(new_component)
-                self.new_target_components.add((table_name, component_name))
-                fre_logger.info('staged new target_components entry for %s/%s (not yet saved)',
-                                table_name, component_name)
-
-            data = get_json_file_data(path) if Path(path).is_file() else {}
-            old_value = data.get(local_key, _UNSET)
-            data[local_key] = _remapped_value(old_value, cmip_var)
-            entries.append((component_name, path, data))
+            old_value = self._stage_new_varlist_mapping(
+                table_name, component_name, local_key, cmip_var, chunk, data_series_type)
 
         self.dirty_keys.add((table_name, component_name, local_key))
         self._history.append(_Edit(table_name, component_name, local_key, old_value))
