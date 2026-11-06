@@ -232,7 +232,7 @@ def _component_input_dir(pp_dir: str, table_target: dict, component: dict) -> Op
     ``fremor stage`` both use -- or, for a static component, its static file
     <pp_dir>/<component>/<component>.static.nc. Returns None if a ts component's table_target
     has no freq (nothing to check against, e.g. a hand-edited yaml predating ``fremor config``)."""
-    freq = table_target.get('freq')
+    freq = component.get('freq') or table_target.get('freq')
     if not freq and not is_static_component(component):
         return None
     return Path(component_input_path(pp_dir, freq, component))
@@ -1727,9 +1727,14 @@ def cmor_check_subtool(
         table_started_at = time.monotonic()
         table_target = table_targets_by_name.get(table_name)
         ps_fallback = None
-        if table_target is not None and table_target.get('freq'):
+        has_configured_freq = table_target is not None and (
+            table_target.get('freq') or any(
+                component.get('freq') for component in table_target.get('target_components') or []
+            )
+        )
+        if has_configured_freq:
             ps_fallback = resolve_named_ps_source(table_target, table_targets, pp_dir,
-                                                  table_target['freq'])
+                                                  table_target.get('freq'))
         grid_check = None
         if check_grid:
             grid_label = ((table_target or {}).get('gridding') or {}).get('grid_label') or exp_grid_label
