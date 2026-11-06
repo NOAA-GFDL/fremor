@@ -487,7 +487,7 @@ def _read_exp_grid(exp_json: Optional[str]) -> dict:
         return {}
     try:
         exp_data = get_json_file_data(exp_json)
-    except Exception as exc:
+    except (OSError, ValueError) as exc:
         fre_logger.warning('could not read exp_json %s: %s', exp_json, exc)
         return {}
     return {field: exp_data.get(exp_key) for field, exp_key in _EXP_GRID_KEYS.items()}
