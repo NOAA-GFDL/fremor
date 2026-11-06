@@ -394,9 +394,10 @@ def resolve_named_ps_source( table_target: dict,
     Resolve a cmor yaml table target's optional ``ps_component`` (and ``ps_local_name``, default ``ps``)
     into the input directory holding that component's surface pressure, at the table's ``freq``.
 
-    The component's ``chunk`` and ``data_series_type`` are taken from its entry in this table target's
-    ``target_components``, else from any other table target listing it, else from this table target's
-    first component -- the ps file has to share the variables' date ranges to be found anyway.
+    The component's ``freq``, ``chunk`` and ``data_series_type`` are taken from its entry in this
+    table target's ``target_components``, else from any other table target listing it, else from
+    this table target's first component -- the ps file has to share the variables' date ranges to
+    be found anyway.
 
     :param table_target: The cmor yaml table target.
     :type table_target: dict
@@ -433,6 +434,7 @@ def resolve_named_ps_source( table_target: dict,
                            ps_component, component['chunk'], component['data_series_type'],
                            component['component_name'])
 
+    freq = component.get('freq') or freq
     indir = (f"{pp_dir}/{ps_component}/{component['data_series_type']}/{freq}/"
              f"{iso_to_bronx_chunk(component['chunk'])}")
     return {'indir': indir, 'local_var': table_target.get('ps_local_name') or 'ps'}
@@ -481,7 +483,8 @@ def component_input_path(pp_dir: Union[str, Path], freq: Optional[str], componen
 
     :param pp_dir: The cmor yaml's pp directory.
     :type pp_dir: str or Path
-    :param freq: The table target's FRE frequency directory, e.g. 'monthly'. Unused for static components.
+    :param freq: The table target's FRE frequency directory, e.g. 'monthly'. A component-level
+        ``freq`` takes precedence. Unused for static components.
     :type freq: str or None
     :param component: One of the table target's ``target_components`` entries.
     :type component: dict
@@ -491,6 +494,7 @@ def component_input_path(pp_dir: Union[str, Path], freq: Optional[str], componen
     """
     if is_static_component(component):
         return static_file_path(pp_dir, component['component_name'])
+    freq = component.get('freq') or freq
     return (f"{pp_dir}/{component['component_name']}/{component['data_series_type']}/{freq}/"
             f"{iso_to_bronx_chunk(component['chunk'])}")
 

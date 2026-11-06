@@ -77,6 +77,39 @@ def test_collect_stage_files_uses_mappings_bounds_and_ps(tmp_path, mip_era):
     ])
 
 
+def test_collect_stage_files_uses_each_component_frequency(tmp_path):
+    """A mixed-frequency table target stages files from each component's own directory."""
+    yamlfile, monthly_dir = _stage_case(tmp_path, mip_era='CMIP7')
+    daily_dir = tmp_path / 'pp' / 'river' / 'ts' / 'daily' / '1yr'
+    daily_dir.mkdir(parents=True)
+    for name in ('river.199501-199912.temp.nc', 'river.199501-199912.ps.nc'):
+        (daily_dir / name).touch()
+
+    config = yaml.safe_load(yamlfile.read_text(encoding='utf-8'))
+    table_target = config['cmor']['table_targets'][0]
+    table_target['freq'] = None
+    table_target['target_components'][0]['freq'] = 'monthly'
+    daily_varlist = tmp_path / 'daily-varlist.json'
+    daily_varlist.write_text(json.dumps({'temp': 'tas'}), encoding='utf-8')
+    table_target['target_components'].append({
+        'component_name': 'river',
+        'data_series_type': 'ts',
+        'freq': 'daily',
+        'chunk': 'P1Y',
+        'variable_list': str(daily_varlist),
+    })
+    yamlfile.write_text(yaml.safe_dump(config, sort_keys=False), encoding='utf-8')
+
+    result = collect_stage_files(str(yamlfile))
+
+    assert result == sorted([
+        str((monthly_dir / 'atmos.199501-199912.ps.nc').resolve()),
+        str((monthly_dir / 'atmos.199501-199912.temp.nc').resolve()),
+        str((daily_dir / 'river.199501-199912.ps.nc').resolve()),
+        str((daily_dir / 'river.199501-199912.temp.nc').resolve()),
+    ])
+
+
 def test_collect_stage_files_includes_ps_component(tmp_path):
     """A table target's ps_component contributes its in-range ps files."""
     yamlfile, input_dir = _stage_case(tmp_path)
