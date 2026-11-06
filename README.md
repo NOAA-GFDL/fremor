@@ -227,7 +227,7 @@ For development and testing, `pylint`, `pytest`, and `pytest-cov` are all highly
 
 #### `codecov` [![codecov](https://codecov.io/gh/NOAA-GFDL/fremor/branch/main/graph/badge.svg)](https://codecov.io/gh/NOAA-GFDL/fremor)
 
-#### `pylint` [![pylint](https://github.com/NOAA-GFDL/fremor/actions/workflows/pylint.yml/badge.svg?branch=main)](https://github.com/NOAA-GFDL/fremor/actions/workflows/pylint.yml) [![pylint](https://img.shields.io/badge/failunder-%E2%89%A59.7-brightgreen)](https://github.com/NOAA-GFDL/fremor/actions/workflows/pylint.yml)
+#### `pylint` [![pylint](https://github.com/NOAA-GFDL/fremor/actions/workflows/pylint.yml/badge.svg?branch=main)](https://github.com/NOAA-GFDL/fremor/actions/workflows/pylint.yml) [![pylint](https://img.shields.io/badge/failunder-%E2%89%A59.8-brightgreen)](https://github.com/NOAA-GFDL/fremor/actions/workflows/pylint.yml)
 
 #### `conda env create -f environment.yaml`
 `python==3.11`:[![3.11](https://github.com/NOAA-GFDL/fremor/actions/workflows/create_test_conda_env.yml/badge.svg)](https://github.com/NOAA-GFDL/fremor/actions/workflows/create_test_conda_env.yml?query=branch%3Amain+python-version%3A3.11)

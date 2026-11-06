@@ -41,7 +41,8 @@ def _component_indir(pp_dir: str, freq: str, targ_comp_config: dict) -> str:
     return component_input_path(pp_dir, freq, targ_comp_config)
 
 
-def _check_static_consistency(table_name: str, freq: str, table_components_list: list) -> None:
+def _check_static_consistency(table_name: str, freq: Optional[str],
+                             table_components_list: list) -> None:
     """A static table target (``freq: 'static'``) must only hold static components, and a
     time-series one only time-series components -- a cmor yaml holds each in its own table targets.
 
@@ -49,7 +50,8 @@ def _check_static_consistency(table_name: str, freq: str, table_components_list:
     """
     static_table = freq == STATIC_FREQ
     mismatched = [comp['component_name'] for comp in table_components_list
-                  if is_static_component(comp) != static_table]
+                  if is_static_component(comp) !=
+                  ((comp.get('freq') or freq) == STATIC_FREQ)]
     if mismatched:
         raise ValueError(
             f'table target {table_name} has freq {freq!r} but its target components {mismatched} '
@@ -255,23 +257,36 @@ def cmor_yaml_subtool( yamlfile: str = None,
         #                        freq 'static', read from each component's static file.
 
         # check frequency info from user
-        freq = cmor_yaml_table_target['freq']
+        freq = cmor_yaml_table_target.get('freq')
 
         table_components_list = cmor_yaml_table_target['target_components']
 
-        # a table target of only static components needs no frequency directory
-        if freq is None and table_components_list and \
-                all(is_static_component(comp) for comp in table_components_list):
+        # A table target may store frequencies on components when its Bronx inputs use
+        # different frequency directories.
+        time_series_components = [
+            comp for comp in table_components_list if not is_static_component(comp)
+        ]
+        component_freqs = [comp.get('freq') for comp in time_series_components]
+        all_component_freqs_set = bool(time_series_components) and \
+            all(component_freq is not None for component_freq in component_freqs)
+
+        # A table target of only static components needs no frequency directory.
+        if freq is None and table_components_list and not time_series_components:
             freq = STATIC_FREQ
 
-        # if freq not supplied, behavior depends on MIP era
-        if freq is None:
+        # A uniform component frequency can still be resolved as the table default.
+        if freq is None and all_component_freqs_set and len(set(component_freqs)) == 1:
+            freq = component_freqs[0]
+
+        # If no component supplies its own frequency, behavior depends on the MIP era.
+        if freq is None and not all_component_freqs_set:
             if mip_era == 'CMIP7':
                 # CMIP7 tables do not carry frequency — the user must always specify it
                 raise ValueError(
                     f'freq is required for CMIP7 but was not specified for table target {table_name}.\n'
                     f'  CMIP7 MIP tables do not contain frequency metadata.\n'
-                    f'  please set freq explicitly (e.g. "monthly", "daily") in the cmor yaml.')
+                    f'  please set freq explicitly (e.g. "monthly", "daily") in the cmor yaml '
+                    'or on each target component.')
             # CMIP6 tables carry frequency — attempt to derive it
             fre_logger.info('freq not specified in cmor yaml for table %s, '
                             'attempting to derive from CMIP6 MIP table', table_name)
@@ -323,12 +338,16 @@ def cmor_yaml_subtool( yamlfile: str = None,
 
         for targ_comp_config in table_components_list:
             component = targ_comp_config['component_name']
+            component_freq = targ_comp_config.get('freq') or freq
+            if component_freq is None:
+                raise ValueError(
+                    f'freq is required for component {component!r} in table target {table_name!r}')
 
             json_var_list = os.path.expandvars(
                 targ_comp_config['variable_list']
             )
             fre_logger.info('json_var_list = %s', json_var_list)
-            indir = _component_indir(pp_dir, freq, targ_comp_config)
+            indir = _component_indir(pp_dir, component_freq, targ_comp_config)
             fre_logger.info('indir = %s', indir)
 
             fre_logger.info('PROCESSING: ( %s, %s )', table_name, component)
@@ -351,7 +370,7 @@ def cmor_yaml_subtool( yamlfile: str = None,
                                           f'    --start {start} \\'+'\n' + \
                                           f'    --stop {stop} \\'+'\n' + \
                                           f'    --calendar {calendar_type} \\'+'\n' + \
-                                          f'    --freq {freq} \\'+'\n' + \
+                                          f'    --freq {component_freq} \\'+'\n' + \
                                           f'    --opt_var_name {opt_var_name} \\' + \
                                            '\n' )
                     if (ps_source is not None and component != ps_component) or ps_fallback is not None:
@@ -377,7 +396,7 @@ def cmor_yaml_subtool( yamlfile: str = None,
                                           f'    ps_source = {ps_source} ,\n' + \
                                           f'    ps_fallback = {ps_fallback} ,\n' + \
                                           f'    skip_existing = {skip_existing} ,\n' + \
-                                          f'    freq = {freq}' + \
+                                          f'    freq = {component_freq}' + \
                                            ')\n' )
                 continue
             try:
@@ -398,7 +417,7 @@ def cmor_yaml_subtool( yamlfile: str = None,
                     ps_source = ps_source ,
                     ps_fallback = ps_fallback ,
                     skip_existing = skip_existing ,
-                    freq = freq
+                    freq = component_freq
                 )
             except Exception as exc: #uncovered
                 fre_logger.warning(

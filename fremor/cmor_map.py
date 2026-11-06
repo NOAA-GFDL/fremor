@@ -633,7 +633,8 @@ class MapSession:
 
     def _stage_new_varlist_mapping(self, table_name: str, component_name: str,
                                    local_key: str, cmip_var: str,
-                                   chunk: Optional[str], data_series_type: str) -> object:
+                                   chunk: Optional[str], freq: Optional[str],
+                                   data_series_type: str) -> object:
         """Create a varlist mapping and, when needed, its target component entry."""
         already_declared = any(
             comp.get('component_name') == component_name
@@ -664,6 +665,8 @@ class MapSession:
             }
             if not static:
                 new_component['chunk'] = _bronx_to_iso_chunk(chunk)
+                if freq is not None and freq != self.table_freq(table_name):
+                    new_component['freq'] = freq
             self.table_targets_by_name[table_name].setdefault(
                 'target_components', []).append(new_component)
             self.new_target_components.add((table_name, component_name))
@@ -678,6 +681,7 @@ class MapSession:
 
     def set_mapping(self, table_name: str, component_name: str, local_key: str,
                     cmip_var: str, chunk: Optional[str] = None,
+                    freq: Optional[str] = None,
                     data_series_type: str = 'ts') -> None:
         """Stage data[local_key] = cmip_var for the component's variable_list, creating an
         in-memory entry (placed in the varlist directory inferred from the yaml's existing
@@ -706,7 +710,7 @@ class MapSession:
                 break
         else:
             old_value = self._stage_new_varlist_mapping(
-                table_name, component_name, local_key, cmip_var, chunk, data_series_type)
+                table_name, component_name, local_key, cmip_var, chunk, freq, data_series_type)
 
         self.dirty_keys.add((table_name, component_name, local_key))
         self._history.append(_Edit(table_name, component_name, local_key, old_value))
@@ -781,14 +785,19 @@ class MapSession:
         return None
 
     def table_freq(self, table_name: str) -> Optional[str]:
-        """The freq configured for table_name's table_target (e.g. 'monthly') -- this is the
+        """The shared freq configured for table_name's table_target (e.g. 'monthly') -- this is the
         directory fremor yaml will actually read pp files from at CMORization time
         (``{pp_dir}/{component}/{data_series_type}/{freq}/{chunk}``), regardless of which
-        freq subdirectory a pp file staged in this UI happens to live under. None if unset in
-        the yaml (fremor yaml then derives one from the MIP table itself, but only for
-        CMIP6-family eras) -- freq-based validation in the map UI is skipped in that case
-        rather than guessing."""
+        freq subdirectory a pp file staged in this UI happens to live under. None if component
+        frequencies differ or the yaml leaves freq unset."""
         return self.table_targets_by_name[table_name].get('freq')
+
+    def component_freq(self, table_name: str, component_name: str) -> Optional[str]:
+        """Frequency configured for one component, falling back to the table-wide frequency."""
+        for component in self.table_targets_by_name[table_name].get('target_components') or []:
+            if component.get('component_name') == component_name:
+                return component.get('freq') or self.table_freq(table_name)
+        return self.table_freq(table_name)
 
     def component_chunk(self, table_name: str, component_name: str) -> Optional[str]:
         """Bronx-form chunk (e.g. '5yr') configured for component_name's target_components
@@ -1721,8 +1730,8 @@ class MapApp(App):
             if kind == 'source':
                 # covers both a one-to-one mapping and one particular source of a
                 # multiply-mapped variable -- both carry component/local_key here.
-                table_freq = self.session.table_freq(data['table'])
-                found = self._navigate_pp_tree_to(data['component'], data['local_key'], table_freq)
+                component_freq = self.session.component_freq(data['table'], data['component'])
+                found = self._navigate_pp_tree_to(data['component'], data['local_key'], component_freq)
                 if not found:
                     self.notify(
                         f'pp file for {data["component"]}:{data["local_key"]} not found '
@@ -1825,19 +1834,19 @@ class MapApp(App):
         cmip_var = self.selected_cmip['var']
         component = self.selected_pp['component']
         local_key = self.selected_pp['local_key']
-        table_freq = self.session.table_freq(table_name)
+        component_freq = self.session.component_freq(table_name, component)
         pp_freq = self.selected_pp.get('freq')
-        if pp_freq == STATIC_FREQ and table_freq != STATIC_FREQ:
+        if pp_freq == STATIC_FREQ and component_freq != STATIC_FREQ:
             self.notify(
                 f'{local_key} comes from {component}\'s static file, but {table_name} is not a '
                 f'static table target (freq "{STATIC_FREQ}") -- map time-invariant variables in a '
                 f'cmor yaml made by fremor config --freq {STATIC_FREQ} instead.', severity='error')
             return
-        if table_freq and pp_freq and table_freq != pp_freq:
+        if component_freq and pp_freq and component_freq != pp_freq:
             self.notify(
-                f'{table_name} is configured for freq "{table_freq}", but the selected pp '
+                f'{component} in {table_name} is configured for freq "{component_freq}", but the selected pp '
                 f'file is under freq "{pp_freq}" -- fremor yaml would never actually find '
-                f'{local_key} there at CMORization time. Pick a pp file under "{table_freq}" '
+                f'{local_key} there at CMORization time. Pick a pp file under "{component_freq}" '
                 'instead.', severity='error')
             return
         component_chunk = self.session.component_chunk(table_name, component)
@@ -1861,6 +1870,7 @@ class MapApp(App):
         try:
             self.session.set_mapping(
                 table_name, component, local_key, cmip_var, chunk=self.selected_pp.get('chunk'),
+                freq=pp_freq,
                 data_series_type=STATIC_DATA_SERIES_TYPE if pp_freq == STATIC_FREQ else 'ts')
         except ValueError as exc:
             self.notify(str(exc), severity='error')
