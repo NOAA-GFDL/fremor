@@ -78,6 +78,13 @@ def test_detect_input_frequency_without_time_coordinate_variable(tmp_path):
     assert detect_input_frequency(nc_file, 'tas') == {'base': None, 'sampling': 'mean'}
 
 
+def test_detect_input_frequency_missing_variable(tmp_path):
+    """A missing data variable leaves both frequency values unknown."""
+    nc_file = _write_frequency_input(tmp_path / 'missing_variable.nc')
+
+    assert detect_input_frequency(nc_file, 'missing') == {'base': None, 'sampling': None}
+
+
 def test_make_static_varlist_missing_file_returns_none(tmp_path, caplog):
     """A nonexistent static input is reported and does not create a variable list."""
     static_file = tmp_path / 'missing.static.nc'
