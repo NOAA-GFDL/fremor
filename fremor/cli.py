@@ -389,8 +389,9 @@ def varlist_(dir_targ, strict_mode, output_variable_list, mip_table):
               help='Root post-processing directory containing per-component subdirectories.')
 @click.option('-t', '--mip-tables-dir', '--mip_tables_dir', type=str, required=True,
               help='Directory containing MIP table JSON files.')
-@click.option('-m', '--mip-era', '--mip_era', type=str, required=True,
-              help='MIP era identifier, e.g. cmip6, cmip6plus, or cmip7.')
+@click.option('-m', '--mip-era', '--mip_era', type=str, default=None,
+              help='MIP era identifier, e.g. cmip6, cmip6plus, or cmip7. If omitted, inferred '
+                   'from the MIP table filenames.')
 @click.option('-e', '--exp-config', '--exp_config', type=str, required=True,
               help='Path to JSON experiment/input configuration file expected by CMOR.')
 @click.option('-o', '--output-yaml', '--output_yaml', type=str, required=True,
@@ -403,12 +404,14 @@ def varlist_(dir_targ, strict_mode, output_variable_list, mip_table):
               help="glob pattern to use for selecting pp component directory names. default '*'")
 @click.option('--strict-varlist','--strict_varlist', is_flag=True, default=False,
               help='pass strict_mode flag to fremor varlist')
-@click.option('--freq', type=str, default='monthly',
-              help='Temporal frequency string, e.g. monthly, daily. Default monthly. Use static '
+@click.option('--freq', type=str, default=None,
+              help='Temporal frequency string, e.g. monthly, daily. If omitted, use the '
+                   'frequencies found in each component\'s Bronx pp directory. Use static '
                    'to map the time-invariant variables in each component\'s static file, '
                    '<component>.static.nc, onto the tables\' fixed (fx) entries instead.')
-@click.option('--chunk', type=str, default='5yr',
-              help='Time chunk string, e.g. 5yr, 10yr. Default 5yr.')
+@click.option('--chunk', type=str, default=None,
+              help='Time chunk string, e.g. 5yr, 10yr. If omitted, use the chunks found in each '
+                   'component\'s Bronx pp directory.')
 @click.option('--grid', type=str, default='g999',
               help='Grid label anchor name, e.g. g999, gn. Default g999.')
 @click.option('--overwrite', is_flag=True, default=False,

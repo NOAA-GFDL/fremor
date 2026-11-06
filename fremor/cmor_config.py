@@ -86,9 +86,10 @@ def _recall_static_files(static_files: list, dmget_bin: str = 'dmget') -> None:
 
 
 def _append_target_component_lines(lines: list, appended_table_header: bool, variable_list: str,
-                                   table_name: str, freq: str, gridding: tuple,
+                                   table_name: str, freq: Optional[str], gridding: tuple,
                                    component_name: str, data_series_type: str,
-                                   chunk_iso: Optional[str]) -> bool:
+                                   chunk_iso: Optional[str],
+                                   component_freq: Optional[str] = None) -> bool:
     """Append a target component's YAML lines to ``lines`` if its variable list was written,
     preceded by its table target's header lines the first time. ``gridding`` is
     ``(grid_label, grid_desc, nom_res)``. A static component has no chunk.
@@ -102,7 +103,7 @@ def _append_target_component_lines(lines: list, appended_table_header: bool, var
         grid, grid_desc, nominal_resolution = gridding
         lines.append('')
         lines.append(f"    - table_name: '{table_name}'")
-        lines.append(f"      freq: '{freq}'")
+        lines.append(f"      freq: '{freq}'" if freq is not None else '      freq: null')
         lines.append('      gridding:')
         lines.append(f"        grid_label: '{grid}'")
         lines.append(f"        grid_desc: '{grid_desc}'")
@@ -112,6 +113,8 @@ def _append_target_component_lines(lines: list, appended_table_header: bool, var
     lines.append(f"        - component_name: '{component_name}'")
     lines.append(f"          variable_list: '{variable_list}'")
     lines.append(f"          data_series_type: '{data_series_type}'")
+    if component_freq is not None and component_freq != freq:
+        lines.append(f"          freq: '{component_freq}'")
     if chunk_iso is not None:
         lines.append(f"          chunk: '{chunk_iso}'")
     return True
@@ -145,6 +148,41 @@ def _filter_mip_tables(mip_tables_dir: str, mip_era: str):
     fre_logger.ddebug('filtered MIP tables (%d of %d): %s',
                       len(filtered), len(all_tables), filtered)
     return filtered
+
+
+def _infer_mip_era(mip_tables_dir: str) -> str:
+    """Infer the MIP era from table filename prefixes."""
+    table_files = [Path(path).name for path in glob.glob(f'{mip_tables_dir}/*.json')]
+    era_patterns = {
+        'cmip6': lambda name: name.startswith('CMIP6_'),
+        'cmip6plus': lambda name: name.startswith('MIP_'),
+        'cmip7': lambda name: name.startswith('CMIP7_'),
+    }
+    eras = [era for era, matches in era_patterns.items()
+            if any(matches(name) for name in table_files)]
+    if len(eras) == 1:
+        return eras[0]
+    if not eras:
+        raise ValueError(
+            f'could not infer MIP era from tables in {mip_tables_dir}; expected '
+            'CMIP6_*.json, MIP_*.json, or CMIP7_*.json')
+    raise ValueError(
+        f'could not infer MIP era from tables in {mip_tables_dir}; found tables for '
+        f'multiple eras: {", ".join(eras)}')
+
+
+def _component_ts_layouts(entry: str, freq: Optional[str],
+                          chunk: Optional[str]) -> list:
+    """Return a component's Bronx (frequency, chunk) layouts matching any CLI filters."""
+    layouts = set()
+    for path in glob.glob(f'{entry}/ts/*/*/*nc'):
+        parts = Path(path).relative_to(entry).parts
+        if len(parts) != 4 or parts[0] != 'ts':
+            continue
+        found_freq, found_chunk = parts[1:3]
+        if (freq is None or found_freq == freq) and (chunk is None or found_chunk == chunk):
+            layouts.add((found_freq, found_chunk))
+    return sorted(layouts)
 
 
 def _load_config_yaml(yamlfile: str) -> dict:
@@ -210,15 +248,15 @@ def _load_config_yaml(yamlfile: str) -> dict:
 def cmor_config_subtool(
         pp_dir: str,
         mip_tables_dir: str,
-        mip_era: str,
+        mip_era: Optional[str],
         exp_config: str,
         output_yaml: str,
         output_dir: str,
         varlist_dir: str,
         pp_comp_glob: str = '*',
         strict_varlist: bool = False,
-        freq: str = 'monthly',
-        chunk: str = '5yr',
+        freq: Optional[str] = None,
+        chunk: Optional[str] = None,
         grid: str = 'g999',
         overwrite: bool = False,
         calendar_type: str = 'noleap',
@@ -238,7 +276,8 @@ def cmor_config_subtool(
     :type pp_comp_glob: str
     :param mip_tables_dir: Directory containing MIP table JSON files.
     :type mip_tables_dir: str
-    :param mip_era: MIP era identifier, e.g. 'cmip6', 'cmip6plus' or 'cmip7'.
+    :param mip_era: MIP era identifier, e.g. 'cmip6', 'cmip6plus' or 'cmip7'. If None,
+        it is inferred from the MIP table filenames.
     :type mip_era: str
     :param exp_config: Path to JSON experiment/input configuration file expected by CMOR.
     :type exp_config: str
@@ -248,12 +287,14 @@ def cmor_config_subtool(
     :type output_dir: str
     :param varlist_dir: Directory in which per-component variable list JSON files are written.
     :type varlist_dir: str
-    :param freq: Temporal frequency string, e.g. 'monthly', 'daily'. Default 'monthly'. 'static' targets
-        each component's static file, ``<component>.static.nc``, instead of its time series, matching its
-        time-invariant variables against the tables' fixed (fx) entries only.
-    :type freq: str
-    :param chunk: Time chunk string, e.g. '5yr', '10yr'. Default '5yr'. Ignored when freq is 'static'.
-    :type chunk: str
+    :param freq: Temporal frequency string, e.g. 'monthly', 'daily'. If None, the unique frequency found
+    in each component's Bronx pp directory is used. 'static' targets each component's static file,
+        ``<component>.static.nc``, instead of its time series, matching its time-invariant variables
+        against the tables' fixed (fx) entries only.
+    :type freq: str or None
+    :param chunk: Time chunk string, e.g. '5yr', '10yr'. If None, the unique chunk found in each
+        component's Bronx pp directory is used. Ignored when freq is 'static'.
+    :type chunk: str or None
     :param grid: Grid label anchor name, e.g. 'g999', 'gn'. Default 'g999'.
     :type grid: str
     :param overwrite: If True, overwrite existing variable list files. Default False.
@@ -279,19 +320,14 @@ def cmor_config_subtool(
         raise FileNotFoundError(f'pp_dir does not exist: {pp_dir}')
     if not Path(mip_tables_dir).is_dir():
         raise FileNotFoundError(f'mip_tables_dir does not exist: {mip_tables_dir}')
+    if mip_era is None:
+        mip_era = _infer_mip_era(mip_tables_dir)
     if not Path(exp_config).is_file():
         raise FileNotFoundError(f'exp_config does not exist: {exp_config}')
     with open(exp_config, encoding='utf-8') as handle:
         exp_config_data = json.load(handle)
     grid_desc = exp_config_data.get('grid')
     nominal_resolution = exp_config_data.get('nominal_resolution')
-    static_mode = freq == STATIC_FREQ
-    chunk_iso = None if static_mode else _bronx_to_iso_chunk(chunk)
-    if static_mode:
-        fre_logger.info('freq is %s: reading each component\'s static file, chunk = %s is ignored',
-                        STATIC_FREQ, chunk)
-    gridding = (grid, grid_desc, nominal_resolution)
-
     # ensure output directories exist
     Path(varlist_dir).mkdir(parents=True, exist_ok=True)
     Path(output_yaml).parent.mkdir(parents=True, exist_ok=True)
@@ -308,6 +344,15 @@ def cmor_config_subtool(
     if len(ppcompdirs) == 0:
         fre_logger.error('ERROR: no pp component directories found under pp_dir = %s', pp_dir)
         raise FileNotFoundError
+
+    static_mode = freq == STATIC_FREQ
+    if static_mode:
+        fre_logger.info('freq is %s: reading each component\'s static file, chunk = %s is ignored',
+                        STATIC_FREQ, chunk)
+    else:
+        fre_logger.info('using Bronx pp frequency/chunk layouts%s',
+                        ' filtered by the supplied CLI options' if freq or chunk else '')
+    gridding = (grid, grid_desc, nominal_resolution)
 
     # ---- static mode: find each component's static file, and recall them all from tape at once ----
     static_files = {}
@@ -346,7 +391,7 @@ def cmor_config_subtool(
         table_name = Path(mip_table).stem.split('.')[0].split('_')[1]   # e.g. CMIP7_ocean
         fre_logger.info('processing mip_table = %s', table_name)
 
-        appended_table_header = False
+        target_components = []
 
         for entry in ppcompdirs:
             component_name = Path(entry).name
@@ -356,8 +401,6 @@ def cmor_config_subtool(
             list_suffix = f'_{STATIC_FREQ}' if static_mode else ''
             variable_list = f'{varlist_dir}/{era_upper}_{table_name}_{component_name}{list_suffix}.list'
             fre_logger.info('variable_list = %s', variable_list)
-
-            # optionally regenerate
             if Path(variable_list).exists() and overwrite:
                 fre_logger.debug('varlist %s exists, unlinking to recreate because overwrite=True',
                                  Path(variable_list).name)
@@ -384,48 +427,54 @@ def cmor_config_subtool(
                         static_file, variable_list, mip_table, exc
                     )
                     continue
-                appended_table_header = _append_target_component_lines(
-                    lines, appended_table_header, variable_list, table_name, freq, gridding,
-                    component_name, STATIC_DATA_SERIES_TYPE, None)
+                target_components.append(
+                    (freq, None, component_name, variable_list, STATIC_DATA_SERIES_TYPE))
                 continue
 
-            # check for time-series data
-            data_series_present = [
-                Path(ds).name for ds in glob.glob(f'{entry}/*')
-                if Path(ds).is_dir()
-            ]
-            if 'ts' not in data_series_present:
-                fre_logger.debug('no ts directory in %s, skipping', entry)
+            layouts = _component_ts_layouts(entry, freq, chunk)
+            if not layouts:
+                fre_logger.debug('no matching time-series directories with netCDF files in %s, skipping',
+                                 entry)
                 continue
+            if len(layouts) > 1:
+                layout_names = ', '.join(f'{layout_freq}/{layout_chunk}'
+                                         for layout_freq, layout_chunk in layouts)
+                raise ValueError(
+                    f'multiple frequency/chunk directories found for pp component {component_name}: '
+                    f'{layout_names}. Specify --freq and --chunk to select one.')
 
-            dir_targ = f'{entry}/ts/{freq}/{chunk}'
-            if not Path(dir_targ).is_dir():
-                fre_logger.debug('target dir %s does not exist, skipping', dir_targ)
-                continue
+            for component_freq, component_chunk in layouts:
+                dir_targ = f'{entry}/ts/{component_freq}/{component_chunk}'
+                variable_list = (
+                    f'{varlist_dir}/{era_upper}_{table_name}_{component_name}.list')
 
-            if len(glob.glob(f'{dir_targ}/*nc')) < 1:
-                fre_logger.debug('no nc files in %s, skipping', dir_targ)
-                continue
+                try:
+                    make_simple_varlist(
+                        dir_targ=dir_targ,
+                        return_none_if_no_mip_vars=strict_varlist,
+                        output_variable_list=variable_list,
+                        json_mip_table=mip_table,
+                        check_freq=check_freq
+                    )
+                except (KeyError, OSError, RuntimeError, TypeError, ValueError) as exc:
+                    fre_logger.warning(
+                        'variable list creation failed for %s %s %s \nWith exception: %s',
+                        dir_targ, variable_list, mip_table, exc
+                    )
+                    continue
 
-            try:
-                make_simple_varlist(
-                    dir_targ=dir_targ,
-                    return_none_if_no_mip_vars=strict_varlist,
-                    output_variable_list=variable_list,
-                    json_mip_table=mip_table,
-                    check_freq=check_freq
+                chunk_iso = _bronx_to_iso_chunk(component_chunk)
+                target_components.append(
+                    (component_freq, chunk_iso, component_name, variable_list, 'ts')
                 )
 
-            except (KeyError, OSError, RuntimeError, TypeError, ValueError) as exc:
-                fre_logger.warning(
-                    'variable list creation failed for %s %s %s \nWith exception: %s',
-                    dir_targ, variable_list, mip_table, exc
-                )
-                continue
-
+        target_freqs = {component_freq for component_freq, *_ in target_components}
+        table_freq = next(iter(target_freqs)) if len(target_freqs) == 1 else None
+        appended_table_header = False
+        for component_freq, component_chunk_iso, component_name, variable_list, data_series_type in target_components:
             appended_table_header = _append_target_component_lines(
-                lines, appended_table_header, variable_list, table_name, freq, gridding,
-                component_name, 'ts', chunk_iso)
+                lines, appended_table_header, variable_list, table_name, table_freq, gridding,
+                component_name, data_series_type, component_chunk_iso, component_freq)
 
 
     # ---- write output YAML ----
