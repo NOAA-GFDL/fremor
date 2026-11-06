@@ -1691,7 +1691,7 @@ def cmor_check_subtool(
         exp_config_data = {}
         try:
             exp_config_data = get_json_file_data(exp_json) if exp_json else {}
-        except Exception:
+        except (OSError, ValueError):
             fre_logger.warning('could not read exp_json %s for the grid-label check', exp_json)
         exp_grid_label = exp_config_data.get('grid_label')
         grid_cv, _cv_path = load_cv(mip_tables_dir, exp_config_data, mip_era)
