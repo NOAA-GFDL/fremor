@@ -517,7 +517,7 @@ def _input_lat_lon(nc_path: str, local_var: str) -> Union[tuple, str]:
                 kind = _coordinate_kind(coord)
                 if kind is not None:
                     coords[kind] = np.asarray(coord[:], dtype=float)
-    except Exception as exc:
+    except (OSError, RuntimeError, TypeError, ValueError) as exc:
         return f'could not read {nc_path} ({exc})'
     if 'lon' not in coords or 'lat' not in coords:
         return (f'{local_var} has no 1-D latitude/longitude coordinates (e.g. a native ocean '
