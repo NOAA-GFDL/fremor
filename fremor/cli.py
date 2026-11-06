@@ -307,8 +307,8 @@ def find(varlist, table_config_dir, opt_var_name):
               help=RUN_ONE_HELP,
               required = False)
 @click.option('--opt-var-name', '--opt_var_name', type = str, default = None,
-              help='Variable to process. Without --varlist, the name is used for both the input '
-                   'and MIP table variable.',
+              help='Variable to process. With --varlist, selects a local variable and preserves '
+                   'its MIP mapping. Without --varlist, the name is used for both.',
               required=False)
 @click.option('-g', '--grid-label', '--grid_label', type = str, default = None,
               help = 'label representing grid type of input data, e.g. gn for native or gr for regridded, ' + \

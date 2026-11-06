@@ -14,7 +14,7 @@ import netCDF4
 import numpy as np
 import pytest
 
-from fremor import cmor_run_subtool
+from fremor import cmor_mixer, cmor_run_subtool
 
 
 # where are we? we're running pytest from the base directory of this repo
@@ -375,3 +375,29 @@ def test_fre_cmor_run_subtool_cmip7_opt_var_name_not_in_table():
             outdir = OUTDIR,
             opt_var_name='zzzz_nonexistent_var'
         )
+
+
+def test_fre_cmor_run_subtool_cmip7_opt_var_name_selects_varlist_mapping(
+        tmp_path, monkeypatch):
+    """Selecting a local variable preserves its mapped CMIP7 target and excludes other entries."""
+    varlist = tmp_path / 'varlist.json'
+    varlist.write_text('{"LWP": "sos", "other": "sos"}', encoding='utf-8')
+    captured = {}
+
+    def capture_vars_to_run(vars_to_run, *_args, **_kwargs):
+        captured['vars_to_run'] = vars_to_run
+        return 0
+
+    monkeypatch.setattr(cmor_mixer, 'cmorize_all_variables_in_dir', capture_vars_to_run)
+
+    result = cmor_run_subtool(
+        indir=INDIR,
+        json_var_list=str(varlist),
+        json_table_config=TABLE_CONFIG,
+        json_exp_config=CMIP7_EXP_CONFIG,
+        outdir=str(tmp_path / 'outdir'),
+        opt_var_name='LWP',
+    )
+
+    assert result == 0
+    assert captured['vars_to_run'] == {'LWP': 'sos'}

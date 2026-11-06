@@ -37,6 +37,7 @@ from pathlib import Path
 import re
 import shutil
 import subprocess
+import uuid
 from typing import Optional, List, Dict, Any
 
 import cmor
@@ -87,6 +88,14 @@ def _pprint_cmor_logfile(cmor_logfile: Optional[str],
 
     if filename is not None:
         Path(logfile_path).rename( filename.replace('.nc','.log') )
+
+
+def _cmor_logfile_for_attempt(netcdf_file: str) -> str:
+    """Return a unique logfile path for this CMOR attempt."""
+    base_path = Path(CMOR_LOG or netcdf_file.replace('.nc', '.log'))
+    if base_path.exists() and not base_path.is_file():
+        return str(base_path)
+    return str(base_path.with_name(f'{base_path.stem}.{uuid.uuid4().hex}{base_path.suffix}'))
 
 
 def _has_time_dim(ds: nc.Dataset, local_var: str) -> bool:
@@ -219,7 +228,8 @@ def rewrite_netcdf_file_var( mip_var_cfgs: dict = None,
                              ps_file: Optional[str] = None,
                              ps_var: str = 'ps',
                              ps_searched: Optional[List[str]] = None,
-                             exp_overrides: Optional[Dict[str, str]] = None ) -> str:
+                             exp_overrides: Optional[Dict[str, str]] = None,
+                             cmor_logfile: Optional[str] = None ) -> str:
     """
     Rewrite the input NetCDF file for a target variable in a CMIP-compliant manner and write output using CMOR.
 
@@ -420,7 +430,7 @@ def rewrite_netcdf_file_var( mip_var_cfgs: dict = None,
 
     # now we set up the cmor module object
     # initialize CMOR
-    cmor_logfile = CMOR_LOG if CMOR_LOG is not None else netcdf_file.replace('.nc','.log') # 'cmor_logfile.log'
+    cmor_logfile = cmor_logfile or _cmor_logfile_for_attempt(netcdf_file)
     # exit control is per-era: CMIP6Plus tables always warn (see CMOR_EXIT_CTL_BY_ERA)
     cmor_exit_ctl = CMOR_EXIT_CTL_BY_ERA.get(exp_cfg_mip_era, CMOR_EXIT_CTL)
     fre_logger.debug('cmor exit_control for %s = %s', exp_cfg_mip_era, cmor_exit_ctl)
@@ -921,6 +931,7 @@ def cmorize_target_var_files(indir: str = None,
 
         # now we have a file in our targets, point CMOR to the configs and the input file(s)
         make_cmor_write_here = tmp_dir
+        cmor_logfile = _cmor_logfile_for_attempt(nc_file_work)
         gotta_go_back_here = os.getcwd()
         try:
             fre_logger.warning('changing directory to: \n%s', make_cmor_write_here)
@@ -940,10 +951,12 @@ def cmorize_target_var_files(indir: str = None,
                                                       ps_file=nc_ps_file_work,
                                                       ps_var=ps_var,
                                                       ps_searched=ps_searched,
-                                                      exp_overrides=exp_overrides )
+                                                      exp_overrides=exp_overrides,
+                                                      cmor_logfile=cmor_logfile )
         except Exception as exc:
-            cmor_logfile = CMOR_LOG if CMOR_LOG is not None else nc_file_work.replace('.nc','.log')
-            _pprint_cmor_logfile(cmor_logfile, None)
+            if Path(cmor_logfile).exists():
+                fre_logger.info('CMOR logfile for this attempt: %s', cmor_logfile)
+                _pprint_cmor_logfile(cmor_logfile, None)
             raise RuntimeError(
                 'problem with rewrite_netcdf_file_var. '
                 f'exc={exc}\n'
@@ -1146,7 +1159,9 @@ def cmor_run_subtool(indir: str = None,
     :type outdir: str
     :param run_one_mode: If True, process only one file per variable.
     :type run_one_mode: bool, optional
-    :param opt_var_name: If provided, only process this variable.
+    :param opt_var_name: If a variable list is provided, select this local variable from it and
+                         preserve its MIP mapping. Without a variable list, use this name as both
+                         the input and MIP variable.
     :type opt_var_name: str, optional
     :param grid: Grid description (if gridding is specified).
     :type grid: str, optional
@@ -1289,14 +1304,27 @@ def cmor_run_subtool(indir: str = None,
 
     # CHECK that the user's input variables make sense against those in the targeted table
     # if the check(s) pass, the final list of variables to run is stored in vars_to_run
-    # if opt_var_name is specified, the routine is short-circuited to care only about opt_var_name
     vars_to_run = {}
+    mip_var_by_lower = {mip_var.lower(): mip_var for mip_var in mip_var_list}
     if opt_var_name:
-        if opt_var_name not in mip_var_list:
-            raise ValueError(f'opt_var_name is not None! (== {opt_var_name})'
-                             '... but the variable is not contained in the target mip table'
-                             '... there\'s nothing to process, exit')
-        vars_to_run[opt_var_name] = opt_var_name
+        if json_var_list is not None:
+            local_matches = [local_var for local_var in var_list
+                             if local_var.lower() == opt_var_name.lower()]
+            if not local_matches:
+                raise ValueError(f'opt_var_name {opt_var_name!r} is not in the provided variable list')
+            if len(local_matches) > 1:
+                raise ValueError(f'opt_var_name {opt_var_name!r} matches multiple variable-list entries')
+            local_var = local_matches[0]
+            mapped_target = var_list[local_var]
+        else:
+            local_var = opt_var_name
+            mapped_target = opt_var_name
+
+        target_var = mip_var_by_lower.get(mapped_target.lower())
+        if target_var is None:
+            raise ValueError(f'opt_var_name {opt_var_name!r} maps to {mapped_target!r}, '
+                             'which is not contained in the target MIP table')
+        vars_to_run[local_var] = target_var
     else:
         for local_var, target_var in var_list.items():
             if target_var not in mip_var_list: #mip_var_cfgs['variable_entry']:
