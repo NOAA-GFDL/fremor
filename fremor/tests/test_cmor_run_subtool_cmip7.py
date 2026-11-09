@@ -5,7 +5,8 @@ Each test mirrors a corresponding CMIP6 test in test_cmor_run_subtool.py but
 targets the CMIP7 experiment-configuration JSON and CMIP7-format CMOR tables.
 """
 
-from datetime import date
+from datetime import date, datetime
+import json
 from pathlib import Path
 import subprocess
 import shutil
@@ -401,3 +402,92 @@ def test_fre_cmor_run_subtool_cmip7_opt_var_name_selects_varlist_mapping(
 
     assert result == 0
     assert captured['vars_to_run'] == {'LWP': 'sos'}
+
+
+def test_fre_cmor_run_subtool_cmip7_scalar_wavelength_dimension(tmp_path):
+    """A fixed wavelength in the input comment supplies the table's scalar lambda axis."""
+    indir = tmp_path / 'indir'
+    indir.mkdir()
+    input_file = indir / 'aerosol.186901-186912.od550dust.nc'
+    units = 'days since 1850-01-01 00:00:00'
+    bounds = []
+    midpoints = []
+    for month in range(1, 13):
+        start = datetime(1869, month, 1)
+        stop = datetime(1870, 1, 1) if month == 12 else datetime(1869, month + 1, 1)
+        bounds.append((start, stop))
+        midpoints.append(start + (stop - start) / 2)
+
+    with netCDF4.Dataset(input_file, 'w') as ds:
+        ds.createDimension('time', 12)
+        ds.createDimension('lat', 2)
+        ds.createDimension('lon', 2)
+        ds.createDimension('bnds', 2)
+
+        lat = ds.createVariable('lat', 'f8', ('lat',))
+        lat.axis = 'Y'
+        lat.units = 'degrees_N'
+        lat.bounds = 'lat_bnds'
+        lat[:] = [-45.0, 45.0]
+        lat_bnds = ds.createVariable('lat_bnds', 'f8', ('lat', 'bnds'))
+        lat_bnds[:] = [[-90.0, 0.0], [0.0, 90.0]]
+
+        lon = ds.createVariable('lon', 'f8', ('lon',))
+        lon.axis = 'X'
+        lon.units = 'degrees_E'
+        lon.bounds = 'lon_bnds'
+        lon[:] = [90.0, 270.0]
+        lon_bnds = ds.createVariable('lon_bnds', 'f8', ('lon', 'bnds'))
+        lon_bnds[:] = [[0.0, 180.0], [180.0, 360.0]]
+
+        time = ds.createVariable('time', 'f8', ('time',))
+        time.axis = 'T'
+        time.units = units
+        time.calendar = 'julian'
+        time.bounds = 'time_bnds'
+        time[:] = netCDF4.date2num(midpoints, units, calendar='julian')
+        time_bnds = ds.createVariable('time_bnds', 'f8', ('time', 'bnds'))
+        time_bnds[:] = netCDF4.date2num(bounds, units, calendar='julian')
+
+        aerosol = ds.createVariable('od550dust', 'f4', ('time', 'lat', 'lon'),
+                                    fill_value=1.0e20)
+        aerosol.long_name = 'Dust aod at 550nm'
+        aerosol.units = '1'
+        aerosol.missing_value = np.float32(1.0e20)
+        aerosol.comment = 'wavelength: 550 nm'
+        aerosol.cell_methods = 'time: mean'
+        aerosol.cell_measures = 'area: area'
+        aerosol.standard_name = (
+            'atmosphere_optical_thickness_due_to_dust_ambient_aerosol_particles'
+        )
+        aerosol[:] = 0.1
+        ds.external_variables = 'area'
+
+    varlist = tmp_path / 'varlist.json'
+    varlist.write_text(json.dumps({'od550dust': 'od550dust'}), encoding='utf-8')
+    outdir = tmp_path / 'outdir'
+
+    result = cmor_run_subtool(
+        indir=str(indir),
+        json_var_list=str(varlist),
+        json_table_config=f'{CMIP7_TABLE_REPO_PATH}/tables/CMIP7_aerosol.json',
+        json_exp_config=CMIP7_EXP_CONFIG,
+        outdir=str(outdir),
+        run_one_mode=True,
+        opt_var_name='od550dust',
+        grid=GRID,
+        grid_label=GRID_LABEL,
+        nom_res=NOM_RES,
+        start='1869',
+        stop='1869',
+        calendar_type=CALENDAR_TYPE,
+    )
+
+    assert result == 0
+    outputs = [path for path in outdir.rglob('*.nc') if path.name.startswith('od550dust_')]
+    assert len(outputs) == 1
+    with netCDF4.Dataset(outputs[0]) as ds_out:
+        assert 'wavelength' in ds_out.variables
+        assert ds_out.variables['wavelength'].ndim == 0
+        assert np.isclose(ds_out.variables['wavelength'].getValue(), 550.0)
+        assert ds_out.variables['od550dust'].coordinates == 'wavelength'

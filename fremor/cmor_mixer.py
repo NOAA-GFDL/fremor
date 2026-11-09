@@ -51,6 +51,7 @@ from .cmor_helpers import ( from_ds_get_this, create_lev_bnds,
                             calendars_are_equivalent,
                             resolve_mip_era_table_resource, find_ps_companion, table_declares_ps,
                             resolve_cmip7_brand, resolve_input_file_brand, scalar_z_coords,
+                            scalar_wavelength_axis,
                             variable_grid_label, is_static_file,
                             conv_bronx_to_cmip7_freq )
 from .cmor_reduce import apply_reduce, parse_varlist_value
@@ -293,7 +294,8 @@ def rewrite_netcdf_file_var( mip_var_cfgs: dict = None,
     # these are auxiliary coordinates like "height" referenced via the coordinates attribute
     # and must be accounted for before brand matching, as MIP tables count them as dimensions
     scalar_coords = scalar_z_coords(ds, local_var)
-    var_dim_with_scalars = var_dim + len(scalar_coords)
+    wavelength_axis = scalar_wavelength_axis(ds, local_var, target_var, mip_var_cfgs)
+    var_dim_with_scalars = var_dim + len(scalar_coords) + int(wavelength_axis is not None)
 
     # CMORizing ocean grids are implemented only for scalar quantities valued at the central T/h-point of the grid cell.
     # https://en.wikipedia.org/wiki/Arakawa_grids heavily consulted for this work.
@@ -690,6 +692,11 @@ def rewrite_netcdf_file_var( mip_var_cfgs: dict = None,
 
         fre_logger.info('DONE assigning cmor_z')
 
+    cmor_wavelength = None
+    if wavelength_axis is not None:
+        wavelength_dim, wavelength_value = wavelength_axis
+        cmor_wavelength = cmor.axis(wavelength_dim, coord_vals=[wavelength_value], units='nm')
+
     axes = []
     if cmor_time is not None:
         fre_logger.info('appending cmor_time to axes list...')
@@ -699,6 +706,11 @@ def rewrite_netcdf_file_var( mip_var_cfgs: dict = None,
     if cmor_z is not None:
         fre_logger.info('appending cmor_z to axes list...')
         axes.append(cmor_z)
+        fre_logger.info('axes now = %s', axes)
+
+    if cmor_wavelength is not None:
+        fre_logger.info('appending cmor_wavelength to axes list...')
+        axes.append(cmor_wavelength)
         fre_logger.info('axes now = %s', axes)
 
     if process_tripolar_data:
