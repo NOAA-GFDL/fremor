@@ -7,9 +7,9 @@
 CHECK_INIT=1
 CHECK_VARLIST=1
 CHECK_FIND=1
-CHECK_CONFIG=0
+CHECK_CONFIG=1
 CHECK_MAP=1
-CHECK_STAGE=1
+CHECK_STAGE=0
 CHECK_YAML=1
 CHECK_CHECK=1
 
@@ -178,13 +178,12 @@ else
 				 --exp_config "${DONT_REMOVE_THISONE}" \
 				 --output_yaml "${FREMOR_CONFIG_OUTYAML}" \
 				 --output_dir "${OUTPUT_CMORIZED_DATA_DIR}" \
-				 --grid "g225" \
-				 --calendar "julian" \
 				 --varlist_dir "${FREMOR_CONFIG_VARLISTOUTDIR}" \
 				 --strict_varlist \
 				 --overwrite
 
-
+#				 --grid "g225" \
+#				 --calendar "julian" \
 #				 --pp_comp_glob "*land*" \
 
 
@@ -290,6 +289,9 @@ else
 	echo "checking that fremor config's output exists, return if not"
 	ls -l "${FREMOR_CHECK_OUTREPORT}" || return
 fi
+
+
+
 
 
 

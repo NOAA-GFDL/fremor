@@ -2,6 +2,7 @@
 
 import json
 from pathlib import Path
+import subprocess
 from unittest.mock import patch
 
 import pytest
@@ -147,6 +148,27 @@ def test_stage_invokes_dmget_once_with_deduplicated_files(tmp_path):
         result = cmor_stage_subtool(str(yamlfile), dmget_bin='/opt/bin/dmget')
 
     run_mock.assert_called_once_with(['/opt/bin/dmget', *result], check=True)
+
+
+def test_stage_writes_dmget_stdout_to_log_file_and_terminal(tmp_path, capsys):
+    """With a CLI logfile, dmget stdout is still shown and also appended to that file."""
+    yamlfile, _ = _stage_case(tmp_path)
+    log_file = tmp_path / 'stage.log'
+    log_file.write_text('existing log entry\n', encoding='utf-8')
+    dmget_stdout = 'recalling 2 files\nrecall complete\n'
+    completed = subprocess.CompletedProcess(args=[], returncode=0, stdout=dmget_stdout)
+
+    with patch('fremor.cmor_stage.subprocess.run', return_value=completed) as run_mock:
+        cmor_stage_subtool(str(yamlfile), log_file=str(log_file))
+
+    run_mock.assert_called_once_with(
+        ['dmget', *collect_stage_files(str(yamlfile))],
+        check=False,
+        stdout=subprocess.PIPE,
+        text=True,
+    )
+    assert capsys.readouterr().out == dmget_stdout
+    assert log_file.read_text(encoding='utf-8') == 'existing log entry\n' + dmget_stdout
 
 
 def test_stage_dry_run_does_not_invoke_dmget(tmp_path):

@@ -217,7 +217,8 @@ def yaml(yamlfile, run_strict, run_one, dry_run, start, stop, print_cli_call, co
               help='dmget executable name or path.')
 @click.option('--dry-run', '--dry_run', is_flag=True, default=False,
               help='List the selected files without invoking dmget.')
-def stage(yamlfile, start, stop, dmget_bin, dry_run):
+@click.pass_context
+def stage(ctx, yamlfile, start, stop, dmget_bin, dry_run):
     """Stage all mapped archive inputs for a YAML-driven run in one dmget batch."""
     input_files = cmor_stage_subtool(
         yamlfile=yamlfile,
@@ -225,6 +226,7 @@ def stage(yamlfile, start, stop, dmget_bin, dry_run):
         stop=stop,
         dmget_bin=dmget_bin,
         dry_run=dry_run,
+        log_file=ctx.find_root().params.get('log_file'),
     )
     if dry_run:
         for input_file in input_files:
