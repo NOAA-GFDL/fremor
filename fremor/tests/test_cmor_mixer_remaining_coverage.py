@@ -290,6 +290,54 @@ def test_cmorize_continues_when_cmor_log_relocation_fails(tmp_path, monkeypatch,
     assert 'could not move cmor_logfile next to cmorized file' in caplog.text
 
 
+@pytest.mark.parametrize('write_current_log', [False, True])
+def test_cmorize_failure_does_not_print_stale_cmor_log(
+        tmp_path, monkeypatch, caplog, write_current_log):
+    ''' each failed attempt reports only its own CMOR log, leaving prior logs untouched '''
+    indir = tmp_path / 'indir'
+    indir.mkdir()
+    (indir / 'set.20000101.tas.nc').write_bytes(b'input')
+    outdir = tmp_path / 'out'
+    tmp_dir = outdir / 'CMOR_tmp'
+    tmp_dir.mkdir(parents=True)
+    exp_config = tmp_path / 'exp.json'
+    exp_config.write_text(json.dumps({'outpath': 'CMIP6'}), encoding='utf-8')
+    stale_log = tmp_dir / 'set.20000101.tas.log'
+    stale_log.write_text('stale CMOR diagnostic', encoding='utf-8')
+    current_logs = []
+
+    def fail_rewrite(*_args, cmor_logfile, **_kwargs):
+        current_log = Path(cmor_logfile)
+        current_logs.append(current_log)
+        assert current_log != stale_log
+        if write_current_log:
+            current_log.write_text('current CMOR diagnostic', encoding='utf-8')
+        raise ValueError('brand resolution failed')
+
+    monkeypatch.setattr(cmor_mixer, 'rewrite_netcdf_file_var', fail_rewrite)
+
+    with caplog.at_level('INFO', logger='fremor.cmor_mixer'):
+        with pytest.raises(RuntimeError, match='brand resolution failed'):
+            cmor_mixer.cmorize_target_var_files(
+                indir=str(indir),
+                target_var='tas',
+                local_var='tas',
+                iso_datetime_range_arr=['20000101'],
+                name_of_set='set',
+                json_exp_config=str(exp_config),
+                outdir=str(outdir),
+                mip_var_cfgs={'variable_entry': {}},
+                json_table_config='unused-table.json',
+                run_one_mode=True,
+            )
+
+    assert stale_log.read_text(encoding='utf-8') == 'stale CMOR diagnostic'
+    assert 'stale CMOR diagnostic' not in caplog.text
+    assert len(current_logs) == 1
+    assert current_logs[0].exists() is write_current_log
+    assert ('current CMOR diagnostic' in caplog.text) is write_current_log
+
+
 def _write_sos_config(tmp_path, input_path, outdir):
     indir = tmp_path / 'indir'
     indir.mkdir()
