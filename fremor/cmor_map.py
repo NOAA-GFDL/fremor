@@ -487,7 +487,7 @@ def _read_exp_grid(exp_json: Optional[str]) -> dict:
         return {}
     try:
         exp_data = get_json_file_data(exp_json)
-    except Exception as exc:
+    except (OSError, ValueError) as exc:
         fre_logger.warning('could not read exp_json %s: %s', exp_json, exc)
         return {}
     return {field: exp_data.get(exp_key) for field, exp_key in _EXP_GRID_KEYS.items()}
@@ -631,6 +631,51 @@ class MapSession:
         keys = _matching_variable_keys(variable_entry, var, self.mip_era)
         return {key: variable_entry[key] for key in keys}
 
+    def _stage_new_varlist_mapping(self, table_name: str, component_name: str,
+                                   local_key: str, cmip_var: str,
+                                   chunk: Optional[str], data_series_type: str) -> object:
+        """Create a varlist mapping and, when needed, its target component entry."""
+        already_declared = any(
+            comp.get('component_name') == component_name
+            for comp in self.table_targets_by_name[table_name].get('target_components') or []
+        )
+        if self.varlist_dir is None:
+            raise ValueError(
+                f'cannot create a new varlist for component {component_name!r} in table '
+                f'{table_name!r}: no existing variable_list entries in the yaml to infer '
+                'a varlist directory from')
+        static = data_series_type == STATIC_DATA_SERIES_TYPE
+        # Match the naming used by fremor config --freq static.
+        list_suffix = f'_{STATIC_FREQ}' if static else ''
+        fname = f'{self.era_upper}_{table_name}_{component_name}{list_suffix}.list'
+        path = f'{self.varlist_dir}/{fname}'
+
+        if not already_declared:
+            if chunk is None and not static:
+                raise ValueError(
+                    f'cannot map component {component_name!r} into table {table_name!r}: '
+                    'it has no target_components entry yet and no chunk was given to '
+                    'create one -- the new varlist would be an orphan file fremor yaml '
+                    'never reads')
+            new_component = {
+                'component_name': component_name,
+                'variable_list': path,
+                'data_series_type': data_series_type,
+            }
+            if not static:
+                new_component['chunk'] = _bronx_to_iso_chunk(chunk)
+            self.table_targets_by_name[table_name].setdefault(
+                'target_components', []).append(new_component)
+            self.new_target_components.add((table_name, component_name))
+            fre_logger.info('staged new target_components entry for %s/%s (not yet saved)',
+                            table_name, component_name)
+
+        data = get_json_file_data(path) if Path(path).is_file() else {}
+        old_value = data.get(local_key, _UNSET)
+        data[local_key] = _remapped_value(old_value, cmip_var)
+        self.varlists_by_table[table_name].append((component_name, path, data))
+        return old_value
+
     def set_mapping(self, table_name: str, component_name: str, local_key: str,
                     cmip_var: str, chunk: Optional[str] = None,
                     data_series_type: str = 'ts') -> None:
@@ -654,52 +699,14 @@ class MapSession:
             anywhere in the yaml exists to infer a varlist directory from.
         """
         entries = self.varlists_by_table.setdefault(table_name, [])
-        for component, path, data in entries:
+        for component, _path, data in entries:
             if component == component_name:
                 old_value = data.get(local_key, _UNSET)
                 data[local_key] = _remapped_value(old_value, cmip_var)
                 break
         else:
-            already_declared = any(
-                comp.get('component_name') == component_name
-                for comp in self.table_targets_by_name[table_name].get('target_components') or []
-            )
-            if self.varlist_dir is None:
-                raise ValueError(
-                    f'cannot create a new varlist for component {component_name!r} in table '
-                    f'{table_name!r}: no existing variable_list entries in the yaml to infer '
-                    'a varlist directory from')
-            static = data_series_type == STATIC_DATA_SERIES_TYPE
-            # same naming as fremor config --freq static
-            list_suffix = f'_{STATIC_FREQ}' if static else ''
-            fname = f'{self.era_upper}_{table_name}_{component_name}{list_suffix}.list'
-            path = f'{self.varlist_dir}/{fname}'
-
-            if not already_declared:
-                if chunk is None and not static:
-                    raise ValueError(
-                        f'cannot map component {component_name!r} into table {table_name!r}: '
-                        'it has no target_components entry yet and no chunk was given to '
-                        'create one -- the new varlist would be an orphan file fremor yaml '
-                        'never reads')
-                target_components = self.table_targets_by_name[table_name].setdefault(
-                    'target_components', [])
-                new_component = {
-                    'component_name': component_name,
-                    'variable_list': path,
-                    'data_series_type': data_series_type,
-                }
-                if not static:
-                    new_component['chunk'] = _bronx_to_iso_chunk(chunk)
-                target_components.append(new_component)
-                self.new_target_components.add((table_name, component_name))
-                fre_logger.info('staged new target_components entry for %s/%s (not yet saved)',
-                                table_name, component_name)
-
-            data = get_json_file_data(path) if Path(path).is_file() else {}
-            old_value = data.get(local_key, _UNSET)
-            data[local_key] = _remapped_value(old_value, cmip_var)
-            entries.append((component_name, path, data))
+            old_value = self._stage_new_varlist_mapping(
+                table_name, component_name, local_key, cmip_var, chunk, data_series_type)
 
         self.dirty_keys.add((table_name, component_name, local_key))
         self._history.append(_Edit(table_name, component_name, local_key, old_value))
@@ -1421,6 +1428,69 @@ class MapApp(App):
             return base_label + self.PENDING_SUFFIX
         return base_label
 
+    def _populate_unmapped_node(self, table_node, table_name: str, report: dict) -> None:
+        """Add the table's unmapped variables to its tree node."""
+        unmapped = report['unmapped']
+        unmapped_node = table_node.add(
+            f'Unmapped ({len(unmapped)})', data={'kind': 'branch'})
+        for var in unmapped:
+            unmapped_node.add_leaf(
+                var, data={'kind': 'var', 'table': table_name, 'var': var})
+
+    def _populate_mapped_node(self, table_node, table_name: str, report: dict) -> None:
+        """Add one-to-one and CMIP7 multi-brand variables to the mapped tree node."""
+        # A CMIP7 variable may be mapped once per source when each source has a distinct brand.
+        mapped_sources = {
+            var: [(comp, key, None)] for var, (comp, key) in report['one_to_one_mapped'].items()
+        }
+        mapped_sources.update(report.get('multi_brand_mapped', {}))
+        mapped_node = table_node.add(
+            f'Mapped ({len(mapped_sources)})', data={'kind': 'branch'})
+        for var in sorted(mapped_sources):
+            for component, local_key, brand in mapped_sources[var]:
+                label = f'{var} <- {component}:{local_key}' + self._brand_note(brand)
+                mapped_node.add_leaf(
+                    self._source_label(label, table_name, component, local_key),
+                    data={'kind': 'source', 'table': table_name, 'var': var,
+                          'component': component, 'local_key': local_key})
+
+    def _populate_multiply_mapped_node(self, table_node, table_name: str,
+                                       report: dict) -> None:
+        """Add multiply-mapped variables and their source entries to the tree."""
+        multiply_mapped = report['multiply_mapped']
+        multi_node = table_node.add(
+            f'Multiply-mapped ({len(multiply_mapped)})', data={'kind': 'branch'})
+        for var, entries in multiply_mapped.items():
+            var_node = multi_node.add(
+                f'{var} ({len(entries)})',
+                data={'kind': 'var', 'table': table_name, 'var': var})
+            brands = report.get('multiply_mapped_brands', {}).get(var)
+            for index, (component, local_key) in enumerate(entries):
+                label = f'{component}:{local_key}'
+                if brands:
+                    label += self._brand_note(brands[index] or 'unresolved')
+                var_node.add_leaf(
+                    self._source_label(label, table_name, component, local_key),
+                    data={'kind': 'source', 'table': table_name, 'var': var,
+                          'component': component, 'local_key': local_key})
+
+    def _populate_unknown_node(self, table_node, table_name: str, report: dict) -> None:
+        """Add unknown-mapped variables and their source entries to the tree."""
+        unknown_mapped = report['unknown_mapped']
+        unknown_node = table_node.add(
+            f'Unknown ({len(unknown_mapped)})', data={'kind': 'branch'})
+        for var in unknown_mapped:
+            sources = report['unknown_sources'].get(var, [])
+            var_node = unknown_node.add(
+                f'{var} ({len(sources)})',
+                data={'kind': 'var', 'table': table_name, 'var': var})
+            for component, local_key in sources:
+                var_node.add_leaf(
+                    self._source_label(f'{component}:{local_key}',
+                                       table_name, component, local_key),
+                    data={'kind': 'source', 'table': table_name, 'var': var,
+                          'component': component, 'local_key': local_key})
+
     def _populate_cmip_tree(self, preserve_table_expansion: bool = False) -> None:
         """Rebuild the MIP tree with status categories collapsed.
 
@@ -1451,56 +1521,10 @@ class MapApp(App):
                 expand=table_name in expanded_tables,
             )
             self.table_nodes[table_name] = table_node
-
-            unmapped_node = table_node.add(
-                f'Unmapped ({len(report["unmapped"])})', data={'kind': 'branch'})
-            for var in report['unmapped']:
-                unmapped_node.add_leaf(var, data={'kind': 'var', 'table': table_name, 'var': var})
-
-            # a CMIP7 variable whose sources each CMORize to a different brand is mapped fine
-            # -- one entry per source, each with its brand
-            mapped_sources = {
-                var: [(comp, key, None)] for var, (comp, key) in report['one_to_one_mapped'].items()
-            }
-            mapped_sources.update(report.get('multi_brand_mapped', {}))
-            mapped_node = table_node.add(
-                f'Mapped ({len(mapped_sources)})', data={'kind': 'branch'})
-            for var in sorted(mapped_sources):
-                for comp, key, brand in mapped_sources[var]:
-                    label = f'{var} <- {comp}:{key}' + self._brand_note(brand)
-                    mapped_node.add_leaf(
-                        self._source_label(label, table_name, comp, key),
-                        data={'kind': 'source', 'table': table_name, 'var': var,
-                              'component': comp, 'local_key': key})
-
-            multi_node = table_node.add(
-                f'Multiply-mapped ({len(report["multiply_mapped"])})', data={'kind': 'branch'})
-            for var, entries in report['multiply_mapped'].items():
-                var_node = multi_node.add(
-                    f'{var} ({len(entries)})',
-                    data={'kind': 'var', 'table': table_name, 'var': var})
-                brands = report.get('multiply_mapped_brands', {}).get(var)
-                for index, (comp, key) in enumerate(entries):
-                    label = f'{comp}:{key}'
-                    if brands:
-                        label += self._brand_note(brands[index] or 'unresolved')
-                    var_node.add_leaf(
-                        self._source_label(label, table_name, comp, key),
-                        data={'kind': 'source', 'table': table_name, 'var': var,
-                              'component': comp, 'local_key': key})
-
-            unknown_node = table_node.add(
-                f'Unknown ({len(report["unknown_mapped"])})', data={'kind': 'branch'})
-            for val in report['unknown_mapped']:
-                sources = report['unknown_sources'].get(val, [])
-                val_node = unknown_node.add(
-                    f'{val} ({len(sources)})',
-                    data={'kind': 'var', 'table': table_name, 'var': val})
-                for comp, key in sources:
-                    val_node.add_leaf(
-                        self._source_label(f'{comp}:{key}', table_name, comp, key),
-                        data={'kind': 'source', 'table': table_name, 'var': val,
-                              'component': comp, 'local_key': key})
+            self._populate_unmapped_node(table_node, table_name, report)
+            self._populate_mapped_node(table_node, table_name, report)
+            self._populate_multiply_mapped_node(table_node, table_name, report)
+            self._populate_unknown_node(table_node, table_name, report)
 
     # ---- pp tree (lazily populated on expand) ----
 
@@ -1581,7 +1605,7 @@ class MapApp(App):
             return
         try:
             local_vars = static_file_variables(static_file)
-        except Exception as exc:
+        except (OSError, RuntimeError) as exc:
             fre_logger.warning('could not read static file %s: %s', static_file, exc)
             node.add_leaf(f'(could not read {Path(static_file).name})', data={'kind': 'info'})
             return

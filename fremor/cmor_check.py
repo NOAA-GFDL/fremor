@@ -1046,7 +1046,7 @@ def _input_dir_brand(input_dir: Optional[Path], gfdl_key: str, var: str, table_d
         return None
     try:
         return resolve_input_file_brand(files[0], gfdl_key, var, table_data, reduce)
-    except Exception as exc:
+    except (OSError, ValueError) as exc:
         fre_logger.debug('could not resolve the CMIP7 brand of %s in %s: %s',
                          gfdl_key, files[0], exc)
         return None
@@ -1691,7 +1691,7 @@ def cmor_check_subtool(
         exp_config_data = {}
         try:
             exp_config_data = get_json_file_data(exp_json) if exp_json else {}
-        except Exception:
+        except (OSError, ValueError):
             fre_logger.warning('could not read exp_json %s for the grid-label check', exp_json)
         exp_grid_label = exp_config_data.get('grid_label')
         grid_cv, _cv_path = load_cv(mip_tables_dir, exp_config_data, mip_era)
