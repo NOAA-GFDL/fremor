@@ -412,12 +412,14 @@ def varlist_(dir_targ, strict_mode, output_variable_list, mip_table):
 @click.option('--chunk', type=str, default=None,
               help='Time chunk string, e.g. 5yr, 10yr. If omitted, use the chunks found in each '
                    'component\'s Bronx pp directory.')
-@click.option('--grid', type=str, default='g999',
-              help='Grid label anchor name, e.g. g999, gn. Default g999.')
+@click.option('--grid', type=str, default=None,
+              help='Grid label anchor name, e.g. g999, gn. If omitted, use the experiment '
+                   'config\'s grid_label or the g999 placeholder.')
 @click.option('--overwrite', is_flag=True, default=False,
               help='Overwrite existing variable list files.')
-@click.option('--calendar', type=str, default='noleap',
-              help='Calendar type, e.g. noleap, 360_day. Default noleap.')
+@click.option('--calendar', type=str, default=None,
+              help='Calendar type, e.g. noleap, 360_day. If omitted, use the experiment '
+                   'config\'s calendar or the noleap placeholder.')
 @click.option('--check_freq', is_flag=True, default=False, help=CONFIG_CHECK_FREQ_HELP)
 @click.option('--dmget-bin', '--dmget_bin', type=str, default='dmget', show_default=True,
               help='dmget executable name or path. With --freq static, every component\'s static '

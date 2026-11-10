@@ -257,9 +257,9 @@ def cmor_config_subtool(
         strict_varlist: bool = False,
         freq: Optional[str] = None,
         chunk: Optional[str] = None,
-        grid: str = 'g999',
+        grid: Optional[str] = None,
         overwrite: bool = False,
-        calendar_type: str = 'noleap',
+        calendar_type: Optional[str] = None,
         check_freq: bool = False,
         dmget_bin: str = 'dmget'
 ):
@@ -295,12 +295,14 @@ def cmor_config_subtool(
     :param chunk: Time chunk string, e.g. '5yr', '10yr'. If None, the unique chunk found in each
         component's Bronx pp directory is used. Ignored when freq is 'static'.
     :type chunk: str or None
-    :param grid: Grid label anchor name, e.g. 'g999', 'gn'. Default 'g999'.
-    :type grid: str
+    :param grid: Grid label anchor name, e.g. 'g999', 'gn'. If omitted, use the experiment
+        config's ``grid_label`` or the ``g999`` placeholder.
+    :type grid: str or None
     :param overwrite: If True, overwrite existing variable list files. Default False.
     :type overwrite: bool
-    :param calendar_type: Calendar type string, e.g. 'noleap', '360_day'. Default 'noleap'.
-    :type calendar_type: str
+    :param calendar_type: Calendar type string, e.g. 'noleap', '360_day'. If omitted, use the
+        experiment config's ``calendar`` or the ``noleap`` placeholder.
+    :type calendar_type: str or None
     :param check_freq: If True, only map a variable to a MIP table when the actual frequency of its
         input files (read from the files' time axis and cell_methods) is consistent with the table's
         frequency for that variable, e.g. daily data is not mapped to Amon, and time-mean data is not
@@ -326,6 +328,14 @@ def cmor_config_subtool(
         raise FileNotFoundError(f'exp_config does not exist: {exp_config}')
     with open(exp_config, encoding='utf-8') as handle:
         exp_config_data = json.load(handle)
+    if grid is None:
+        grid = exp_config_data.get('grid_label')
+        if grid is None:
+            grid = 'g999'
+    if calendar_type is None:
+        calendar_type = exp_config_data.get('calendar')
+        if calendar_type is None:
+            calendar_type = 'noleap'
     grid_desc = exp_config_data.get('grid')
     nominal_resolution = exp_config_data.get('nominal_resolution')
     # ensure output directories exist

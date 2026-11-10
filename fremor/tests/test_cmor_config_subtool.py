@@ -6,10 +6,12 @@ import json
 from pathlib import Path
 from unittest.mock import patch
 
+from click.testing import CliRunner
 import yaml
 
 import pytest
 
+from fremor import cli
 from fremor.cmor_config import (_bronx_to_iso_chunk, _load_config_yaml, _recall_static_files,
                                 cmor_config_subtool)
 
@@ -145,7 +147,9 @@ def test_cmor_config_subtool_writes_self_contained_yaml(temp_dir): # pylint: dis
     exp_config = temp_root / 'exp.json'
     exp_config.write_text(json.dumps({
         'grid': 'native grid from exp config',
+        'grid_label': 'g225',
         'nominal_resolution': '100 km',
+        'calendar': 'julian',
     }))
 
     output_yaml = temp_root / 'cmor.yaml'
@@ -176,16 +180,92 @@ def test_cmor_config_subtool_writes_self_contained_yaml(temp_dir): # pylint: dis
             freq='monthly',
             chunk='5yr',
             grid='gn',
+            calendar_type='360_day',
             overwrite=True
         )
 
     loaded_yaml = yaml.safe_load(output_yaml.read_text(encoding='utf-8'))
+    cmor_yaml = loaded_yaml['cmor']
     target_component = loaded_yaml['cmor']['table_targets'][0]['target_components'][0]
-    assert loaded_yaml['cmor']['start'] is None
-    assert loaded_yaml['cmor']['stop'] is None
-    assert loaded_yaml['cmor']['table_targets'][0]['gridding']['grid_label'] == 'gn'
-    assert loaded_yaml['cmor']['table_targets'][0]['gridding']['grid_desc'] == 'native grid from exp config'
+    assert cmor_yaml['start'] is None
+    assert cmor_yaml['stop'] is None
+    assert cmor_yaml['calendar_type'] == '360_day'
+    gridding = cmor_yaml['table_targets'][0]['gridding']
+    assert gridding['grid_label'] == 'gn'
+    assert gridding['grid_desc'] == 'native grid from exp config'
     assert target_component['chunk'] == 'P5Y'
+
+
+@pytest.mark.parametrize(
+    'user_config, expected_grid, expected_calendar',
+    [
+        ({'grid_label': 'g225', 'calendar': 'julian'}, 'g225', 'julian'),
+        ({}, 'g999', 'noleap'),
+    ],
+)
+def test_cmor_config_subtool_uses_user_config_before_placeholders(
+        tmp_path, user_config, expected_grid, expected_calendar):
+    """Without CLI overrides, use user-config values and only then placeholder defaults."""
+    pp_dir = tmp_path / 'pp'
+    target_dir = pp_dir / 'ocean' / 'ts' / 'monthly' / '5yr'
+    target_dir.mkdir(parents=True)
+    (target_dir / 'dummy.nc').touch()
+
+    tables_dir = tmp_path / 'tables'
+    tables_dir.mkdir()
+    (tables_dir / 'CMIP6_Omon.json').write_text('{}', encoding='utf-8')
+    exp_config = tmp_path / 'exp.json'
+    exp_config.write_text(json.dumps({
+        'grid': 'native grid description',
+        'nominal_resolution': '100 km',
+        **user_config,
+    }), encoding='utf-8')
+
+    def fake_make_simple_varlist(output_variable_list, **kwargs):
+        del kwargs
+        Path(output_variable_list).write_text('{}', encoding='utf-8')
+
+    output_yaml = tmp_path / 'cmor.yaml'
+    with patch('fremor.cmor_config.make_simple_varlist',
+               side_effect=fake_make_simple_varlist):
+        cmor_config_subtool(
+            pp_dir=str(pp_dir),
+            mip_tables_dir=str(tables_dir),
+            mip_era='cmip6',
+            exp_config=str(exp_config),
+            output_yaml=str(output_yaml),
+            output_dir=str(tmp_path / 'out'),
+            varlist_dir=str(tmp_path / 'varlists'),
+            freq='monthly',
+            chunk='5yr',
+        )
+
+    cmor_yaml = yaml.safe_load(output_yaml.read_text(encoding='utf-8'))['cmor']
+    target = cmor_yaml['table_targets'][0]
+    assert target['gridding']['grid_label'] == expected_grid
+    assert cmor_yaml['calendar_type'] == expected_calendar
+
+
+def test_config_cli_leaves_grid_and_calendar_unspecified_when_omitted(tmp_path, monkeypatch):
+    """CLI omission reaches config resolution rather than applying placeholders early."""
+    captured = {}
+    monkeypatch.setattr(cli, 'cmor_config_subtool',
+                        lambda **kwargs: captured.update(kwargs))
+    exp_config = tmp_path / 'exp.json'
+    exp_config.write_text('{}', encoding='utf-8')
+
+    result = CliRunner().invoke(cli.config, [
+        '--pp-dir', str(tmp_path),
+        '--mip-tables-dir', str(tmp_path),
+        '--exp-config', str(exp_config),
+        '--output-yaml', str(tmp_path / 'cmor.yaml'),
+        '--output-dir', str(tmp_path / 'out'),
+        '--varlist-dir', str(tmp_path / 'varlists'),
+    ])
+
+    assert result.exit_code == 0, result.output
+    assert captured['grid'] is None
+    assert captured['calendar_type'] is None
 
 
 def test_cmor_config_subtool_infers_component_frequencies_and_chunks(tmp_path):
