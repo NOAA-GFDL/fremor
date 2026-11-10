@@ -64,7 +64,7 @@ from pathlib import Path
 import re
 import shutil
 import subprocess
-from typing import Optional, List, Union
+from typing import Optional, List, Tuple, Union
 
 import numpy as np
 from netCDF4 import Dataset, Variable
@@ -1184,6 +1184,32 @@ def scalar_z_coords(ds: Dataset, local_var: str) -> dict:
     return coords
 
 
+def scalar_wavelength_axis(ds: Dataset, local_var: str, target_var: str,
+                           mip_var_cfgs: dict) -> Optional[Tuple[str, float]]:
+    """Map a fixed wavelength in ``local_var``'s comment to its MIP-table dimension."""
+    comment = getattr(ds.variables[local_var], 'comment', '')
+    wavelength = re.search(
+        r'\bwavelength\s*:\s*([0-9]+(?:\.[0-9]+)?)\s*nm\b', comment, re.IGNORECASE
+    ) if isinstance(comment, str) else None
+    if wavelength is None:
+        return None
+
+    value = float(wavelength.group(1))
+    for mip_var, entry in mip_var_cfgs['variable_entry'].items():
+        if mip_var != target_var and not mip_var.startswith(f'{target_var}_'):
+            continue
+        dimensions = entry.get('dimensions', [])
+        if isinstance(dimensions, str):
+            dimensions = dimensions.split()
+        for dimension in dimensions:
+            table_wavelength = re.fullmatch(
+                r'lambda([0-9]+(?:\.[0-9]+)?)nm', dimension, re.IGNORECASE
+            )
+            if table_wavelength and float(table_wavelength.group(1)) == value:
+                return dimension, value
+    return None
+
+
 def resolve_cmip7_brand(ds: Dataset, local_var: str, target_var: str,
                         mip_var_cfgs: dict, var_dim_with_scalars: int) -> str:
     """
@@ -1246,8 +1272,11 @@ def resolve_input_file_brand(input_file: Union[str, Path], local_var: str, targe
     if len(brands) == 1:
         return brands[0]
     with Dataset(input_file, 'r') as ds:
-        var_dim = ds.variables[local_var].ndim + len(scalar_z_coords(ds, local_var)) - \
+        var_dim = (
+            ds.variables[local_var].ndim + len(scalar_z_coords(ds, local_var)) +
+            int(scalar_wavelength_axis(ds, local_var, target_var, mip_var_cfgs) is not None) -
             REDUCE_METHODS.get(reduce, 0)
+        )
         return resolve_cmip7_brand(ds, local_var, target_var, mip_var_cfgs, var_dim)
 
 

@@ -5,12 +5,12 @@ coverage:
   status:
     project:
       default:
-        target: 95%          # project is not allowed to fall below this overall
+        target: 98%          # project is not allowed to fall below this overall
         if_ci_failed: error
 
     patch:
       default:
-        target: 80%          # Minimum coverage for new code
+        target: 90%          # Minimum coverage for new code
         if_ci_failed: error
 
 comment:

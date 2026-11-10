@@ -23,7 +23,8 @@ from fremor.cmor_helpers import ( find_statics_file, print_data_minmax, variable
                                   get_bronx_freq_from_mip_table,
                                   filter_brands, get_vertical_dimension,
                                   from_ds_get_this, resolve_mip_era_table_resource,
-                                  find_ps_companion, resolve_cmip7_brand )
+                                  find_ps_companion, resolve_cmip7_brand,
+                                  resolve_input_file_brand )
 
 def test_iso_to_bronx_chunk():
     """ tests value error raising by iso_to_bronx_chunk """
@@ -787,6 +788,29 @@ def test_resolve_cmip7_brand_rejects_no_dimension_match(tmp_path):
         }}
         with pytest.raises(ValueError, match='no sos brand in the table'):
             resolve_cmip7_brand(ds, 'sos', 'sos', mip, var_dim_with_scalars=1)
+
+
+def test_resolve_input_file_brand_counts_comment_wavelength_as_scalar_axis(tmp_path):
+    """A fixed wavelength comment contributes the matching table dimension."""
+    input_file = tmp_path / 'input.nc'
+    with netCDF4.Dataset(input_file, 'w') as ds:
+        ds.createDimension('time', 12)
+        ds.createDimension('lat', 2)
+        ds.createDimension('lon', 2)
+        aerosol = ds.createVariable('od550dust', 'f4', ('time', 'lat', 'lon'))
+        aerosol.comment = 'wavelength: 550 nm'
+
+    mip = {'variable_entry': {
+        'od550dust_tavg-u-hxy-u': {
+            'dimensions': ['longitude', 'latitude', 'time', 'lambda550nm'],
+        },
+        'od550dust_tavg-u-hxy-s': {
+            'dimensions': ['longitude', 'latitude', 'time'],
+        },
+    }}
+
+    assert resolve_input_file_brand(input_file, 'od550dust', 'od550dust', mip) == \
+        'tavg-u-hxy-u'
 
 
 def test_resolve_mip_era_table_resource_generic_missing_message(tmp_path):
