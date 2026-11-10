@@ -735,13 +735,10 @@ def test_cli_fremor_config_case1(cli_sos_nc_file): # pylint: disable=redefined-o
         'config',
         '--pp_dir', str(mock_pp_dir),
         '--mip_tables_dir', str(CMIP6_TABLE_CONFIG.parent),
-        '--mip_era', 'cmip6',
         '--exp_config', str(EXP_CONFIG),
         '--output_yaml', str(output_yaml),
         '--output_dir', str(output_data_dir),
         '--varlist_dir', str(varlist_out_dir),
-        '--freq', 'monthly',
-        '--chunk', '5yr',
         '--grid', 'gn',
         '--overwrite'
     ])

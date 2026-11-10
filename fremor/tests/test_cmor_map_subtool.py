@@ -2115,6 +2115,43 @@ def test_mapsession_table_freq_none_when_unset(temp_dir): # pylint: disable=rede
     assert session.table_freq('Amon') is None
 
 
+def test_mapsession_component_freq_overrides_table_frequency(temp_dir):
+    ''' component_freq reads the per-component setting when a table has mixed frequencies '''
+    pp_dir, _, tables_dir = _make_session_fixture(temp_dir)
+    component = _component_entry('atmos', Path(temp_dir) / 'varlists' / 'Amon_atmos.list')
+    component['freq'] = 'daily'
+    yamlfile = _write_map_yaml(
+        temp_dir, pp_dir, tables_dir, [_table_target('Amon', [component], freq=None)]
+    )
+    session = MapSession(yamlfile)
+
+    assert session.table_freq('Amon') is None
+    assert session.component_freq('Amon', 'atmos') == 'daily'
+    assert session.component_freq('Amon', 'other') is None
+
+
+def test_mapsession_new_component_mapping_keeps_its_frequency(temp_dir):
+    ''' a newly mapped component in a mixed-frequency target retains its selected frequency '''
+    pp_dir, varlist_dir, tables_dir = _make_session_fixture(temp_dir)
+    seed_varlist = Path(varlist_dir) / 'CMIP6_Amon_atmos.list'
+    seed_varlist.write_text(json.dumps({'temp': 'tas'}), encoding='utf-8')
+    component = _component_entry('atmos', seed_varlist)
+    component['freq'] = 'daily'
+    yamlfile = _write_map_yaml(
+        temp_dir, pp_dir, tables_dir, [_table_target('Amon', [component], freq=None)]
+    )
+    session = MapSession(yamlfile)
+
+    session.set_mapping('Amon', 'river', 'runoff', 'pr', chunk='1yr', freq='monthly')
+
+    river = next(
+        comp for comp in session.table_targets_by_name['Amon']['target_components']
+        if comp['component_name'] == 'river'
+    )
+    assert river['freq'] == 'monthly'
+    assert river['chunk'] == 'P1Y'
+
+
 @pytest.mark.asyncio
 async def test_map_app_table_label_shows_freq(temp_dir): # pylint: disable=redefined-outer-name
     ''' the MIP-table node's label surfaces its configured freq, since staging a mapping now

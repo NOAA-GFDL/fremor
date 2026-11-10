@@ -246,6 +246,32 @@ def test_cmor_yaml_subtool_dry_run_false(yamler_env):  # pylint: disable=redefin
     assert output_nc_files, 'cmor_yaml_subtool with dry_run=False produced no output'
 
 
+def test_cmor_yaml_uses_component_frequency_when_table_frequency_is_mixed(yamler_env, tmp_path):
+    """A mixed-frequency table target runs each component from its own Bronx frequency."""
+    yamlfile = Path(yamler_env['yamlfile'])
+    document = yaml.safe_load(yamlfile.read_text(encoding='utf-8'))
+    table_target = document['cmor']['table_targets'][0]
+    table_target['freq'] = None
+    table_target['target_components'][0]['freq'] = 'daily'
+    second_component = dict(table_target['target_components'][0])
+    second_component.update({
+        'component_name': 'ocean_monthly_extra',
+        'freq': 'monthly',
+        'chunk': 'P1Y',
+    })
+    table_target['target_components'].append(second_component)
+    yamlfile.write_text(yaml.safe_dump(document, sort_keys=False), encoding='utf-8')
+
+    with patch('fremor.cmor_yamler.cmor_run_subtool') as mock_run:
+        cmor_yaml_subtool(yamlfile=str(yamlfile), dry_run_mode=False)
+
+    calls = {(call.kwargs['indir'], call.kwargs['freq']) for call in mock_run.call_args_list}
+    assert calls == {
+        (f"{yamler_env['pp_dir']}/{yamler_env['component']}/ts/daily/5yr", 'daily'),
+        (f"{yamler_env['pp_dir']}/ocean_monthly_extra/ts/monthly/1yr", 'monthly'),
+    }
+
+
 def test_pp_dir_does_not_exist(tmp_path):
     """FileNotFoundError when pp_dir does not exist."""
     local_exp = tmp_path / 'exp.json'

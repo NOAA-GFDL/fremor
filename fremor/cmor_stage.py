@@ -98,15 +98,18 @@ def _table_local_variables(table_path: Path, variable_list_path: Path,
     }
 
 
-def _frequency(table_target: dict, table_path: Path, mip_era: str) -> str:
-    """Resolve a YAML table target's FRE directory frequency ('static' for a table target of
-    only static components)."""
+def _frequency(table_target: dict, table_path: Path, mip_era: str) -> Optional[str]:
+    """Resolve a shared table frequency, or None when component frequencies differ."""
     freq = table_target.get('freq')
     if freq is not None:
         return freq
     components = table_target.get('target_components') or []
     if components and all(is_static_component(component) for component in components):
         return STATIC_FREQ
+    component_freqs = {component.get('freq') for component in components
+                       if not is_static_component(component)}
+    if component_freqs and None not in component_freqs:
+        return next(iter(component_freqs)) if len(component_freqs) == 1 else None
     if mip_era == 'CMIP7':
         raise ValueError(
             f"freq is required for CMIP7 table target {table_target.get('table_name')!r}"
@@ -214,7 +217,12 @@ def collect_stage_files(yamlfile: str, start: Optional[str] = None,
             local_variables = _table_local_variables(
                 table_path, variable_list_path, stage_config.mip_era
             )
-            input_path = Path(component_input_path(stage_config.pp_dir, freq, component))
+            component_freq = component.get('freq') or freq
+            if component_freq is None:
+                raise ValueError(
+                    f"freq is required for component {component['component_name']!r} in "
+                    f"CMIP7 table target {table_name!r}")
+            input_path = Path(component_input_path(stage_config.pp_dir, component_freq, component))
             if is_static_component(component):
                 input_files.update(_static_stage_files(input_path, local_variables))
                 continue
