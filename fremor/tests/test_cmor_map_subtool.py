@@ -2728,7 +2728,8 @@ def _write_nc_over_dims(nc_path, var_name, dims):
     with Dataset(nc_path, 'w') as ds:
         for dim in dims:
             ds.createDimension(dim, 2)
-        ds.createVariable(var_name, 'f4', tuple(dims))
+        variable = ds.createVariable(var_name, 'f4', tuple(dims))
+        variable.cell_methods = 'time: mean'
 
 
 def _cmip7_brand_fixture(root_dir, monkeypatch, aer_mapped=True):

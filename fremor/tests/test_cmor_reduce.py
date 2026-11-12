@@ -102,7 +102,7 @@ def _write_ta(path, lon_bnds=((0, 90), (90, 180), (180, 270), (270, 360)), mask_
         lon[:] = lon_bnds.mean(axis=1)
         ds.createVariable('lon_bnds', 'f8', ('lon', 'bnds'))[:] = lon_bnds
         ta = ds.createVariable('ta', 'f4', ('time', 'plev39', 'lat', 'lon'), fill_value=1.0e20)
-        ta.setncatts({'units': 'K', 'cell_methods': 'time: mean'})
+        ta.setncatts({'units': 'K', 'cell_methods': 'time: mean where air'})
         data = np.ma.masked_array(
             np.broadcast_to(200. + np.arange(len(lon_bnds)), (2, 39, 3, len(lon_bnds))).copy())
         if mask_point:
@@ -125,7 +125,7 @@ def test_zonal_mean_values_and_structure(tmp_path):
         assert {'time', 'time_bnds', 'plev39', 'lat', 'lat_bnds'} <= set(ds.variables)
         ta = ds.variables['ta']
         assert ta.dimensions == ('time', 'plev39', 'lat')
-        assert ta.cell_methods == 'time: mean lon: mean'
+        assert ta.cell_methods == 'time: mean where air lon: mean'
         weighted = np.average(200. + np.arange(4), weights=[180, 60, 60, 60])
         assert ta[1, 5, 2] == pytest.approx(weighted)
         assert ta[0, 0, 1] == pytest.approx(np.average(201. + np.arange(3), weights=[60, 60, 60]))
