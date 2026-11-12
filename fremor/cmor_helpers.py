@@ -1175,7 +1175,6 @@ def filter_brands( brands: list,
 
         mip_key = f'{target_var}_{brand}'
         mip_dims = mip_var_cfgs['variable_entry'][mip_key]['dimensions']
-        mip_standard_name = mip_var_cfgs['variable_entry'][mip_key]['standard_name']
 
         time_mismatch = _brand_time_mismatch_reason(
             mip_dims, has_time_dim, has_time_bnds)
@@ -1194,10 +1193,6 @@ def filter_brands( brands: list,
                 fre_logger.debug('filtering out brand %s: %s', brand, cell_method_mismatch)
                 continue
 
-        if standard_name is not None and standard_name != mip_standard_name:
-            fre_logger.debug("filtering out brand %s: input var standard_name does not match mip table's", brand )
-            continue
-
         fre_logger.debug('appending %s to list of possible brands', brand)
         filtered_brands.append(brand)
 
@@ -1205,6 +1200,24 @@ def filter_brands( brands: list,
         fre_logger.info('cmip7 brand disambiguation successful, selected brand: %s',
                         filtered_brands[0])
         return filtered_brands[0]
+
+    if len(filtered_brands) > 1 and standard_name is not None:
+        standard_name_brands = []
+        for brand in filtered_brands:
+            mip_key = f'{target_var}_{brand}'
+            mip_standard_name = mip_var_cfgs['variable_entry'][mip_key]['standard_name']
+            if standard_name == mip_standard_name:
+                standard_name_brands.append(brand)
+            else:
+                fre_logger.debug(
+                    "filtering out brand %s: input var standard_name does not match mip table's",
+                    brand,
+                )
+        filtered_brands = standard_name_brands
+        if len(filtered_brands) == 1:
+            fre_logger.info('cmip7 brand disambiguation successful, selected brand: %s',
+                            filtered_brands[0])
+            return filtered_brands[0]
 
     # no error logging here: callers probing input files (fremor check/map) expect failures
     if len(filtered_brands) == 0:

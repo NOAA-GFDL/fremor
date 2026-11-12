@@ -485,6 +485,30 @@ def test_filter_brands_standard_name_filter():
     assert result == 'tavg-u-hxy-u'
 
 
+def test_filter_brands_skips_standard_name_after_primary_filter_selects_brand():
+    """A primary match wins even if its standard_name differs from the MIP entry."""
+    mip = _make_mip_var_cfgs(
+        {
+            'tas_tavg-u-hxy-lnd': 'longitude latitude time',
+            'tas_tpt-u-hxy-u': 'longitude latitude time1',
+        },
+        standard_names={
+            'tas_tavg-u-hxy-lnd': 'surface_temperature_where_land',
+            'tas_tpt-u-hxy-u': 'surface_temperature',
+        },
+    )
+
+    assert filter_brands(
+        brands=['tavg-u-hxy-lnd', 'tpt-u-hxy-u'],
+        target_var='tas',
+        mip_var_cfgs=mip,
+        has_time_bnds=True,
+        input_vert_dim=0,
+        cell_methods='time: mean area: mean where land',
+        standard_name='surface_temperature',
+    ) == 'tavg-u-hxy-lnd'
+
+
 def test_filter_brands_standard_name_filter_none_match():
     """ should raise ValueError when standard_name filter eliminates all remaining brands """
     mip = _make_mip_var_cfgs(
