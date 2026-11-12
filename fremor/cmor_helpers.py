@@ -1152,12 +1152,12 @@ def filter_brands( brands: list,
     # no error logging here: callers probing input files (fremor check/map) expect failures
     if len(filtered_brands) == 0:
         raise ValueError(
-            f'multiple brands {brands} found for {target_var}, '
+            f'brands {brands} found for {target_var}, '
             f'but none survived disambiguation filtering')
 
     raise ValueError(
         f'multiple brands {filtered_brands} remain for {target_var} after '
-        f'disambiguation \u2014 cannot determine which brand to use')
+        f'disambiguation - cannot determine which brand to use')
 
 
 def scalar_z_coords(ds: Dataset, local_var: str) -> dict:
