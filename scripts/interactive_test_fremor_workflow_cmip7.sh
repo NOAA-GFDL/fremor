@@ -7,10 +7,10 @@
 CHECK_INIT=1
 CHECK_VARLIST=1
 CHECK_FIND=1
-CHECK_CONFIG=0
+CHECK_CONFIG=1
 CHECK_MAP=1
 CHECK_STAGE=1
-CHECK_YAML=1
+CHECK_YAML=0
 CHECK_CHECK=1
 
 # TODO requires fre-cli integration
@@ -69,12 +69,6 @@ ESM_KIND=historical-defobbfix #picontrol #historical #
 TAIL_TARG_DIR=/gfdl.ncrc6-intel25-prod-openmp/pp/
 TARG_FREBRONX_PPDIR=${BASE_TARG_DIR}${ESM_KIND}${TAIL_TARG_DIR}
 
-CHUNK=1yr #4yr #5yr #
-FREQ=monthly #annual #
-PPCOMP_VARLIST_ONLY=atmos_cmip
-COMPONENT_DIR_STUB_VARLIST_ONLY=${PPCOMP_VARLIST_ONLY}/ts/${FREQ}/${CHUNK}/
-TEST_COMPONENT_DIR=${TARG_FREBRONX_PPDIR}${COMPONENT_DIR_STUB_VARLIST_ONLY} # for varlist testing only, random
-
 # years to target for beginning/ending of processing, used for filtering files
 PP_START=1869
 PP_STOP=1869
@@ -122,6 +116,12 @@ fi
 
 
 #### VARLIST
+CHUNK=1yr #4yr #5yr #
+FREQ=monthly #annual #
+PPCOMP_VARLIST_ONLY=atmos_cmip
+COMPONENT_DIR_STUB_VARLIST_ONLY=${PPCOMP_VARLIST_ONLY}/ts/${FRE}/${CHUNK}/
+TEST_COMPONENT_DIR=${TARG_FREBRONX_PPDIR}${COMPONENT_DIR_STUB_VARLIST_ONLY} # for varlist testing only, random
+
 FREMOR_VARLIST_OUTDIR=${WORKING_CWD}/fremor_varlist_${ESM_KIND}_outdir
 FREMOR_VARLIST_OUTPUT=${FREMOR_VARLIST_OUTDIR}/foo.list
 FREMOR_VARLIST_LOGFILE=${FREMOR_VARLIST_OUTDIR}/CHECK_VARLIST.log
@@ -162,9 +162,9 @@ fi
 
 #### CONFIG
 FREMOR_CONFIG_OUTDIR=${WORKING_CWD}/fremor_config_${ESM_KIND}_outdir
-FREMOR_CONFIG_VARLISTOUTDIR=${WORKING_CWD}/fremor_config_${ESM_KIND}_outdir/config_varlistoutdir
 FREMOR_CONFIG_OUTYAML=${FREMOR_CONFIG_OUTDIR}/cmor.yaml
 FREMOR_CONFIG_LOGFILE=${FREMOR_CONFIG_OUTDIR}/CHECK_CONFIG.log
+FREMOR_CONFIG_VARLISTOUTDIR=${FREMOR_CONFIG_OUTDIR}/config_varlistoutdir
 if [[ "${CHECK_CONFIG}" -eq 1 ]]; then
 	echo "not checking fremor config"
 else
@@ -178,13 +178,12 @@ else
 				 --exp_config "${DONT_REMOVE_THISONE}" \
 				 --output_yaml "${FREMOR_CONFIG_OUTYAML}" \
 				 --output_dir "${OUTPUT_CMORIZED_DATA_DIR}" \
-				 --grid "g225" \
-				 --calendar "julian" \
 				 --varlist_dir "${FREMOR_CONFIG_VARLISTOUTDIR}" \
 				 --strict_varlist \
 				 --overwrite
 
-
+#				 --grid "g225" \
+#				 --calendar "julian" \
 #				 --pp_comp_glob "*land*" \
 
 
@@ -205,7 +204,7 @@ else
 	rm_then_mkdir "${FREMOR_MAP_OUTDIR}"
 
 	echo "running fremor map"
-	echo_and_run fremor -vvv -l "${FREMOR_MAP_LOGFILE}" map \
+	echo_and_run fremor -vv -l "${FREMOR_MAP_LOGFILE}" map \
 				 --yamlfile "${FREMOR_CONFIG_OUTYAML}" \
 				 --dmls_bin "${DMLS_BIN}" \
 				 --ncinfo_bin "${NCINFO_BIN}"
@@ -290,6 +289,9 @@ else
 	echo "checking that fremor config's output exists, return if not"
 	ls -l "${FREMOR_CHECK_OUTREPORT}" || return
 fi
+
+
+
 
 
 

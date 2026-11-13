@@ -260,6 +260,7 @@ def test_cli_fremor_stage_dry_run(mock_subtool, tmp_path):
         stop='2004',
         dmget_bin='/usr/local/bin/dmget',
         dry_run=True,
+        log_file=None,
     )
 
 
@@ -275,6 +276,23 @@ def test_cli_fremor_stage_non_dry_run(mock_subtool, tmp_path):
     assert result.exit_code == 0
     assert 'Staged 2 files in one dmget batch.' in result.output
     assert '/archive/case/a.nc' not in result.output
+    assert mock_subtool.call_args.kwargs['log_file'] is None
+
+
+@patch('fremor.cli.cmor_stage_subtool')
+def test_cli_fremor_stage_passes_global_log_file(mock_subtool, tmp_path):
+    """The global logfile option is forwarded to the stage subtool."""
+    yamlfile = tmp_path / 'cmor.yaml'
+    yamlfile.touch()
+    log_file = tmp_path / 'stage.log'
+    mock_subtool.return_value = ['/archive/case/a.nc']
+
+    result = runner.invoke(fremor, args=[
+        '-l', str(log_file), 'stage', '-y', str(yamlfile),
+    ])
+
+    assert result.exit_code == 0
+    assert mock_subtool.call_args.kwargs['log_file'] == str(log_file)
 
 
 # ── fremor check ──────────────────────────────────────────────────────────

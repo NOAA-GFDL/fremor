@@ -485,6 +485,30 @@ def test_filter_brands_standard_name_filter():
     assert result == 'tavg-u-hxy-u'
 
 
+def test_filter_brands_skips_standard_name_after_primary_filter_selects_brand():
+    """A primary match wins even if its standard_name differs from the MIP entry."""
+    mip = _make_mip_var_cfgs(
+        {
+            'tas_tavg-u-hxy-lnd': 'longitude latitude time',
+            'tas_tpt-u-hxy-u': 'longitude latitude time1',
+        },
+        standard_names={
+            'tas_tavg-u-hxy-lnd': 'surface_temperature_where_land',
+            'tas_tpt-u-hxy-u': 'surface_temperature',
+        },
+    )
+
+    assert filter_brands(
+        brands=['tavg-u-hxy-lnd', 'tpt-u-hxy-u'],
+        target_var='tas',
+        mip_var_cfgs=mip,
+        has_time_bnds=True,
+        input_vert_dim=0,
+        cell_methods='time: mean area: mean where land',
+        standard_name='surface_temperature',
+    ) == 'tavg-u-hxy-lnd'
+
+
 def test_filter_brands_standard_name_filter_none_match():
     """ should raise ValueError when standard_name filter eliminates all remaining brands """
     mip = _make_mip_var_cfgs(
@@ -777,17 +801,155 @@ def test_filter_brands_cell_method_temporal_prefixes(cell_methods, expected):
     ) == expected
 
 
+@pytest.mark.parametrize('mask, cell_methods', [
+    ('air', 'time: mean area: mean where air'),
+    ('cl', 'time: mean area: mean where cloud'),
+    ('ccl', 'time: mean area: mean where convective_cloud'),
+    ('crp', 'time: mean area: mean where crops'),
+    ('fis', 'time: mean area: mean where floating_ice_shelf'),
+    ('gis', 'time: mean area: mean where grounded_ice_sheet'),
+    ('ifs', 'time: mean area: mean where ice_free_sea'),
+    ('is', 'time: mean area: mean where ice_sheet'),
+    ('li', 'time: mean area: mean where land_ice'),
+    ('lnd', 'time: mean area: mean where land'),
+    ('lsi', 'time: mean area: mean (over land and sea ice)'),
+    ('multi', 'time: mean area: mean where sector'),
+    ('ng', 'time: mean area: mean where natural_grasses'),
+    ('pst', 'time: mean area: mean where pastures'),
+    ('scl', 'time: mean area: mean where stratiform_cloud'),
+    ('sea', 'time: mean area: mean where sea'),
+    ('si', 'time: mean area: mean where sea_ice'),
+    ('simp', 'time: mean area: mean where sea_ice_melt_pond'),
+    ('sir', 'time: mean area: mean where sea_ice_ridges'),
+    ('shb', 'time: mean area: mean where shrubs'),
+    ('sn', 'time: mean area: mean where snow'),
+    ('tree', 'time: mean area: mean where trees'),
+    ('ufs', 'time: mean area: mean where unfrozen_soil'),
+    ('veg', 'time: mean area: mean where vegetation'),
+    ('wl', 'time: mean area: mean where wetland'),
+])
+def test_filter_brands_cell_methods_mask_suffixes(mask, cell_methods):
+    """Mask cell methods select their corresponding CMIP7 brand suffix."""
+    masked_brand = f'tavg-u-hxy-{mask}'
+    unmasked_brand = 'tavg-u-hxy-u'
+    mip = _make_mip_var_cfgs({
+        f'tas_{masked_brand}': 'longitude latitude time',
+        f'tas_{unmasked_brand}': 'longitude latitude time',
+    })
+
+    assert filter_brands(
+        brands=[masked_brand, unmasked_brand],
+        target_var='tas',
+        mip_var_cfgs=mip,
+        has_time_bnds=True,
+        input_vert_dim=0,
+        cell_methods=cell_methods,
+    ) == masked_brand
+
+
+def test_filter_brands_cell_methods_without_mask_selects_unmasked_suffix():
+    """The unmasked suffix is selected when cell_methods has no where directive."""
+    brands = ['tavg-u-hxy-lnd', 'tavg-u-hxy-u']
+    mip = _make_mip_var_cfgs({
+        f'tas_{brand}': 'longitude latitude time' for brand in brands
+    })
+
+    assert filter_brands(
+        brands=brands,
+        target_var='tas',
+        mip_var_cfgs=mip,
+        has_time_bnds=True,
+        input_vert_dim=0,
+        cell_methods='time: mean area: mean',
+    ) == 'tavg-u-hxy-u'
+
+
+def test_filter_brands_cell_methods_mask_filters_other_mask():
+    """An explicit where clause excludes brands for different masks."""
+    brands = ['tavg-u-hxy-lnd', 'tavg-u-hxy-sea']
+    mip = _make_mip_var_cfgs({
+        f'tas_{brand}': 'longitude latitude time' for brand in brands
+    })
+
+    with pytest.raises(ValueError, match='none survived'):
+        filter_brands(
+            brands=brands,
+            target_var='tas',
+            mip_var_cfgs=mip,
+            has_time_bnds=True,
+            input_vert_dim=0,
+            cell_methods='time: mean area: mean where wetland',
+        )
+
+
+def test_filter_brands_cell_methods_mask_applies_to_static_variables():
+    """Masking is used for static data even if its temporal cell method is stale."""
+    brands = ['tavg-u-hxy-lnd', 'tavg-u-hxy-u']
+    mip = _make_mip_var_cfgs({
+        f'tas_{brand}': 'longitude latitude' for brand in brands
+    })
+
+    assert filter_brands(
+        brands=brands,
+        target_var='tas',
+        mip_var_cfgs=mip,
+        has_time_bnds=False,
+        input_vert_dim=0,
+        cell_methods='time: point area: mean where land',
+        has_time_dim=False,
+    ) == 'tavg-u-hxy-lnd'
+
+
+def test_filter_brands_does_not_apply_mask_filter_to_same_mask_candidates():
+    """Mask filtering does not reject brands when candidates share one mask suffix."""
+    brands = ['tavg-u-hm-air', 'tclm-u-hm-air']
+    mip = _make_mip_var_cfgs({
+        f'ch4_{brand}': 'time' for brand in brands
+    })
+
+    assert filter_brands(
+        brands=brands,
+        target_var='ch4',
+        mip_var_cfgs=mip,
+        has_time_bnds=True,
+        input_vert_dim=0,
+        cell_methods='time: mean',
+    ) == 'tavg-u-hm-air'
+
+
 def test_resolve_cmip7_brand_rejects_no_dimension_match(tmp_path):
     ''' a target with no table entry of the input variable's dimensionality cannot resolve '''
     input_file = tmp_path / 'input.nc'
     with netCDF4.Dataset(input_file, 'w') as ds:
         ds.createDimension('time', 2)
-        ds.createVariable('sos', 'f4', ('time',))
+        sos = ds.createVariable('sos', 'f4', ('time',))
+        sos.cell_methods = 'time: mean'
         mip = {'variable_entry': {
             'sos_tavg-u-hxy-sea': {'dimensions': ['longitude', 'latitude', 'time']},
         }}
         with pytest.raises(ValueError, match='no sos brand in the table'):
             resolve_cmip7_brand(ds, 'sos', 'sos', mip, var_dim_with_scalars=1)
+
+
+@pytest.mark.parametrize('brand_count', [1, 2])
+@pytest.mark.parametrize('cell_methods', [None, ''])
+def test_resolve_cmip7_brand_requires_cell_methods(tmp_path, brand_count, cell_methods):
+    """CMIP7 brand resolution requires a nonempty cell_methods value."""
+    input_file = tmp_path / 'input.nc'
+    with netCDF4.Dataset(input_file, 'w') as ds:
+        ds.createDimension('time', 2)
+        tas = ds.createVariable('tas', 'f4', ('time',))
+        if cell_methods is not None:
+            tas.cell_methods = cell_methods
+        entries = {
+            f'tas_tavg-u-hxy-{mask}': {'dimensions': ['time']}
+            for mask in ['u', 'lnd'][:brand_count]
+        }
+
+        with pytest.raises(ValueError, match='has no cell_methods value'):
+            resolve_cmip7_brand(
+                ds, 'tas', 'tas', {'variable_entry': entries}, var_dim_with_scalars=1
+            )
 
 
 def test_resolve_input_file_brand_counts_comment_wavelength_as_scalar_axis(tmp_path):
@@ -799,6 +961,7 @@ def test_resolve_input_file_brand_counts_comment_wavelength_as_scalar_axis(tmp_p
         ds.createDimension('lon', 2)
         aerosol = ds.createVariable('od550dust', 'f4', ('time', 'lat', 'lon'))
         aerosol.comment = 'wavelength: 550 nm'
+        aerosol.cell_methods = 'time: mean'
 
     mip = {'variable_entry': {
         'od550dust_tavg-u-hxy-u': {

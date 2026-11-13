@@ -1,4 +1,6 @@
-"""Discover and stage archive-resident inputs for a YAML-driven fremor run."""
+"""
+Discover and stage archive-resident inputs for a YAML-driven fremor run.
+"""
 
 import json
 import logging
@@ -6,6 +8,7 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 import subprocess
+import sys
 from typing import Optional, Sequence
 
 import yaml
@@ -21,7 +24,9 @@ fre_logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class _StageConfig:
-    """Resolved configuration used while collecting staging paths."""
+    """
+    Resolved configuration used while collecting staging paths.
+    """
 
     document: dict
     pp_dir: Path
@@ -31,8 +36,11 @@ class _StageConfig:
     stop: Optional[int]
 
 
-def _year_bound(value: Optional[str], name: str) -> Optional[int]:
-    """Validate and convert an optional four-digit year bound."""
+def _year_bound(value: Optional[str],
+                name: str) -> Optional[int]:
+    """
+    Validate and convert an optional four-digit year bound.
+    """
     if value is None:
         return None
     value_text = str(value)
@@ -41,8 +49,12 @@ def _year_bound(value: Optional[str], name: str) -> Optional[int]:
     return int(value_text)
 
 
-def _in_year_range(path: Path, start: Optional[int], stop: Optional[int]) -> bool:
-    """Return whether a FRE time-series filename is wholly within the bounds."""
+def _in_year_range(path: Path,
+                   start: Optional[int],
+                   stop: Optional[int]) -> bool:
+    """
+    Return whether a FRE time-series filename is wholly within the bounds.
+    """
     if start is None and stop is None:
         return True
 
@@ -62,15 +74,20 @@ def _in_year_range(path: Path, start: Optional[int], stop: Optional[int]) -> boo
 
 
 def _table_json_prefix(mip_era: str) -> str:
-    """MIP table JSON filename prefix: 'MIP' for cmip6plus, whose mip-cmor-tables repo uses
+    """
+    MIP table JSON filename prefix: 'MIP' for cmip6plus, whose mip-cmor-tables repo uses
     a bare 'MIP_' prefix instead of an era-specific one, else the era itself. Matches
-    _mip_table_paths in cmor_check.py."""
+    _mip_table_paths in cmor_check.py.
+    """
     return 'MIP' if mip_era == 'CMIP6PLUS' else mip_era
 
 
-def _table_local_variables(table_path: Path, variable_list_path: Path,
+def _table_local_variables(table_path: Path,
+                           variable_list_path: Path,
                            mip_era: str) -> set[str]:
-    """Return local variables whose targets occur in the selected MIP table."""
+    """
+    Return local variables whose targets occur in the selected MIP table.
+    """
     if not table_path.is_file():
         raise FileNotFoundError(f'MIP table does not exist: {table_path}')
     if not variable_list_path.is_file():
@@ -98,8 +115,12 @@ def _table_local_variables(table_path: Path, variable_list_path: Path,
     }
 
 
-def _frequency(table_target: dict, table_path: Path, mip_era: str) -> Optional[str]:
-    """Resolve a shared table frequency, or None when component frequencies differ."""
+def _frequency(table_target: dict,
+               table_path: Path,
+               mip_era: str) -> Optional[str]:
+    """
+    Resolve a shared table frequency, or None when component frequencies differ.
+    """
     freq = table_target.get('freq')
     if freq is not None:
         return freq
@@ -122,8 +143,12 @@ def _frequency(table_target: dict, table_path: Path, mip_era: str) -> Optional[s
     return freq
 
 
-def _load_stage_config(yamlfile: str, start: Optional[str], stop: Optional[str]) -> _StageConfig:
-    """Load and validate the shared configuration needed for file discovery."""
+def _load_stage_config(yamlfile: str,
+                       start: Optional[str],
+                       stop: Optional[str]) -> _StageConfig:
+    """
+    Load and validate the shared configuration needed for file discovery.
+    """
     yaml_path = Path(yamlfile)
     if not yaml_path.is_file():
         raise FileNotFoundError(f'YAML file does not exist: {yamlfile}')
@@ -158,9 +183,13 @@ def _load_stage_config(yamlfile: str, start: Optional[str], stop: Optional[str])
     return _StageConfig(config, pp_dir, table_dir, mip_era, start_year, stop_year)
 
 
-def _component_stage_files(input_dir: Path, local_variables: set[str],
-                           start: Optional[int], stop: Optional[int]) -> set[Path]:
-    """Collect mapped primary and auxiliary files from one component directory."""
+def _component_stage_files(input_dir: Path,
+                           local_variables: set[str],
+                           start: Optional[int],
+                           stop: Optional[int]) -> set[Path]:
+    """
+    Collect mapped primary and auxiliary files from one component directory.
+    """
     if not input_dir.is_dir():
         raise FileNotFoundError(f'input directory does not exist: {input_dir}')
 
@@ -179,9 +208,12 @@ def _component_stage_files(input_dir: Path, local_variables: set[str],
     return input_files
 
 
-def _static_stage_files(static_file: Path, local_variables: set[str]) -> set[Path]:
-    """The static file a static component's mapped variables are all read from, if any are
-    mapped. Its fields are time-invariant, so the run's year bounds do not apply."""
+def _static_stage_files(static_file: Path,
+                        local_variables: set[str]) -> set[Path]:
+    """
+    The static file a static component's mapped variables are all read from, if any are
+    mapped. Its fields are time-invariant, so the run's year bounds do not apply.
+    """
     if not local_variables:
         return set()
     if not static_file.is_file():
@@ -189,9 +221,11 @@ def _static_stage_files(static_file: Path, local_variables: set[str]) -> set[Pat
     return {static_file.resolve()}
 
 
-def collect_stage_files(yamlfile: str, start: Optional[str] = None,
+def collect_stage_files(yamlfile: str,
+                        start: Optional[str] = None,
                         stop: Optional[str] = None) -> list[str]:
-    """Collect the unique input files that a YAML-driven fremor run can consume.
+    """
+    Collect the unique input files that a YAML-driven fremor run can consume.
 
     The returned paths include mapped primary variables and an existing same-date
     ``ps`` file, which is an auxiliary input used for hybrid vertical coordinates, plus the
@@ -250,10 +284,15 @@ def collect_stage_files(yamlfile: str, start: Optional[str] = None,
     return sorted(str(path) for path in input_files)
 
 
-def cmor_stage_subtool(yamlfile: str, start: Optional[str] = None,
-                       stop: Optional[str] = None, dmget_bin: str = 'dmget',
-                       dry_run: bool = False) -> list[str]:
-    """Collect YAML run inputs and submit all of them in one ``dmget`` call."""
+def cmor_stage_subtool(yamlfile: str,
+                       start: Optional[str] = None,
+                       stop: Optional[str] = None,
+                       dmget_bin: str = 'dmget',
+                       dry_run: bool = False,
+                       log_file: Optional[str] = None) -> list[str]:
+    """
+    Collect YAML run inputs and submit all of them in one ``dmget`` call.
+    """
     input_files = collect_stage_files(yamlfile=yamlfile, start=start, stop=stop)
     if not input_files:
         raise ValueError(f'no mapped input files found for {yamlfile}')
@@ -264,7 +303,19 @@ def cmor_stage_subtool(yamlfile: str, start: Optional[str] = None,
 
     command: Sequence[str] = [dmget_bin, *input_files]
     try:
-        subprocess.run(command, check=True)
+        if log_file is None:
+            subprocess.run(command, check=True)
+        else:
+            result = subprocess.run(command, check=False, stdout=subprocess.PIPE, text=True)
+            stdout = result.stdout or ''
+            if stdout:
+                sys.stdout.write(stdout)
+                sys.stdout.flush()
+                with open(log_file, mode='a', encoding='utf-8') as handle:
+                    handle.write(stdout)
+                    handle.flush()
+            if result.returncode:
+                raise subprocess.CalledProcessError(result.returncode, command, output=stdout)
     except FileNotFoundError as exc:
         raise FileNotFoundError(
             f'dmget executable not found: {dmget_bin!r}'

@@ -1039,21 +1039,76 @@ def _brand_time_mismatch_reason(mip_dims: Union[list, str], has_time_dim: bool,
     return None
 
 
-def _brand_cell_method_mismatch_reason(brand: str, cell_methods: str) -> Optional[str]:
-    """Return why a brand's temporal prefix conflicts with input cell methods."""
+_BRAND_MASK_CELL_METHODS = {
+    'air': 'air',
+    'cl': 'cloud',
+    'ccl': 'convective_cloud',
+    'crp': 'crops',
+    'fis': 'floating_ice_shelf',
+    'gis': 'grounded_ice_sheet',
+    'ifs': 'ice_free_sea',
+    'is': 'ice_sheet',
+    'li': 'land_ice',
+    'lnd': 'land',
+    'multi': 'sector',
+    'ng': 'natural_grasses',
+    'pst': 'pastures',
+    'scl': 'stratiform_cloud',
+    'sea': 'sea',
+    'si': 'sea_ice',
+    'simp': 'sea_ice_melt_pond',
+    'sir': 'sea_ice_ridges',
+    'shb': 'shrubs',
+    'sn': 'snow',
+    'tree': 'trees',
+    'ufs': 'unfrozen_soil',
+    'veg': 'vegetation',
+    'wl': 'wetland',
+}
+
+
+def _brand_cell_method_mismatch_reason(brand: str,
+                                       cell_methods: str,
+                                       has_time_dim: bool = True,
+                                       check_mask: bool = True) -> Optional[str]:
+    """Return why a brand's temporal prefix or masking suffix conflicts with cell methods."""
     method_prefixes = (
         ('time: mean', 'tavg'),
         ('time: maximum', 'tmax'),
         ('time: minimum', 'tmin'),
         ('time: point', 'tpt'),
     )
-    brand_temporal = brand.split('-')[0]
-    for cell_method, method_prefix in method_prefixes:
-        if cell_method in cell_methods:
-            if brand_temporal != method_prefix:
-                return (f'temporal prefix {brand_temporal} does not match '
-                        f'cell_methods {cell_methods}')
-            return None
+    if has_time_dim:
+        brand_temporal = brand.split('-')[0]
+        for cell_method, method_prefix in method_prefixes:
+            if cell_method in cell_methods:
+                if brand_temporal != method_prefix:
+                    return (f'temporal prefix {brand_temporal} does not match '
+                            f'cell_methods {cell_methods}')
+                break
+
+    if not check_mask:
+        return None
+
+    brand_mask = brand.rsplit('-', maxsplit=1)[-1]
+    normalized_methods = re.sub(r'\s+', ' ', cell_methods).lower()
+    where_masks = set(re.findall(r'\bwhere\s+([a-z][a-z0-9_]*)\b', normalized_methods))
+    lsi_mean = re.search(
+        r'\barea:\s*mean\s*\(\s*over\s+land\s+and\s+sea\s+ice\s*\)',
+        normalized_methods,
+    ) is not None
+
+    if brand_mask == 'u':
+        matches_mask = not where_masks and not lsi_mean
+    elif brand_mask == 'lsi':
+        matches_mask = lsi_mean
+    elif brand_mask in _BRAND_MASK_CELL_METHODS:
+        matches_mask = _BRAND_MASK_CELL_METHODS[brand_mask] in where_masks
+    else:
+        return None
+    if not matches_mask:
+        return (f'masking suffix {brand_mask} does not match '
+                f'cell_methods {cell_methods}')
     return None
 
 
@@ -1083,17 +1138,9 @@ def filter_brands( brands: list,
     Disambiguate multiple CMIP7 variable brands by comparing input data
     properties against each candidate brand's MIP dimension list.
 
-    Two filters are applied in sequence:
-
-    1. **Time type**: Time-invariant input data (``has_time_dim=False``, e.g.
-       from a static file) keeps only the brands without any time dimension
-       (the ``ti`` brands). Otherwise, the presence or absence of time bounds in
-       the input data is compared to whether the brand's MIP dimensions contain
-       ``time`` (time-mean, has bounds) or ``time1`` (instantaneous, no bounds).
-    2. **Vertical coordinate**: The input data's vertical dimension name is
-       mapped to the corresponding MIP dimension name (via
-       ``INPUT_TO_MIP_VERT_DIM``) and brands whose MIP dimensions do not
-       include it are excluded.
+    Filters compare time and vertical dimensions, ``cell_methods`` (temporal
+    method and, when candidates have different mask suffixes, mask), and the
+    input variable's ``standard_name`` against each table entry.
 
     :param brands: List of candidate brand strings to filter.
     :type brands: list[str]
@@ -1104,6 +1151,10 @@ def filter_brands( brands: list,
     :type mip_var_cfgs: dict
     :param has_time_bnds: Whether the input dataset contains ``time_bnds``.
     :type has_time_bnds: bool
+    :param cell_methods: Input variable's cell methods attribute, if available.
+    :type cell_methods: str or None
+    :param standard_name: Input variable's standard_name attribute, if available.
+    :type standard_name: str or None
     :param input_vert_dim: The vertical dimension name from the input dataset,
         or ``0`` if no vertical dimension is present.
     :type input_vert_dim: str or int
@@ -1114,11 +1165,16 @@ def filter_brands( brands: list,
     :rtype: str
     """
     filtered_brands = []
+    mask_suffixes = set()
+    for brand in brands:
+        suffix = brand.rsplit('-', maxsplit=1)[-1]
+        if suffix in _BRAND_MASK_CELL_METHODS or suffix in {'lsi', 'u'}:
+            mask_suffixes.add(suffix)
+    check_mask = len(mask_suffixes) > 1
     for brand in brands:
 
         mip_key = f'{target_var}_{brand}'
         mip_dims = mip_var_cfgs['variable_entry'][mip_key]['dimensions']
-        mip_standard_name = mip_var_cfgs['variable_entry'][mip_key]['standard_name']
 
         time_mismatch = _brand_time_mismatch_reason(
             mip_dims, has_time_dim, has_time_bnds)
@@ -1129,17 +1185,13 @@ def filter_brands( brands: list,
         if not _brand_has_expected_vertical_dimension(brand, mip_dims, input_vert_dim):
             continue
 
-        # cell_methods temporal filter: match brand temporal prefix to input cell_methods. static
-        # fields often still carry e.g. 'time: point' from the history file they were taken from
-        if cell_methods is not None and has_time_dim:
-            cell_method_mismatch = _brand_cell_method_mismatch_reason(brand, cell_methods)
+        # Static fields may retain stale temporal cell_methods, but their masking still applies.
+        if cell_methods is not None:
+            cell_method_mismatch = _brand_cell_method_mismatch_reason(
+                brand, cell_methods, has_time_dim=has_time_dim, check_mask=check_mask)
             if cell_method_mismatch is not None:
                 fre_logger.debug('filtering out brand %s: %s', brand, cell_method_mismatch)
                 continue
-
-        if standard_name is not None and standard_name != mip_standard_name:
-            fre_logger.debug("filtering out brand %s: input var standard_name does not match mip table's", brand )
-            continue
 
         fre_logger.debug('appending %s to list of possible brands', brand)
         filtered_brands.append(brand)
@@ -1149,15 +1201,33 @@ def filter_brands( brands: list,
                         filtered_brands[0])
         return filtered_brands[0]
 
+    if len(filtered_brands) > 1 and standard_name is not None:
+        standard_name_brands = []
+        for brand in filtered_brands:
+            mip_key = f'{target_var}_{brand}'
+            mip_standard_name = mip_var_cfgs['variable_entry'][mip_key]['standard_name']
+            if standard_name == mip_standard_name:
+                standard_name_brands.append(brand)
+            else:
+                fre_logger.debug(
+                    "filtering out brand %s: input var standard_name does not match mip table's",
+                    brand,
+                )
+        filtered_brands = standard_name_brands
+        if len(filtered_brands) == 1:
+            fre_logger.info('cmip7 brand disambiguation successful, selected brand: %s',
+                            filtered_brands[0])
+            return filtered_brands[0]
+
     # no error logging here: callers probing input files (fremor check/map) expect failures
     if len(filtered_brands) == 0:
         raise ValueError(
-            f'multiple brands {brands} found for {target_var}, '
+            f'brands {brands} found for {target_var}, '
             f'but none survived disambiguation filtering')
 
     raise ValueError(
         f'multiple brands {filtered_brands} remain for {target_var} after '
-        f'disambiguation \u2014 cannot determine which brand to use')
+        f'disambiguation - cannot determine which brand to use')
 
 
 def scalar_z_coords(ds: Dataset, local_var: str) -> dict:
@@ -1218,9 +1288,17 @@ def resolve_cmip7_brand(ds: Dataset, local_var: str, target_var: str,
     coordinates included), disambiguated by ``filter_brands`` when more than one remains.
 
     :raises ValueError: If no brand's dimensions match the input data.
+    :raises ValueError: If the input variable has no ``cell_methods`` attribute.
     :return: The brand, e.g. ``'tavg-h2m-hxy-u'``.
     :rtype: str
     """
+    cell_methods = getattr(ds.variables[local_var], 'cell_methods', None)
+    if not isinstance(cell_methods, str) or not cell_methods.strip():
+        raise ValueError(
+            f"input variable {local_var!r} has no cell_methods value; "
+            'required to resolve its CMIP7 brand'
+        )
+
     brands = []
     for mip_var in mip_var_cfgs['variable_entry'].keys():
         if all([ target_var == mip_var.split('_')[0],
@@ -1240,7 +1318,7 @@ def resolve_cmip7_brand(ds: Dataset, local_var: str, target_var: str,
             brands, target_var, mip_var_cfgs,
             has_time_bnds = 'time_bnds' in ds.variables,
             input_vert_dim = get_vertical_dimension(ds, local_var),
-            cell_methods = getattr(ds.variables[local_var], 'cell_methods', None),
+            cell_methods = cell_methods,
             standard_name = getattr(ds.variables[local_var], 'standard_name', None),
             has_time_dim = any(dim.startswith('time') for dim in ds.variables[local_var].dimensions)
         )

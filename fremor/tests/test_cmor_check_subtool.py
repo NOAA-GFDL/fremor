@@ -1515,7 +1515,8 @@ def _write_nc_over_dims(nc_path, local_var, dims):
             coord = ds.createVariable(dim, 'f4', (dim,))
             if dim == 'plev':
                 coord.axis = 'Z'
-        ds.createVariable(local_var, 'f4', tuple(dims))
+        variable = ds.createVariable(local_var, 'f4', tuple(dims))
+        variable.cell_methods = 'time: mean'
 
 
 def _multi_brand_setup(temp_dir, aer_dims, monkeypatch): # pylint: disable=redefined-outer-name
