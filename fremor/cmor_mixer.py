@@ -88,12 +88,12 @@ def _pprint_cmor_logfile(cmor_logfile: Optional[str],
             fre_logger.info( line )
 
     if filename is not None:
-        Path(logfile_path).rename( filename.replace('.nc','.log') )
+        Path(logfile_path).rename( Path(filename).with_suffix('.log') )
 
 
 def _cmor_logfile_for_attempt(netcdf_file: str) -> str:
     """Return a unique logfile path for this CMOR attempt."""
-    base_path = Path(CMOR_LOG or netcdf_file.replace('.nc', '.log'))
+    base_path = Path(CMOR_LOG) if CMOR_LOG else Path(netcdf_file).with_suffix('.log')
     if base_path.exists() and not base_path.is_file():
         return str(base_path)
     return str(base_path.with_name(f'{base_path.stem}.{uuid.uuid4().hex}{base_path.suffix}'))
@@ -1000,8 +1000,9 @@ def cmorize_target_var_files(indir: str = None,
             subprocess.run(mv_cmd, shell=True, check=True)
 
             try:
-                if Path(local_file_name.replace('.nc', '.log')).exists():
-                    mv_log_cmd = f"mv {local_file_name.replace('.nc', '.log')} {filedir}"
+                local_log_name = Path(local_file_name).with_suffix('.log')
+                if local_log_name.exists():
+                    mv_log_cmd = f"mv {local_log_name} {filedir}"
                     subprocess.run(mv_log_cmd, shell=True, check=True)
             except (OSError, subprocess.SubprocessError) as exc:
                 fre_logger.warning(

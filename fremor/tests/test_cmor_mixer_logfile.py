@@ -4,6 +4,7 @@ Tests for CMOR logfile screen output handling.
 # pylint: disable=protected-access
 
 import logging
+from pathlib import Path
 
 from fremor import cmor_mixer
 
@@ -66,3 +67,29 @@ def test_pprint_cmor_logfile_no_filename(tmp_path, caplog):
     assert logfile.exists()  # Ensure the original file is left intact
     assert 'log content' in caplog.messages
     assert caplog.messages == ['log content']
+
+
+def test_cmor_logfile_for_attempt_ignores_nc_in_dirname(tmp_path, monkeypatch):
+    """Only the file suffix becomes .log, even when a parent directory contains '.nc' (issue #325)."""
+    monkeypatch.setattr(cmor_mixer, 'CMOR_LOG', None)
+    workdir = tmp_path / 'gfdl.ncrc6-intel25-prod-openmp' / 'CMOR_tmp'
+    netcdf_file = workdir / 'atmos_cmip.000101-000512.tas.nc'
+
+    logfile = Path(cmor_mixer._cmor_logfile_for_attempt(str(netcdf_file)))
+
+    assert logfile.parent == workdir
+    assert logfile.name.startswith('atmos_cmip.000101-000512.tas.')
+    assert logfile.suffix == '.log'
+
+
+def test_pprint_cmor_logfile_rename_ignores_nc_in_dirname(tmp_path, caplog):
+    """The renamed logfile lands beside the output file when a parent directory contains '.nc'."""
+    outdir = tmp_path / 'gfdl.ncrc6-intel25-prod-openmp'
+    outdir.mkdir()
+    logfile = outdir / 'cmor_test.log'
+    logfile.write_text('line\n', encoding='utf-8')
+
+    with caplog.at_level(logging.INFO, logger='fremor.cmor_mixer'):
+        cmor_mixer._pprint_cmor_logfile(str(logfile), str(outdir / 'cmor_output.nc'))
+
+    assert (outdir / 'cmor_output.log').exists()
